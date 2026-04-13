@@ -1,0 +1,115 @@
+═══════════════════════════════════════════════════════════
+  GUÍA PASO A PASO: Instalar LBF Analytics en el servidor
+═══════════════════════════════════════════════════════════
+
+Tiempo estimado: 20-30 minutos
+Necesitas: Acceso RDP al servidor con credenciales admin
+
+
+ANTES DE EMPEZAR
+────────────────
+Copia TODA la carpeta "deploy" a un USB o compártela por red
+al servidor. Ponla en C:\deploy (o donde quieras temporalmente).
+
+
+PASO 1: INSTALAR PROGRAMAS
+───────────────────────────
+1. Conéctate al servidor por Escritorio Remoto (RDP)
+2. Click derecho en "01_instalar_requisitos.bat" → Ejecutar como administrador
+3. El script verificará qué falta. Si falta algo:
+   - Se abrirá el instalador automáticamente
+   - Instálalo (Next → Next → Install)
+   - IMPORTANTE en Python: marca "Add Python to PATH"
+   - Cuando termine, cierra la ventana y ejecuta el .bat de nuevo
+4. Repite hasta que diga "TODOS LOS REQUISITOS ESTÁN INSTALADOS"
+
+
+PASO 2: DESPLEGAR LA APP
+─────────────────────────
+1. Doble click en "02_deploy_app.bat"
+2. Esto va a:
+   - Descargar el código desde GitHub a C:\lbf-analytics
+   - Instalar las dependencias de Python y Node.js
+   - Compilar el frontend (tarda 1-2 minutos)
+3. Espera hasta que diga "APP DESPLEGADA CORRECTAMENTE"
+
+
+PASO 3: CONFIGURAR LA IP DEL SERVIDOR
+──────────────────────────────────────
+Antes de crear los servicios, necesitas saber la IP del servidor.
+
+1. Abre CMD y escribe: ipconfig
+2. Busca "IPv4 Address" → esa es la IP (ej: 192.0.0.XX)
+3. Abre el archivo: C:\lbf-analytics\frontend\.env.production
+4. Cambia XXXXX por la IP del servidor:
+
+   NEXT_PUBLIC_API_URL=http://192.0.0.XX:8000
+
+5. Guarda el archivo
+6. Abre CMD como admin y ejecuta:
+
+   cd C:\lbf-analytics\frontend
+   npm run build
+
+   (esto recompila con la IP correcta)
+
+
+PASO 4: CREAR SERVICIOS WINDOWS
+────────────────────────────────
+1. Click derecho en "03_crear_servicios.bat" → Ejecutar como administrador
+2. Esto va a:
+   - Descargar NSSM (gestor de servicios)
+   - Crear servicio "LBF-Backend" (FastAPI en puerto 8000)
+   - Crear servicio "LBF-Frontend" (Next.js en puerto 80)
+   - Iniciar ambos servicios
+3. Los servicios se inician AUTOMÁTICAMENTE si se reinicia el servidor
+
+
+PASO 5: VERIFICAR QUE FUNCIONA
+───────────────────────────────
+1. En el navegador del servidor, abre: http://localhost
+2. Deberías ver la página de login de LBF Analytics
+3. Inicia sesión con: daraya / (tu contraseña)
+4. Desde OTRO PC en la red, abre: http://192.0.0.XX
+   (reemplaza XX por la IP del servidor)
+
+
+PASO 6: ABRIR PUERTO EN FIREWALL (si otros PCs no pueden acceder)
+─────────────────────────────────────────────────────────────────
+1. En el servidor, abre "Windows Defender Firewall"
+2. Click en "Configuración avanzada"
+3. Click en "Reglas de entrada" → "Nueva regla"
+4. Selecciona "Puerto" → Siguiente
+5. "TCP" y "Puertos locales específicos": 80,8000
+6. "Permitir la conexión" → Siguiente
+7. Marca las 3 casillas (Dominio, Privado, Público) → Siguiente
+8. Nombre: "LBF Analytics" → Finalizar
+
+
+PARA ACTUALIZAR EN EL FUTURO
+─────────────────────────────
+Cuando hagas cambios en tu PC:
+
+1. En tu PC (donde desarrollas):
+   - Abre terminal en C:\Users\comer\lbf-analytics
+   - git add .
+   - git commit -m "descripción del cambio"
+   - git push
+
+2. En el servidor (por RDP):
+   - Doble click en "actualizar.bat" (como administrador)
+   - Listo, la app se actualiza sola
+
+
+SOLUCIÓN DE PROBLEMAS
+─────────────────────
+- La app no carga → Revisa logs en C:\lbf-analytics\logs\
+- Error de base de datos → Verificar que el servidor puede
+  conectar a 192.0.0.48 (abrir Management Studio y probar)
+- Puerto ocupado → En CMD: netstat -ano | findstr :80
+  y luego: taskkill /F /PID [número]
+- Servicios → En CMD como admin:
+  nssm status LBF-Backend
+  nssm status LBF-Frontend
+  nssm restart LBF-Backend
+  nssm restart LBF-Frontend

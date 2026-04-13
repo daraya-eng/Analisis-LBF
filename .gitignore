@@ -1,0 +1,11 @@
+node_modules/
+.next/
+__pycache__/
+*.pyc
+.env.local
+.env.production
+backend/data/users.json
+logs/
+*.log
+deploy/nssm.exe
+.claude/

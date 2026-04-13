@@ -9,13 +9,11 @@ import {
   BarChart3,
   Package,
   Users,
-  FileBarChart,
   Phone,
   LogOut,
   ChevronLeft,
   ChevronRight,
   Receipt,
-  DollarSign,
   Shield,
 } from "lucide-react";
 import { useState } from "react";
@@ -26,10 +24,8 @@ const NAV_ITEMS = [
   { href: "/dashboard/zona", label: "KAM", icon: Building2, module: "zona" },
   { href: "/dashboard/clientes", label: "Clientes", icon: Users, module: "clientes" },
   { href: "/dashboard/categoria", label: "MultiProducto", icon: Package, module: "categoria" },
-  { href: "/dashboard/precios", label: "Precios", icon: DollarSign, module: "precios" },
   { href: "/dashboard/mercado", label: "Análisis de Mercado", icon: BarChart3, module: "mercado" },
   { href: "/dashboard/facturacion", label: "Adj. vs Facturado", icon: Receipt, module: "facturacion" },
-  { href: "/dashboard/presupuesto", label: "Presupuesto 2026", icon: FileBarChart, module: "presupuesto" },
 ];
 
 export default function Sidebar() {

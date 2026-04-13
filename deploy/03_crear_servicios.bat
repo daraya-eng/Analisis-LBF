@@ -1,7 +1,7 @@
 @echo off
 chcp 65001 >nul
 echo ============================================
-echo   PASO 3: Crear servicios Windows
+echo   PASO 3: Configurar servicios LBF Analytics
 echo ============================================
 echo.
 
@@ -14,79 +14,106 @@ if %errorLevel% neq 0 (
 )
 
 set APP_DIR=C:\lbf-analytics
-set NSSM=%APP_DIR%\deploy\nssm.exe
-
-:: --- Descargar NSSM si no existe ---
-if exist "%NSSM%" goto nssm_ok
-echo Descargando NSSM (gestor de servicios)...
-powershell -Command "Invoke-WebRequest -Uri 'https://nssm.cc/release/nssm-2.24.zip' -OutFile '%TEMP%\nssm.zip'"
-powershell -Command "Expand-Archive -Path '%TEMP%\nssm.zip' -DestinationPath '%TEMP%\nssm' -Force"
-copy "%TEMP%\nssm\nssm-2.24\win64\nssm.exe" "%NSSM%"
-echo [OK] NSSM descargado
-:nssm_ok
-echo.
 
 :: --- Crear carpeta de logs ---
 if not exist "%APP_DIR%\logs" mkdir "%APP_DIR%\logs"
 
-:: --- Obtener rutas de Python y npm ---
-for /f "delims=" %%i in ('where python') do set PYTHON_PATH=%%i
-for /f "delims=" %%i in ('where npm.cmd') do set NPM_PATH=%%i
+:: --- Verificar Python real (no el stub de Windows Store) ---
+echo Buscando Python real...
+python -c "import sys; print(sys.executable)" > "%TEMP%\pypath.txt" 2>nul
+set /p PYTHON_PATH=<"%TEMP%\pypath.txt"
+del "%TEMP%\pypath.txt"
 
 echo Python: %PYTHON_PATH%
-echo npm:    %NPM_PATH%
 echo.
 
-:: --- Servicio Backend (FastAPI) ---
-echo Creando servicio: LBF-Backend...
-%NSSM% stop LBF-Backend >nul 2>&1
-%NSSM% remove LBF-Backend confirm >nul 2>&1
-%NSSM% install LBF-Backend "%PYTHON_PATH%" -m uvicorn main:app --host 0.0.0.0 --port 8000
-%NSSM% set LBF-Backend AppDirectory %APP_DIR%\backend
-%NSSM% set LBF-Backend DisplayName "LBF Analytics - Backend API"
-%NSSM% set LBF-Backend Description "FastAPI backend para LBF Analytics"
-%NSSM% set LBF-Backend Start SERVICE_AUTO_START
-%NSSM% set LBF-Backend AppStdout %APP_DIR%\logs\backend.log
-%NSSM% set LBF-Backend AppStderr %APP_DIR%\logs\backend_err.log
-%NSSM% set LBF-Backend AppRotateFiles 1
-%NSSM% set LBF-Backend AppRotateBytes 5000000
-echo [OK] Servicio LBF-Backend creado
+:: --- Verificar que es Python real ---
+python -c "print('ok')" >nul 2>&1
+if %errorLevel% neq 0 (
+    echo [ERROR] Python no funciona correctamente.
+    echo         Reinstala Python desde python.org y marca "Add to PATH"
+    pause
+    exit /b 1
+)
+
+:: --- Instalar uvicorn si falta ---
+python -m uvicorn --version >nul 2>&1
+if %errorLevel% neq 0 (
+    echo Instalando uvicorn...
+    python -m pip install uvicorn
+)
+
+:: --- Crear script de inicio ---
+echo Creando script de inicio...
+(
+echo @echo off
+echo chcp 65001 ^>nul
+echo echo Iniciando LBF Analytics...
+echo echo.
+echo.
+echo :: Iniciar Backend
+echo echo Iniciando Backend API en puerto 8000...
+echo start "LBF-Backend" /min cmd /c "cd /d %APP_DIR%\backend && python -m uvicorn main:app --host 0.0.0.0 --port 8000 >> %APP_DIR%\logs\backend.log 2>> %APP_DIR%\logs\backend_err.log"
+echo.
+echo :: Esperar 3 segundos
+echo timeout /t 3 /nobreak ^>nul
+echo.
+echo :: Iniciar Frontend
+echo echo Iniciando Frontend en puerto 80...
+echo start "LBF-Frontend" /min cmd /c "cd /d %APP_DIR%\frontend && npm run start -- -p 80 >> %APP_DIR%\logs\frontend.log 2>> %APP_DIR%\logs\frontend_err.log"
+echo.
+echo echo.
+echo echo LBF Analytics iniciado correctamente.
+echo echo   Backend:  http://localhost:8000
+echo echo   Frontend: http://192.0.0.137
+echo echo.
+echo echo Puedes cerrar esta ventana. Los servicios seguiran corriendo.
+) > "%APP_DIR%\iniciar_lbf.bat"
+echo [OK] Script de inicio creado: %APP_DIR%\iniciar_lbf.bat
 echo.
 
-:: --- Servicio Frontend (Next.js) ---
-echo Creando servicio: LBF-Frontend...
-%NSSM% stop LBF-Frontend >nul 2>&1
-%NSSM% remove LBF-Frontend confirm >nul 2>&1
-%NSSM% install LBF-Frontend "%NPM_PATH%" run start -- -p 80
-%NSSM% set LBF-Frontend AppDirectory %APP_DIR%\frontend
-%NSSM% set LBF-Frontend DisplayName "LBF Analytics - Frontend"
-%NSSM% set LBF-Frontend Description "Next.js frontend para LBF Analytics"
-%NSSM% set LBF-Frontend Start SERVICE_AUTO_START
-%NSSM% set LBF-Frontend AppStdout %APP_DIR%\logs\frontend.log
-%NSSM% set LBF-Frontend AppStderr %APP_DIR%\logs\frontend_err.log
-%NSSM% set LBF-Frontend AppRotateFiles 1
-%NSSM% set LBF-Frontend AppRotateBytes 5000000
-%NSSM% set LBF-Frontend AppEnvironmentExtra NEXT_PUBLIC_API_URL=http://localhost:8000
-echo [OK] Servicio LBF-Frontend creado
+:: --- Crear script para detener ---
+(
+echo @echo off
+echo echo Deteniendo LBF Analytics...
+echo taskkill /FI "WINDOWTITLE eq LBF-Backend" /F ^>nul 2^>^&1
+echo taskkill /FI "WINDOWTITLE eq LBF-Frontend" /F ^>nul 2^>^&1
+echo taskkill /F /IM node.exe ^>nul 2^>^&1
+echo echo [OK] Servicios detenidos.
+echo pause
+) > "%APP_DIR%\detener_lbf.bat"
+echo [OK] Script de detener creado: %APP_DIR%\detener_lbf.bat
 echo.
 
-:: --- Iniciar servicios ---
-echo Iniciando servicios...
-%NSSM% start LBF-Backend
-timeout /t 3 /nobreak >nul
-%NSSM% start LBF-Frontend
+:: --- Crear tarea programada para inicio automatico ---
+echo Creando tarea programada (inicio automatico con Windows)...
+schtasks /delete /tn "LBF Analytics" /f >nul 2>&1
+schtasks /create /tn "LBF Analytics" /tr "\"%APP_DIR%\iniciar_lbf.bat\"" /sc onstart /ru SYSTEM /rl HIGHEST /f
+echo [OK] Tarea programada creada
+echo.
+
+:: --- Abrir puerto 80 y 8000 en firewall ---
+echo Configurando firewall...
+netsh advfirewall firewall delete rule name="LBF Analytics" >nul 2>&1
+netsh advfirewall firewall add rule name="LBF Analytics" dir=in action=allow protocol=TCP localport=80,8000 >nul 2>&1
+echo [OK] Firewall configurado (puertos 80 y 8000 abiertos)
+echo.
+
+:: --- Iniciar ahora ---
+echo Iniciando LBF Analytics ahora...
+call "%APP_DIR%\iniciar_lbf.bat"
 echo.
 
 echo ============================================
-echo   SERVICIOS CREADOS E INICIADOS
-echo.
-echo   Backend:  http://localhost:8000
-echo   Frontend: http://localhost (puerto 80)
+echo   TODO LISTO
 echo.
 echo   Los usuarios acceden desde su navegador:
 echo   http://192.0.0.137
 echo.
-echo   Los servicios se inician automaticamente
-echo   cuando se reinicia el servidor.
+echo   Se inicia automaticamente al reiniciar
+echo   el servidor.
+echo.
+echo   Para detener:  C:\lbf-analytics\detener_lbf.bat
+echo   Para iniciar:  C:\lbf-analytics\iniciar_lbf.bat
 echo ============================================
 pause

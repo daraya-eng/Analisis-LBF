@@ -123,6 +123,26 @@ def _load_zona_data(meses: list[int]) -> dict:
     for cat, d in meta_cat_global.items():
         margen_meta_cat[cat] = (d["contrib"] / d["venta"] * 100) if d["venta"] > 0 else 0
 
+    # ═══ 2b. PPTO por zona × categoría ═══
+    _SQL_CAT_PPTO = """CASE WHEN [CATEGORÍA 2026] = 'Servicios' THEN 'EQM'
+                             ELSE [CATEGORÍA 2026] END"""
+    cur.execute(f"""
+        SELECT VENDEDOR_ACTUAL AS zona,
+               {_SQL_CAT_PPTO} AS cat,
+               SUM(TRY_CAST([PPTO 2026] AS float)) AS ppto
+        FROM [PPTO 2026]
+        GROUP BY VENDEDOR_ACTUAL, {_SQL_CAT_PPTO}
+    """)
+    ppto_zona_cat_raw: dict = {}  # zona_raw -> cat -> ppto
+    for r in cur.fetchall():
+        zona_raw = str(r[0]).strip()
+        cat = str(r[1]).strip()
+        if cat not in _CATS_VALIDAS:
+            continue
+        if zona_raw not in ppto_zona_cat_raw:
+            ppto_zona_cat_raw[zona_raw] = {}
+        ppto_zona_cat_raw[zona_raw][cat] = ppto_zona_cat_raw[zona_raw].get(cat, 0) + float(r[2] or 0)
+
     # ═══ 3. VENTA + CONTRIB por zona × categoría ═══
     cur.execute(f"""
         SELECT VENDEDOR AS zona,
@@ -146,26 +166,19 @@ def _load_zona_data(meses: list[int]) -> dict:
         venta_zona_cat_raw[zona_raw][cat]["venta"] += float(r[2] or 0)
         venta_zona_cat_raw[zona_raw][cat]["contrib"] += float(r[3] or 0)
 
-    # ═══ 4. VENTA 2025 por zona × categoría (same period) ═══
+    # ═══ 4. VENTA 2025 por zona (sin categoría — la categorización cambió) ═══
     cur.execute(f"""
         SELECT VENDEDOR AS zona,
-               {_CAT_CASE} AS cat,
                SUM(CAST(VENTA AS float)) AS venta_25
         FROM BI_TOTAL_FACTURA
         WHERE ANO = {_ANO - 1} AND MES IN ({mes_list}) AND {_EXCL_DW}
-        GROUP BY VENDEDOR, {_CAT_CASE}
+        GROUP BY VENDEDOR
     """)
     venta25_raw: dict = {}       # zona_raw -> total
-    venta25_cat_raw: dict = {}   # zona_raw -> cat -> venta_25
     for r in cur.fetchall():
         zona_raw = str(r[0]).strip()
-        cat = str(r[1]).strip()
-        v25 = float(r[2] or 0)
+        v25 = float(r[1] or 0)
         venta25_raw[zona_raw] = venta25_raw.get(zona_raw, 0) + v25
-        if cat in _CATS_VALIDAS:
-            if zona_raw not in venta25_cat_raw:
-                venta25_cat_raw[zona_raw] = {}
-            venta25_cat_raw[zona_raw][cat] = venta25_cat_raw[zona_raw].get(cat, 0) + v25
 
     conn.close()
 
@@ -183,14 +196,13 @@ def _load_zona_data(meses: list[int]) -> dict:
                 "meta_periodo": 0,
                 "meta_anual": 0,
                 "cats": {},
+                "ppto_cats": {},
                 "v25": 0,
-                "v25_cats": {},
             }
         z = zona_merged[label]
         # Meta
         if zona_raw in meta_zona_raw:
             m = meta_zona_raw[zona_raw]
-            # For merged zones, join KAM names
             if z["kam"] and m["kam"] and m["kam"] not in z["kam"]:
                 z["kam"] += " / " + m["kam"]
             elif not z["kam"]:
@@ -204,11 +216,12 @@ def _load_zona_data(meses: list[int]) -> dict:
                     z["cats"][cat] = {"venta": 0, "contrib": 0}
                 z["cats"][cat]["venta"] += vc["venta"]
                 z["cats"][cat]["contrib"] += vc["contrib"]
-        # Venta 2025 (total and by category)
+        # PPTO by category
+        if zona_raw in ppto_zona_cat_raw:
+            for cat, ppto_val in ppto_zona_cat_raw[zona_raw].items():
+                z["ppto_cats"][cat] = z["ppto_cats"].get(cat, 0) + ppto_val
+        # Venta 2025 (total, sin categoría)
         z["v25"] += venta25_raw.get(zona_raw, 0)
-        if zona_raw in venta25_cat_raw:
-            for cat, v25 in venta25_cat_raw[zona_raw].items():
-                z["v25_cats"][cat] = z["v25_cats"].get(cat, 0) + v25
 
     # ═══ 6. Build response rows ═══
     rows = []
@@ -227,23 +240,23 @@ def _load_zona_data(meses: list[int]) -> dict:
         margen = (contrib_total / venta_total * 100) if venta_total > 0 else 0
         crec = ((venta_total / z["v25"]) - 1) * 100 if z["v25"] > 0 else 0
 
-        # Category breakdown
+        # Category breakdown (sin venta_25 por categoría)
         cat_detail = {}
+        ppto_total_zona = sum(z["ppto_cats"].get(c, 0) for c in _CATS_VALIDAS)
         for cat in _CATS_VALIDAS:
             cv = z["cats"].get(cat, {"venta": 0, "contrib": 0})
             cat_venta = cv["venta"]
             cat_contrib = cv["contrib"]
             cat_margen = (cat_contrib / cat_venta * 100) if cat_venta > 0 else 0
             cat_pct = (cat_venta / venta_total * 100) if venta_total > 0 else 0
-            cat_v25 = z["v25_cats"].get(cat, 0)
-            cat_crec = ((cat_venta / cat_v25) - 1) * 100 if cat_v25 > 0 else 0
+            cat_ppto = z["ppto_cats"].get(cat, 0)
+            cat_ppto_pct = (cat_ppto / ppto_total_zona * 100) if ppto_total_zona > 0 else 0
             cat_detail[cat] = {
                 "venta": round(cat_venta),
                 "contrib": round(cat_contrib),
                 "margen": round(cat_margen, 1),
                 "pct_zona": round(cat_pct, 1),
-                "venta_25": round(cat_v25),
-                "crec": round(cat_crec, 1),
+                "ppto_pct": round(cat_ppto_pct, 1),
             }
 
         rows.append({
@@ -273,18 +286,18 @@ def _load_zona_data(meses: list[int]) -> dict:
     t_margen = (t_contrib / t_venta * 100) if t_venta > 0 else 0
     t_crec = ((t_venta / t_v25) - 1) * 100 if t_v25 > 0 else 0
     t_cats = {}
+    t_ppto_total = sum(sum(z["ppto_cats"].get(c, 0) for c in _CATS_VALIDAS)
+                       for z in zona_merged.values())
     for cat in _CATS_VALIDAS:
         cv = sum(r["categorias"][cat]["venta"] for r in rows)
         cc = sum(r["categorias"][cat]["contrib"] for r in rows)
-        cv25 = sum(r["categorias"][cat].get("venta_25", 0) for r in rows)
-        cat_crec = ((cv / cv25) - 1) * 100 if cv25 > 0 else 0
+        cp = sum(z["ppto_cats"].get(cat, 0) for z in zona_merged.values())
         t_cats[cat] = {
             "venta": round(cv),
             "contrib": round(cc),
             "margen": round((cc / cv * 100) if cv > 0 else 0, 1),
             "pct_zona": round((cv / t_venta * 100) if t_venta > 0 else 0, 1),
-            "venta_25": round(cv25),
-            "crec": round(cat_crec, 1),
+            "ppto_pct": round((cp / t_ppto_total * 100) if t_ppto_total > 0 else 0, 1),
         }
 
     total_row = {
@@ -348,7 +361,6 @@ def _load_clientes_zona(zona_label: str, categoria: str, meses: list[int]) -> li
             FROM BI_TOTAL_FACTURA
             WHERE ANO = {_ANO - 1} AND MES IN ({mes_list})
               AND {_EXCL_DW} AND {zona_filter}
-              AND LTRIM(RTRIM(CATEGORIA)) {cat_filter}
             GROUP BY RUT
         )
         SELECT COALESCE(v26.RUT, v25.RUT) AS rut,

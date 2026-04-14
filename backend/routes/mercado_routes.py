@@ -319,6 +319,158 @@ def _load_competidor_detalle(empresa: str, desde: str, hasta: str) -> dict:
 
 
 # ═══════════════════════════════════════════════════════════════════
+# 3. Convenio Marco
+# ═══════════════════════════════════════════════════════════════════
+
+def _load_convenio_marco() -> dict:
+    conn = get_conn()
+    cur = conn.cursor()
+
+    # ── KPIs: market share LBF 2025+ ──
+    cur.execute("""
+        SELECT
+            CASE WHEN proveedor = 'Comercial Lbf Limitada' THEN 'LBF' ELSE 'Otros' END AS quien,
+            COUNT(DISTINCT oc) AS ocs,
+            SUM(CAST(total_producto AS bigint)) AS monto
+        FROM vw_CM_Falcon
+        WHERE YEAR(fecha_envio) >= 2025
+        GROUP BY CASE WHEN proveedor = 'Comercial Lbf Limitada' THEN 'LBF' ELSE 'Otros' END
+    """)
+    mkt = {}
+    for r in cur.fetchall():
+        mkt[r[0]] = {"ocs": r[1] or 0, "monto": int(r[2] or 0)}
+    lbf_monto = mkt.get("LBF", {}).get("monto", 0)
+    lbf_ocs = mkt.get("LBF", {}).get("ocs", 0)
+    otros_monto = mkt.get("Otros", {}).get("monto", 0)
+    total_mkt = lbf_monto + otros_monto
+    share = round(lbf_monto / total_mkt * 100, 1) if total_mkt > 0 else 0
+
+    # Productos distintos LBF en CM
+    cur.execute("""
+        SELECT COUNT(DISTINCT tipo) FROM vw_CM_Falcon
+        WHERE proveedor = 'Comercial Lbf Limitada' AND YEAR(fecha_envio) >= 2024
+    """)
+    n_productos = cur.fetchone()[0] or 0
+
+    kpis = {
+        "share": share,
+        "monto_lbf": lbf_monto,
+        "ocs_lbf": lbf_ocs,
+        "monto_mercado": total_mkt,
+        "n_productos": n_productos,
+    }
+
+    # ── Top 15 competidores en instituciones donde LBF tiene licitación ──
+    cur.execute("""
+        WITH instituciones_lbf AS (
+            SELECT DISTINCT rut_cliente
+            FROM vw_LICITACIONES_CATEGORIZADAS
+            WHERE EsLBF = 1
+        )
+        SELECT TOP 15
+            cm.proveedor,
+            COUNT(DISTINCT cm.rut) AS instituciones,
+            COUNT(DISTINCT cm.oc) AS ocs,
+            SUM(CAST(cm.total_producto AS bigint)) AS monto
+        FROM vw_CM_Falcon cm
+        INNER JOIN instituciones_lbf i ON cm.rut = i.rut_cliente
+        WHERE cm.proveedor <> 'Comercial Lbf Limitada'
+          AND YEAR(cm.fecha_envio) >= 2024
+        GROUP BY cm.proveedor
+        ORDER BY monto DESC
+    """)
+    competidores = []
+    for r in cur.fetchall():
+        competidores.append({
+            "proveedor": str(r[0] or "").strip(),
+            "instituciones": r[1] or 0,
+            "ocs": r[2] or 0,
+            "monto": int(r[3] or 0),
+        })
+
+    # ── Fuga: instituciones con licitación LBF que compran CM a competidor ──
+    cur.execute("""
+        WITH lbf_licit AS (
+            SELECT DISTINCT rut_cliente, nombre_cliente
+            FROM vw_LICITACIONES_CATEGORIZADAS
+            WHERE EsLBF = 1
+        ),
+        cm_competidor AS (
+            SELECT rut,
+                   COUNT(DISTINCT oc) AS ocs,
+                   SUM(CAST(total_producto AS bigint)) AS monto,
+                   COUNT(DISTINCT proveedor) AS n_proveedores
+            FROM vw_CM_Falcon
+            WHERE proveedor <> 'Comercial Lbf Limitada'
+              AND YEAR(fecha_envio) >= 2024
+            GROUP BY rut
+        )
+        SELECT TOP 20
+            l.nombre_cliente, l.rut_cliente,
+            c.ocs, c.monto, c.n_proveedores
+        FROM lbf_licit l
+        INNER JOIN cm_competidor c ON c.rut = l.rut_cliente
+        ORDER BY c.monto DESC
+    """)
+    fuga = []
+    for r in cur.fetchall():
+        fuga.append({
+            "nombre": str(r[0] or "").strip(),
+            "rut": str(r[1] or "").strip(),
+            "ocs_competidor": r[2] or 0,
+            "monto_competidor": int(r[3] or 0),
+            "n_proveedores": r[4] or 0,
+        })
+
+    # ── Productos LBF en CM ──
+    cur.execute("""
+        SELECT TOP 15 tipo, COUNT(DISTINCT oc) AS ocs,
+               SUM(CAST(total_producto AS bigint)) AS monto
+        FROM vw_CM_Falcon
+        WHERE proveedor = 'Comercial Lbf Limitada'
+          AND YEAR(fecha_envio) >= 2024
+        GROUP BY tipo
+        ORDER BY monto DESC
+    """)
+    productos_lbf = []
+    for r in cur.fetchall():
+        productos_lbf.append({
+            "tipo": str(r[0] or "").strip(),
+            "ocs": r[1] or 0,
+            "monto": int(r[2] or 0),
+        })
+
+    # ── Top instituciones que compran a LBF por CM ──
+    cur.execute("""
+        SELECT TOP 15 comprador, rut,
+               COUNT(DISTINCT oc) AS ocs,
+               SUM(CAST(total_producto AS bigint)) AS monto
+        FROM vw_CM_Falcon
+        WHERE proveedor = 'Comercial Lbf Limitada'
+          AND YEAR(fecha_envio) >= 2024
+        GROUP BY comprador, rut
+        ORDER BY monto DESC
+    """)
+    clientes_lbf = []
+    for r in cur.fetchall():
+        clientes_lbf.append({
+            "nombre": str(r[0] or "").strip(),
+            "rut": str(r[1] or "").strip(),
+            "ocs": r[2] or 0,
+            "monto": int(r[3] or 0),
+        })
+
+    conn.close()
+    return {
+        "kpis": kpis,
+        "competidores": competidores,
+        "fuga": fuga,
+        "productos_lbf": productos_lbf,
+        "clientes_lbf": clientes_lbf,
+    }
+
+
+# ═══════════════════════════════════════════════════════════════════
 # Endpoints
 # ═══════════════════════════════════════════════════════════════════
 
@@ -356,6 +508,20 @@ async def get_competidores(
         return data
     except Exception as e:
         return {"error": str(e), "ranking": []}
+
+
+@router.get("/cm")
+async def get_convenio_marco(current_user: dict = Depends(get_current_user)):
+    try:
+        cached = mem_get("mercado_cm")
+        if cached:
+            return cached
+        data = _load_convenio_marco()
+        mem_set("mercado_cm", data)
+        return data
+    except Exception as e:
+        return {"error": str(e), "kpis": {}, "competidores": [],
+                "fuga": [], "productos_lbf": [], "clientes_lbf": []}
 
 
 @router.get("/competidores/detalle")

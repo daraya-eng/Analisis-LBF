@@ -107,31 +107,20 @@ def _load_dashboard_raw() -> dict:
                 contrib_cat_mes[cat] = {}
             contrib_cat_mes[cat][mes] = contrib
 
-    # ═══ 4. VENTA 2025 por categoría x mes — misma base de clientes 2026 ═══
+    # ═══ 4. VENTA 2025 total por mes (sin categoría — la categorización cambió) ═══
     cur.execute(f"""
-        WITH clientes_2026 AS (
-            SELECT DISTINCT RUT
-            FROM BI_TOTAL_FACTURA
-            WHERE ANO = {_ANO} AND {_EXCL_DW}
-        )
-        SELECT {_CAT_CASE} AS cat, f25.MES,
+        SELECT f25.MES,
                SUM(CAST(f25.VENTA AS float)) AS venta_25
         FROM BI_TOTAL_FACTURA f25
-        INNER JOIN clientes_2026 c ON c.RUT = f25.RUT
         WHERE f25.ANO = {_ANO-1} AND f25.MES <= {_MES}
           AND f25.VENDEDOR NOT IN ({_VEND_EXCLUIR})
           AND f25.CODIGO NOT IN ('FLETE','NINV','SIN','')
-        GROUP BY {_CAT_CASE}, f25.MES
+        GROUP BY f25.MES
     """)
-    venta25_cat_mes: dict = {}
+    venta25_mes: dict = {}  # mes -> venta_25 total
     for r in cur.fetchall():
-        cat = str(r[0]).strip()
-        mes = int(r[1])
-        v25 = float(r[2] or 0)
-        if cat in _CATS_VALIDAS:
-            if cat not in venta25_cat_mes:
-                venta25_cat_mes[cat] = {}
-            venta25_cat_mes[cat][mes] = v25
+        mes = int(r[0])
+        venta25_mes[mes] = float(r[1] or 0)
 
     # ═══ 5. VENTA por segmento x categoría x mes ═══
     cur.execute(f"""
@@ -165,7 +154,7 @@ def _load_dashboard_raw() -> dict:
         "meta_global_mes": meta_global_mes,
         "venta_cat_mes": venta_cat_mes,
         "contrib_cat_mes": contrib_cat_mes,
-        "venta25_cat_mes": venta25_cat_mes,
+        "venta25_mes": venta25_mes,
         "seg_mes_data": seg_mes_data,
     }
 
@@ -176,7 +165,7 @@ def _build_for_period(raw: dict, meses: list[int]) -> dict:
     meta_global_mes = raw["meta_global_mes"]
     venta_cat_mes = raw["venta_cat_mes"]
     contrib_cat_mes = raw["contrib_cat_mes"]
-    venta25_cat_mes = raw["venta25_cat_mes"]
+    venta25_mes = raw["venta25_mes"]
     seg_mes_data = raw["seg_mes_data"]
 
     n_meses = len(meses)
@@ -185,28 +174,27 @@ def _build_for_period(raw: dict, meses: list[int]) -> dict:
     meta_periodo = sum(meta_global_mes.get(m, 0) for m in meses)
     meta_anual = sum(meta_global_mes.get(m, 0) for m in range(1, 13))
 
+    # Total venta 2025 (sin categoría — la categorización cambió entre años)
+    total_v25 = sum(venta25_mes.get(m, 0) for m in meses)
+
     # Category table
     cat_table = []
     total_meta_cat = 0
     total_meta_contrib = 0
     total_venta = 0
     total_contrib = 0
-    total_v25 = 0
     for cat in _CATS_VALIDAS:
         meta_v = sum(meta_cat_mes.get(cat, {}).get(m, {}).get("venta", 0) for m in meses)
         meta_c = sum(meta_cat_mes.get(cat, {}).get(m, {}).get("contrib", 0) for m in meses)
         meta_anual_cat = sum(meta_cat_mes.get(cat, {}).get(m, {}).get("venta", 0) for m in range(1, 13))
-        # Weighted average margin meta for the period
         margen_meta = (meta_c / meta_v * 100) if meta_v > 0 else 0
 
         venta = sum(venta_cat_mes.get(cat, {}).get(m, 0) for m in meses)
         contrib_real = sum(contrib_cat_mes.get(cat, {}).get(m, 0) for m in meses)
         margen_real = (contrib_real / venta * 100) if venta > 0 else 0
-        v25 = sum(venta25_cat_mes.get(cat, {}).get(m, 0) for m in meses)
         cumpl = (venta / meta_v * 100) if meta_v > 0 else 0
         cumpl_contrib = (contrib_real / meta_c * 100) if meta_c > 0 else 0
         cumpl_margen = (margen_real / margen_meta * 100) if margen_meta > 0 else 0
-        crec = ((venta / v25) - 1) * 100 if v25 > 0 else 0
 
         cat_table.append({
             "categoria": cat,
@@ -219,16 +207,13 @@ def _build_for_period(raw: dict, meses: list[int]) -> dict:
             "cumpl_contrib": round(cumpl_contrib, 1),
             "cumpl_margen": round(cumpl_margen, 1),
             "venta": round(venta),
-            "venta_25": round(v25),
             "cumpl": round(cumpl, 1),
-            "crec_vs_25": round(crec, 1),
             "gap": round(venta - meta_v),
         })
         total_meta_cat += meta_v
         total_meta_contrib += meta_c
         total_venta += venta
         total_contrib += contrib_real
-        total_v25 += v25
 
     cat_table.sort(key=lambda r: -r["meta_anual"])
 
@@ -253,9 +238,7 @@ def _build_for_period(raw: dict, meses: list[int]) -> dict:
         "cumpl_contrib": round(cumpl_contrib_t, 1),
         "cumpl_margen": round(cumpl_margen_t, 1),
         "venta": round(total_venta),
-        "venta_25": round(total_v25),
         "cumpl": round(cumpl_t, 1),
-        "crec_vs_25": round(crec_t, 1),
         "gap": round(total_venta - total_meta_cat),
     })
 
@@ -301,7 +284,7 @@ def _build_for_period(raw: dict, meses: list[int]) -> dict:
             "cumpl_contrib": round(cumpl_contrib_t, 1),
             "cumpl_margen": round(cumpl_margen_t, 1),
             "venta": round(total_venta),
-            "venta_25": round(total_v25),
+            "venta_25": round(total_v25),  # total sin desglose por categoría
             "cumpl": round(cumpl_t, 1),
             "cumpl_meta_global": round(cumpl_meta, 1),
             "crec_vs_25": round(crec_t, 1),

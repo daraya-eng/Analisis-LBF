@@ -24,8 +24,7 @@ interface CatDetail {
   contrib: number;
   margen: number;
   pct_zona: number;
-  venta_25: number;
-  crec: number;
+  ppto_pct: number;
 }
 
 interface ZonaRow {
@@ -237,17 +236,8 @@ export default function ZonaPage() {
     .map(z => ({ zona: z.zona, cumpl: z.cumpl }))
     .sort((a, b) => b.cumpl - a.cumpl);
 
-  // Chart 2: Category weight by zona (stacked %)
-  const chartCatWeight = zonas.map(z => {
-    const total = Object.values(z.categorias).reduce((s, c) => s + c.venta, 0);
-    return {
-      zona: z.zona,
-      SQ: total > 0 ? Math.round((z.categorias.SQ?.venta || 0) / total * 100) : 0,
-      MAH: total > 0 ? Math.round((z.categorias.MAH?.venta || 0) / total * 100) : 0,
-      EQM: total > 0 ? Math.round((z.categorias.EQM?.venta || 0) / total * 100) : 0,
-      EVA: total > 0 ? Math.round((z.categorias.EVA?.venta || 0) / total * 100) : 0,
-    };
-  });
+  // Data for mix comparison table
+  const CATS_MIX = ["SQ", "MAH", "EQM", "EVA"] as const;
 
   // Progress bar
   const cumplPct = t.cumpl;
@@ -352,28 +342,79 @@ export default function ZonaPage() {
           </ResponsiveContainer>
         </div>
 
-        {/* Chart 2: Peso categoría por zona (stacked 100%) */}
-        <div style={{ background: "white", borderRadius: 10, border: "1px solid #E2E8F0", padding: 24 }}>
-          <h3 style={{ fontSize: 15, fontWeight: 700, color: "#0F172A", margin: "0 0 12px" }}>
+        {/* Chart 2: Mix de categoría — Venta vs PPTO (table with mini bars) */}
+        <div style={{ background: "white", borderRadius: 10, border: "1px solid #E2E8F0", padding: 24, overflow: "auto" }}>
+          <h3 style={{ fontSize: 15, fontWeight: 700, color: "#0F172A", margin: "0 0 4px" }}>
             Mix de Categorias por Zona
-            <span style={{ fontSize: 12, fontWeight: 400, color: "#64748B", marginLeft: 8 }}>{periodLabel}</span>
+            <span style={{ fontSize: 12, fontWeight: 400, color: "#64748B", marginLeft: 8 }}>Venta vs PPTO</span>
           </h3>
-          <ResponsiveContainer width="100%" height={Math.max(300, chartCatWeight.length * 30)}>
-            <BarChart data={chartCatWeight} layout="vertical" stackOffset="expand" margin={{ right: 10 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" horizontal={false} />
-              <XAxis type="number" tickFormatter={(v) => `${Math.round(v * 100)}%`} tick={{ fontSize: 11 }} />
-              <YAxis type="category" dataKey="zona" width={120} tick={{ fontSize: 11, fill: "#374151" }} />
-              <Tooltip
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                formatter={(v: any, name: any) => [`${Number(v)}%`, name]}
-              />
-              <Legend wrapperStyle={{ fontSize: 12 }} />
-              <Bar dataKey="SQ" stackId="cat" fill={CAT_COLORS.SQ} />
-              <Bar dataKey="MAH" stackId="cat" fill={CAT_COLORS.MAH} />
-              <Bar dataKey="EQM" stackId="cat" fill={CAT_COLORS.EQM} />
-              <Bar dataKey="EVA" stackId="cat" fill={CAT_COLORS.EVA} />
-            </BarChart>
-          </ResponsiveContainer>
+          <p style={{ fontSize: 11, color: "#94A3B8", margin: "0 0 12px" }}>Delta = peso real - presupuestado. Verde = sobre PPTO, rojo = bajo PPTO.</p>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+            <thead>
+              <tr>
+                <th style={{ padding: "6px 10px", textAlign: "left", fontWeight: 700, color: "#374151", borderBottom: "2px solid #E2E8F0", whiteSpace: "nowrap" }}>Zona</th>
+                {CATS_MIX.map(cat => (
+                  <th key={cat} style={{ padding: "6px 8px", textAlign: "center", fontWeight: 700, borderBottom: "2px solid #E2E8F0", whiteSpace: "nowrap" }}>
+                    <span style={{ display: "inline-block", width: 10, height: 10, borderRadius: 3, background: CAT_COLORS[cat], marginRight: 4, verticalAlign: "middle" }} />
+                    {cat}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {zonas.map((z, i) => (
+                <tr key={z.zona} style={{ borderBottom: "1px solid #F1F5F9", background: i % 2 === 0 ? "white" : "#FAFBFC" }}>
+                  <td style={{ padding: "8px 10px", fontWeight: 600, color: "#1F2937", whiteSpace: "nowrap" }}>{z.zona}</td>
+                  {CATS_MIX.map(cat => {
+                    const vPct = z.categorias[cat]?.pct_zona || 0;
+                    const pPct = z.categorias[cat]?.ppto_pct || 0;
+                    const delta = Math.round((vPct - pPct) * 10) / 10;
+                    const deltaColor = delta > 2 ? "#10B981" : delta < -2 ? "#EF4444" : "#94A3B8";
+                    return (
+                      <td key={cat} style={{ padding: "6px 8px", textAlign: "center", verticalAlign: "middle" }}>
+                        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 4, width: "100%" }}>
+                            <div style={{ flex: 1, height: 6, background: "#E2E8F0", borderRadius: 3, overflow: "hidden", position: "relative" }}>
+                              <div style={{ position: "absolute", height: "100%", width: `${Math.min(vPct, 100)}%`, background: CAT_COLORS[cat], borderRadius: 3, opacity: 0.9 }} />
+                              <div style={{ position: "absolute", height: "100%", width: `${Math.min(pPct, 100)}%`, borderRight: "2px solid #374151", boxSizing: "border-box" }} />
+                            </div>
+                          </div>
+                          <div style={{ display: "flex", gap: 6, alignItems: "baseline", fontSize: 11 }}>
+                            <span style={{ fontWeight: 700, color: "#374151" }}>{vPct.toFixed(0)}%</span>
+                            <span style={{ color: "#94A3B8", fontSize: 10 }}>vs {pPct.toFixed(0)}%</span>
+                            <span style={{ fontWeight: 700, fontSize: 10, color: deltaColor }}>
+                              {delta > 0 ? "+" : ""}{delta.toFixed(1)}
+                            </span>
+                          </div>
+                        </div>
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))}
+              {/* Total row */}
+              <tr style={{ borderTop: "2px solid #CBD5E1", background: "#F8FAFC" }}>
+                <td style={{ padding: "8px 10px", fontWeight: 800, color: "#0F172A" }}>Total</td>
+                {CATS_MIX.map(cat => {
+                  const vPct = t.categorias[cat]?.pct_zona || 0;
+                  const pPct = t.categorias[cat]?.ppto_pct || 0;
+                  const delta = Math.round((vPct - pPct) * 10) / 10;
+                  const deltaColor = delta > 2 ? "#10B981" : delta < -2 ? "#EF4444" : "#94A3B8";
+                  return (
+                    <td key={cat} style={{ padding: "6px 8px", textAlign: "center" }}>
+                      <div style={{ display: "flex", gap: 6, justifyContent: "center", alignItems: "baseline", fontSize: 12 }}>
+                        <span style={{ fontWeight: 800, color: "#374151" }}>{vPct.toFixed(1)}%</span>
+                        <span style={{ color: "#94A3B8", fontSize: 10 }}>vs {pPct.toFixed(1)}%</span>
+                        <span style={{ fontWeight: 700, fontSize: 11, color: deltaColor }}>
+                          {delta > 0 ? "+" : ""}{delta.toFixed(1)}
+                        </span>
+                      </div>
+                    </td>
+                  );
+                })}
+              </tr>
+            </tbody>
+          </table>
         </div>
       </div>
 
@@ -444,8 +485,7 @@ export default function ZonaPage() {
                               <th style={{ ...thStyle, fontSize: 11, padding: "6px 10px", width: 28 }}></th>
                               <th style={{ ...thStyle, fontSize: 11, padding: "6px 10px" }}>Categoria</th>
                               <th style={{ ...thR, fontSize: 11, padding: "6px 10px" }}>Venta 2026</th>
-                              <th style={{ ...thR, fontSize: 11, padding: "6px 10px" }}>Venta 2025</th>
-                              <th style={{ ...thR, fontSize: 11, padding: "6px 10px" }}>Crec.</th>
+                              <th style={{ ...thR, fontSize: 11, padding: "6px 10px" }}>Margen %</th>
                             </tr>
                           </thead>
                           <tbody>
@@ -454,7 +494,6 @@ export default function ZonaPage() {
                               if (!cd || cd.venta === 0) return null;
                               const catKey = `${row.zona}|${cat}`;
                               const isCatExpanded = expandedCat === catKey;
-                              const crecColor = cd.crec >= 0 ? "#10B981" : "#EF4444";
                               const catRows = [];
                               catRows.push(
                                 <tr
@@ -476,16 +515,13 @@ export default function ZonaPage() {
                                     </span>
                                   </td>
                                   <td style={{ ...tdR, padding: "6px 10px" }}>{fmtAbs(cd.venta)}</td>
-                                  <td style={{ ...tdR, padding: "6px 10px", color: "#64748B" }}>{fmtAbs(cd.venta_25)}</td>
-                                  <td style={{ ...tdR, padding: "6px 10px", fontWeight: 600, color: crecColor }}>
-                                    {cd.venta_25 === 0 && cd.venta > 0 ? "Nuevo" : `${cd.crec >= 0 ? "+" : ""}${cd.crec.toFixed(1)}%`}
-                                  </td>
+                                  <td style={{ ...tdR, padding: "6px 10px", color: "#64748B" }}>{cd.margen.toFixed(1)}%</td>
                                 </tr>
                               );
                               if (isCatExpanded) {
                                 catRows.push(
                                   <tr key={`${cat}-clients`}>
-                                    <td colSpan={5} style={{ padding: "4px 8px 8px 40px", background: "#EFF6FF" }}>
+                                    <td colSpan={4} style={{ padding: "4px 8px 8px 40px", background: "#EFF6FF" }}>
                                       <ClientDetail zona={row.zona} categoria={cat} period={period} />
                                     </td>
                                   </tr>
@@ -498,10 +534,7 @@ export default function ZonaPage() {
                               <td style={{ padding: "6px 4px" }}></td>
                               <td style={{ padding: "6px 10px" }}>Total</td>
                               <td style={{ ...tdR, padding: "6px 10px" }}>{fmtAbs(row.venta)}</td>
-                              <td style={{ ...tdR, padding: "6px 10px" }}>{fmtAbs(row.venta_25)}</td>
-                              <td style={{ ...tdR, padding: "6px 10px", fontWeight: 600, color: row.crec_vs_25 >= 0 ? "#10B981" : "#EF4444" }}>
-                                {row.crec_vs_25 >= 0 ? "+" : ""}{row.crec_vs_25.toFixed(1)}%
-                              </td>
+                              <td style={{ ...tdR, padding: "6px 10px" }}>{row.margen.toFixed(1)}%</td>
                             </tr>
                           </tbody>
                         </table>

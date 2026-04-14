@@ -153,40 +153,36 @@ def _load_multiproducto_all() -> dict:
         week_num += 1
         week_start = week_end + 1
 
-    # ═══ 4. Categorías: venta 2026 vs 2025 YTD ═══
+    # ═══ 4. Categorías: venta 2026 por categoría (2025 solo total) ═══
     cur.execute(f"""
-        SELECT {_CAT_CASE} AS categoria, ANO,
+        SELECT {_CAT_CASE} AS categoria,
                SUM(CAST(VENTA AS float)) AS venta,
                SUM(CAST(CONTRIBUCION AS float)) AS contribucion
         FROM BI_TOTAL_FACTURA
         WHERE {_MP_FILTER} AND {_EXCL_COD}
-          AND ANO IN ({_ANO - 1}, {_ANO}) AND MES <= {_MES}
-        GROUP BY {_CAT_CASE}, ANO
+          AND ANO = {_ANO} AND MES <= {_MES}
+        GROUP BY {_CAT_CASE}
     """)
     cat_raw: dict = {}
     for r in cur.fetchall():
         cat = str(r[0]).strip()
         if cat not in _CATS_VALIDAS:
             continue
-        ano = int(r[1])
-        if cat not in cat_raw:
-            cat_raw[cat] = {"categoria": cat, "venta_26": 0, "venta_25": 0, "contrib_26": 0}
-        if ano == _ANO:
-            cat_raw[cat]["venta_26"] = float(r[2] or 0)
-            cat_raw[cat]["contrib_26"] = float(r[3] or 0)
-        else:
-            cat_raw[cat]["venta_25"] = float(r[2] or 0)
+        cat_raw[cat] = {
+            "categoria": cat,
+            "venta_26": float(r[1] or 0),
+            "contrib_26": float(r[2] or 0),
+        }
 
     categorias = []
     for cat, d in sorted(cat_raw.items(), key=lambda x: -x[1]["venta_26"]):
-        crec = ((d["venta_26"] / d["venta_25"]) - 1) * 100 if d["venta_25"] > 0 else None
         margen = (d["contrib_26"] / d["venta_26"] * 100) if d["venta_26"] > 0 else 0
         pct = (d["venta_26"] / v26_ytd * 100) if v26_ytd > 0 else 0
         categorias.append({
             "categoria": cat,
             "venta_26": round(d["venta_26"]),
-            "venta_25": round(d["venta_25"]),
-            "crec": round(crec, 1) if crec is not None else None,
+            "venta_25": round(v25_ytd),  # total 2025 (sin desglose por cat)
+            "crec": round(crec_ytd, 1),  # crecimiento total
             "margen": round(margen, 1),
             "pct": round(pct, 1),
         })

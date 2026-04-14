@@ -16,48 +16,70 @@ _SQL_CAT_BI = """CASE WHEN CATEGORIA = 'Servicios' THEN 'EQM'
 
 
 def _load_categoria() -> list:
-    """PPTO vs Venta by category."""
+    """PPTO vs Venta by category.
+    2026: usa CATEGORÍA 2026 del PPTO + venta real por categoría.
+    2025: venta total por cliente+período SIN filtrar por categoría
+          (la categorización cambió entre años).
+    """
     try:
         h = hoy()
         ANO_ACT, MES_ACT = h["ano"], h["mes"]
         conn = get_conn()
-        sql = f"""
+
+        # PPTO + venta 2026 por categoría
+        sql_cat = f"""
         WITH ppto AS (
             SELECT {_SQL_CAT_PPTO} AS categoria,
                    SUM([PPTO 2026]) AS ppto_total
             FROM [PPTO 2026]
             GROUP BY {_SQL_CAT_PPTO}
         ),
-        venta AS (
+        venta26 AS (
             SELECT {_SQL_CAT_BI} AS categoria,
-                   SUM(CASE WHEN ANO={ANO_ACT} THEN VENTA ELSE 0 END) AS venta_2026_ytd,
-                   SUM(CASE WHEN ANO={ANO_ACT - 1} AND MES <= {MES_ACT}
-                       THEN VENTA ELSE 0 END) AS venta_2025_ytd
+                   SUM(CAST(VENTA AS float)) AS venta_2026_ytd
             FROM BI_TOTAL_FACTURA
-            WHERE ANO IN ({ANO_ACT}, {ANO_ACT - 1})
+            WHERE ANO = {ANO_ACT} AND MES <= {MES_ACT}
               AND {DW_FILTRO}
             GROUP BY {_SQL_CAT_BI}
         )
         SELECT COALESCE(p.categoria, v.categoria) AS categoria,
                COALESCE(p.ppto_total, 0) AS ppto_total,
-               COALESCE(v.venta_2026_ytd, 0) AS venta_2026_ytd,
-               COALESCE(v.venta_2025_ytd, 0) AS venta_2025_ytd
+               COALESCE(v.venta_2026_ytd, 0) AS venta_2026_ytd
         FROM ppto p
-        FULL OUTER JOIN venta v ON p.categoria = v.categoria
+        FULL OUTER JOIN venta26 v ON p.categoria = v.categoria
         ORDER BY ppto_total DESC
         """
-        df = pd.read_sql(sql, conn)
+        df = pd.read_sql(sql_cat, conn)
+
+        # Venta 2025 total (sin categoría)
+        sql_25 = f"""
+        SELECT SUM(CAST(VENTA AS float)) AS venta_2025_ytd
+        FROM BI_TOTAL_FACTURA
+        WHERE ANO = {ANO_ACT - 1} AND MES <= {MES_ACT}
+          AND {DW_FILTRO}
+        """
+        df_25 = pd.read_sql(sql_25, conn)
+        venta_2025_total = float(df_25.iloc[0]["venta_2025_ytd"] or 0) if len(df_25) > 0 else 0
         conn.close()
 
         df["cumpl_pct"] = (
             (df["venta_2026_ytd"] / df["ppto_total"].replace(0, float("nan"))) * 100
         ).fillna(0).round(1)
         df["gap"] = df["venta_2026_ytd"] - df["ppto_total"]
-        df["crec_pct"] = (
-            ((df["venta_2026_ytd"] / df["venta_2025_ytd"].replace(0, float("nan"))) - 1) * 100
-        ).fillna(0).round(1)
+        # Crecimiento solo a nivel total, no por categoría
+        df["venta_2025_ytd"] = 0  # placeholder per row
+        df["crec_pct"] = 0.0
 
-        return df.to_dict("records")
+        # Agregar venta_2025 total solo en el contexto general
+        records = df.to_dict("records")
+        # Agregar fila con el total 2025 para referencia
+        venta_2026_total = float(df["venta_2026_ytd"].sum())
+        crec_total = round(((venta_2026_total / venta_2025_total) - 1) * 100, 1) if venta_2025_total > 0 else 0
+        for rec in records:
+            rec["venta_2025_total"] = round(venta_2025_total)
+            rec["crec_total"] = crec_total
+
+        return records
     except Exception as e:
         return []
 

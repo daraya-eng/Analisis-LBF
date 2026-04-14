@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback, Fragment } from "react";
 import { api } from "@/lib/api";
 import { fmt, fmtAbs, fmtPct } from "@/lib/format";
 import {
-  ChevronDown, ChevronRight, Target, Award, Search,
+  ChevronDown, ChevronRight, Target, Award, Search, ShoppingCart, AlertTriangle,
 } from "lucide-react";
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip,
@@ -31,6 +31,7 @@ const PERIOD_OPTIONS = [
 const TABS = [
   { id: "desempeno", label: "Desempeno LBF", icon: Target },
   { id: "competidores", label: "Competidores", icon: Award },
+  { id: "cm", label: "Convenio Marco", icon: ShoppingCart },
 ];
 
 function KpiCard({ title, value, sub, color }: { title: string; value: string; sub?: string; color?: string }) {
@@ -347,6 +348,140 @@ function CompDetPanel({ det }: { det: any }) {
 }
 
 /* ════════════════════════════════════════════════════════
+   Tab 3: Convenio Marco
+   ════════════════════════════════════════════════════════ */
+function ConvenioMarcoTab() {
+  const [d, setD] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  useEffect(() => {
+    setLoading(true);
+    api.get<any>("/api/mercado/cm", { noCache: true })
+      .then(r => { setD(r); setLoading(false); })
+      .catch(() => setLoading(false));
+  }, []);
+  if (loading) return <div style={{ padding: 40, textAlign: "center", color: "#94A3B8" }}>Cargando...</div>;
+  if (!d?.kpis) return <div style={{ padding: 40, color: "#EF4444" }}>Error: {d?.error || "sin datos"}</div>;
+  const k = d.kpis;
+
+  const compChart = (d.competidores || []).slice(0, 10).map((c: any) => ({
+    name: c.proveedor.length > 25 ? c.proveedor.substring(0, 25) + "..." : c.proveedor,
+    monto: c.monto,
+  }));
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+      {/* KPIs */}
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+        <KpiCard title="Market Share LBF" value={`${k.share}%`} color="#3B82F6" sub={`Mercado: ${fmt(k.monto_mercado)}`} />
+        <KpiCard title="Monto LBF en CM" value={fmt(k.monto_lbf)} color="#10B981" sub={`${k.ocs_lbf.toLocaleString()} OCs`} />
+        <KpiCard title="Productos en CM" value={k.n_productos.toLocaleString()} color="#8B5CF6" />
+        <KpiCard title="Instituciones con Fuga" value={(d.fuga || []).length.toString()} color="#EF4444" sub="Lic. LBF + CM competidor" />
+      </div>
+
+      {/* Competidores en instituciones LBF */}
+      <div style={card}>
+        <h3 style={{ fontSize: 14, fontWeight: 700, color: "#0F172A", marginBottom: 16 }}>
+          Top Competidores CM en Instituciones con Licitacion LBF
+        </h3>
+        <ResponsiveContainer width="100%" height={Math.max(compChart.length * 40, 200)}>
+          <BarChart data={compChart} layout="vertical">
+            <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" />
+            <XAxis type="number" tickFormatter={(v: number) => fmt(v)} tick={{ fill: "#64748B", fontSize: 11 }} />
+            <YAxis dataKey="name" type="category" width={180} tick={{ fill: "#374151", fontSize: 11 }} />
+            <Tooltip formatter={(v: any) => fmtAbs(v)} contentStyle={tt} />
+            <Bar dataKey="monto" fill="#EF4444" radius={[0, 4, 4, 0]} />
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+        {/* Fuga: instituciones con lic LBF + CM competidor */}
+        <div style={{ ...card, borderTop: "3px solid #EF4444" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 12 }}>
+            <AlertTriangle size={16} style={{ color: "#EF4444" }} />
+            <h3 style={{ fontSize: 14, fontWeight: 700, color: "#EF4444" }}>Fuga por Convenio Marco</h3>
+          </div>
+          <p style={{ fontSize: 11, color: "#94A3B8", marginBottom: 12 }}>Instituciones donde LBF tiene licitacion pero compran a competidores por CM</p>
+          <div style={{ maxHeight: 400, overflow: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse" }}>
+              <thead><tr style={{ position: "sticky", top: 0, background: "white" }}>
+                <th style={thS}>Institucion</th><th style={thR}>OCs Comp.</th><th style={thR}>Monto Comp.</th><th style={thR}>Proveedores</th>
+              </tr></thead>
+              <tbody>
+                {(d.fuga || []).map((f: any, i: number) => (
+                  <tr key={f.rut} style={{ borderBottom: "1px solid #F1F5F9", background: rowBg(i) }}>
+                    <td style={{ ...td, maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis", fontSize: 12 }}>{f.nombre}</td>
+                    <td style={tdR}>{f.ocs_competidor}</td>
+                    <td style={{ ...tdR, fontWeight: 600, color: "#EF4444" }}>{fmt(f.monto_competidor)}</td>
+                    <td style={tdR}>{f.n_proveedores}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* Productos LBF en CM */}
+        <div style={{ ...card, borderTop: "3px solid #10B981" }}>
+          <h3 style={{ fontSize: 14, fontWeight: 700, color: "#10B981", marginBottom: 12 }}>Productos LBF en Convenio Marco</h3>
+          <table style={{ width: "100%", borderCollapse: "collapse" }}>
+            <thead><tr><th style={thS}>Tipo Producto</th><th style={thR}>OCs</th><th style={thR}>Monto</th></tr></thead>
+            <tbody>
+              {(d.productos_lbf || []).map((p: any, i: number) => (
+                <tr key={i} style={{ borderBottom: "1px solid #F1F5F9", background: rowBg(i) }}>
+                  <td style={{ ...td, maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis" }}>{p.tipo}</td>
+                  <td style={tdR}>{p.ocs}</td>
+                  <td style={{ ...tdR, fontWeight: 600 }}>{fmt(p.monto)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Competidores tabla detalle */}
+      <div style={card}>
+        <h3 style={{ fontSize: 14, fontWeight: 700, color: "#0F172A", marginBottom: 12 }}>Competidores CM en Instituciones LBF — Detalle</h3>
+        <table style={{ width: "100%", borderCollapse: "collapse" }}>
+          <thead><tr style={{ background: "#F8FAFC" }}>
+            <th style={thS}>Proveedor</th><th style={thR}>Instituciones</th><th style={thR}>OCs</th><th style={thR}>Monto</th>
+          </tr></thead>
+          <tbody>
+            {(d.competidores || []).map((c: any, i: number) => (
+              <tr key={i} style={{ borderBottom: "1px solid #F1F5F9", background: rowBg(i) }}>
+                <td style={{ ...td, fontWeight: 600, maxWidth: 260, overflow: "hidden", textOverflow: "ellipsis" }}>{c.proveedor}</td>
+                <td style={tdR}>{c.instituciones}</td>
+                <td style={tdR}>{c.ocs}</td>
+                <td style={{ ...tdR, fontWeight: 600 }}>{fmt(c.monto)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Clientes LBF en CM */}
+      <div style={card}>
+        <h3 style={{ fontSize: 14, fontWeight: 700, color: "#0F172A", marginBottom: 12 }}>Top Instituciones que Compran a LBF por CM</h3>
+        <table style={{ width: "100%", borderCollapse: "collapse" }}>
+          <thead><tr style={{ background: "#F8FAFC" }}>
+            <th style={thS}>Institucion</th><th style={thR}>OCs</th><th style={thR}>Monto</th>
+          </tr></thead>
+          <tbody>
+            {(d.clientes_lbf || []).map((c: any, i: number) => (
+              <tr key={i} style={{ borderBottom: "1px solid #F1F5F9", background: rowBg(i) }}>
+                <td style={{ ...td, maxWidth: 280, overflow: "hidden", textOverflow: "ellipsis" }}>{c.nombre}</td>
+                <td style={tdR}>{c.ocs}</td>
+                <td style={{ ...tdR, fontWeight: 600 }}>{fmt(c.monto)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+/* ════════════════════════════════════════════════════════
    Main Page
    ════════════════════════════════════════════════════════ */
 export default function MercadoPage() {
@@ -384,6 +519,7 @@ export default function MercadoPage() {
 
       {tab === "desempeno" && <DesempenoTab periodo={periodo} />}
       {tab === "competidores" && <CompetidoresTab periodo={periodo} />}
+      {tab === "cm" && <ConvenioMarcoTab />}
     </div>
   );
 }

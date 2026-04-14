@@ -53,9 +53,7 @@ interface CatRow {
   cumpl_contrib: number;
   cumpl_margen: number;
   venta: number;
-  venta_25: number;
   cumpl: number;
-  crec_vs_25: number;
   gap: number;
 }
 
@@ -174,12 +172,15 @@ const CAT_COLORS: Record<string, string> = {
 
 /* ─── Period filter options ─────────────────────────────────────────── */
 
-const PERIOD_OPTIONS = [
+const QUICK_PERIODS = [
   { value: "ytd", label: "YTD" },
   { value: "q1", label: "Q1" },
   { value: "q2", label: "Q2" },
   { value: "q3", label: "Q3" },
   { value: "q4", label: "Q4" },
+];
+
+const MONTH_OPTIONS = [
   { value: "mes-1", label: "Ene" },
   { value: "mes-2", label: "Feb" },
   { value: "mes-3", label: "Mar" },
@@ -275,75 +276,88 @@ export default function DashboardPage() {
 
   return (
     <div>
-      {/* Header with progress bar */}
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
-        <div style={{ flex: 1 }}>
+      {/* Header */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
+        <div>
           <h1 style={{ fontSize: 24, fontWeight: 800, color: "#0F172A", margin: 0 }}>Panel Principal</h1>
           <p style={{ fontSize: 13, color: "#64748B", margin: "4px 0 0" }}>
             Meta vs Venta &mdash; Todas las categorias (SQ, MAH, EQM, EVA)
           </p>
         </div>
-        {/* Cumplimiento progress bar */}
-        <div style={{ flex: "0 0 320px", marginRight: 16 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "#64748B", marginBottom: 4 }}>
-            <span>Cumplimiento Meta {periodLabel}</span>
-            <span style={{ fontWeight: 800, color: barColor, fontSize: 14 }}>
-              {semaforo(cumplPct)} {fmtPct(cumplPct)}
-            </span>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          {/* Period filter */}
+          <div style={{ display: "flex", gap: 2, background: "#F1F5F9", borderRadius: 8, padding: 3 }}>
+            {QUICK_PERIODS.map((opt) => (
+              <button
+                key={opt.value}
+                onClick={() => handlePeriod(opt.value)}
+                style={{
+                  padding: "6px 14px", borderRadius: 6, fontSize: 12, fontWeight: 600,
+                  border: "none",
+                  background: period === opt.value ? "white" : "transparent",
+                  color: period === opt.value ? "#1E40AF" : "#64748B",
+                  cursor: "pointer",
+                  boxShadow: period === opt.value ? "0 1px 3px rgba(0,0,0,0.1)" : "none",
+                  transition: "all 0.15s",
+                }}
+              >
+                {opt.label}
+              </button>
+            ))}
           </div>
-          <div style={{ height: 10, background: "#E2E8F0", borderRadius: 5, overflow: "hidden" }}>
-            <div style={{
-              height: "100%",
-              width: `${pctBar}%`,
-              background: barColor,
-              borderRadius: 5,
-              transition: "width 0.5s ease",
-            }} />
-          </div>
-          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "#94A3B8", marginTop: 3 }}>
-            <span>Venta: {fmtAbs(k.venta)}</span>
-            <span>Meta: {fmtAbs(k.meta_periodo)}</span>
-          </div>
+          <select
+            value={period.startsWith("mes-") ? period : ""}
+            onChange={(e) => { if (e.target.value) handlePeriod(e.target.value); }}
+            style={{
+              padding: "6px 10px", borderRadius: 8, fontSize: 12, fontWeight: 600,
+              border: period.startsWith("mes-") ? "2px solid #3B82F6" : "1px solid #E2E8F0",
+              background: period.startsWith("mes-") ? "#EFF6FF" : "white",
+              color: period.startsWith("mes-") ? "#1E40AF" : "#64748B",
+              cursor: "pointer", outline: "none",
+            }}
+          >
+            <option value="" disabled>Mes</option>
+            {MONTH_OPTIONS.map((opt) => (
+              <option key={opt.value} value={opt.value}>{opt.label}</option>
+            ))}
+          </select>
+          <button onClick={handleRefresh} style={{
+            display: "flex", alignItems: "center", gap: 6,
+            padding: "6px 14px", borderRadius: 8, border: "1px solid #E2E8F0",
+            background: "white", fontSize: 12, fontWeight: 600, color: "#374151", cursor: "pointer",
+          }}>
+            <RefreshCw size={13} /> Actualizar
+          </button>
         </div>
-        <button onClick={handleRefresh} style={{
-          display: "flex", alignItems: "center", gap: 8,
-          padding: "10px 20px", borderRadius: 10, border: "1px solid #E2E8F0",
-          background: "white", fontSize: 13, fontWeight: 600, color: "#374151", cursor: "pointer",
-        }}>
-          <RefreshCw size={14} /> Actualizar
-        </button>
       </div>
 
-      {/* ═══ GLOBAL PERIOD FILTER ═══ */}
+      {/* ═══ CUMPLIMIENTO BAR — prominent, centered ═══ */}
       <div style={{
-        display: "flex", alignItems: "center", gap: 12, marginBottom: 16,
-        padding: "12px 20px", background: "white", borderRadius: 10,
-        border: "1px solid #E2E8F0",
+        background: "white", borderRadius: 12, border: "1px solid #E2E8F0",
+        padding: "16px 24px", marginBottom: 16,
+        boxShadow: "0 1px 3px rgba(0,0,0,0.04)",
       }}>
-        <span style={{ fontSize: 13, fontWeight: 600, color: "#374151", whiteSpace: "nowrap" }}>
-          Periodo:
-        </span>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
-          {PERIOD_OPTIONS.map((opt) => (
-            <button
-              key={opt.value}
-              onClick={() => handlePeriod(opt.value)}
-              style={{
-                padding: "5px 12px", borderRadius: 6, fontSize: 12, fontWeight: 600,
-                border: period === opt.value ? "2px solid #3B82F6" : "1px solid #E2E8F0",
-                background: period === opt.value ? "#EFF6FF" : "white",
-                color: period === opt.value ? "#2563EB" : "#64748B",
-                cursor: "pointer",
-                transition: "all 0.15s",
-              }}
-            >
-              {opt.label}
-            </button>
-          ))}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+          <span style={{ fontSize: 14, fontWeight: 600, color: "#374151" }}>
+            Cumplimiento Meta {periodLabel}
+          </span>
+          <span style={{ fontWeight: 800, color: barColor, fontSize: 20 }}>
+            {semaforo(cumplPct)} {fmtPct(cumplPct)}
+          </span>
         </div>
-        <span style={{ fontSize: 13, fontWeight: 700, color: "#2563EB", marginLeft: 8 }}>
-          {periodLabel}
-        </span>
+        <div style={{ height: 14, background: "#E2E8F0", borderRadius: 7, overflow: "hidden" }}>
+          <div style={{
+            height: "100%",
+            width: `${pctBar}%`,
+            background: `linear-gradient(90deg, ${barColor}, ${barColor}dd)`,
+            borderRadius: 7,
+            transition: "width 0.5s ease",
+          }} />
+        </div>
+        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "#64748B", marginTop: 6 }}>
+          <span>Venta: <strong style={{ color: "#0F172A" }}>{fmtAbs(k.venta)}</strong></span>
+          <span>Meta: <strong style={{ color: "#0F172A" }}>{fmtAbs(k.meta_periodo)}</strong></span>
+        </div>
       </div>
 
       {/* ═══ KPIs ROW 1 ═══ */}
@@ -507,15 +521,12 @@ export default function DashboardPage() {
               <th style={thR}>Gap</th>
               <th style={thR}>Cumpl. Venta</th>
               <th style={thR}>Margen %</th>
-              <th style={thR}>Venta 2025</th>
-              <th style={thR}>Crec. vs 25</th>
             </tr>
           </thead>
           <tbody>
             {catData.map((row, i) => {
               const isTotal = row.categoria === "Total";
               const cumplColor = row.cumpl >= 100 ? "#10B981" : row.cumpl >= 80 ? "#F59E0B" : "#EF4444";
-              const crecColor = row.crec_vs_25 >= 0 ? "#10B981" : "#EF4444";
               return (
                 <tr key={i} style={{
                   borderBottom: "1px solid #F1F5F9",
@@ -538,10 +549,6 @@ export default function DashboardPage() {
                   </td>
                   <td style={tdR}>
                     <MarginGauge real={row.margen_real} meta={row.margen_meta} />
-                  </td>
-                  <td style={tdR}>{fmtAbs(row.venta_25)}</td>
-                  <td style={{ ...tdR, fontWeight: 600, color: crecColor }}>
-                    {row.crec_vs_25 >= 0 ? "+" : ""}{fmtPct(row.crec_vs_25)}
                   </td>
                 </tr>
               );

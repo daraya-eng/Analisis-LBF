@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import { api, clearClientCache } from "@/lib/api";
 import { fmtAbs, fmtPct } from "@/lib/format";
 import { RefreshCw } from "lucide-react";
+import HelpButton from "@/components/help-button";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, Legend, Line, ComposedChart, LabelList,
@@ -152,7 +153,10 @@ export default function MultiProductoPage() {
       {/* Header */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
         <div>
-          <h1 style={{ fontSize: 24, fontWeight: 800, color: "#0F172A", margin: 0 }}>Cliente MultiProducto</h1>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <h1 style={{ fontSize: 24, fontWeight: 800, color: "#0F172A", margin: 0 }}>Cliente MultiProducto</h1>
+            <HelpButton module="categoria" />
+          </div>
           <p style={{ fontSize: 13, color: "#64748B", margin: "4px 0 0" }}>
             Seguimiento de ventas 2025 vs 2026 — partner con precios especiales
           </p>

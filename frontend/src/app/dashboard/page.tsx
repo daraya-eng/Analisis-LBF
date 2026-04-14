@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import { api, clearClientCache } from "@/lib/api";
 import { fmtAbs, fmtPct, semaforo, fmt } from "@/lib/format";
 import { RefreshCw } from "lucide-react";
+import HelpButton from "@/components/help-button";
 import {
   ComposedChart,
   Bar,
@@ -279,7 +280,10 @@ export default function DashboardPage() {
       {/* Header */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
         <div>
-          <h1 style={{ fontSize: 24, fontWeight: 800, color: "#0F172A", margin: 0 }}>Panel Principal</h1>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <h1 style={{ fontSize: 24, fontWeight: 800, color: "#0F172A", margin: 0 }}>Panel Principal</h1>
+            <HelpButton module="dashboard" />
+          </div>
           <p style={{ fontSize: 13, color: "#64748B", margin: "4px 0 0" }}>
             Meta vs Venta &mdash; Todas las categorias (SQ, MAH, EQM, EVA)
           </p>

@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import { api, clearClientCache } from "@/lib/api";
 import { fmtAbs, fmtPct, fmt } from "@/lib/format";
 import { RefreshCw, ChevronDown, ChevronRight, TrendingDown, TrendingUp } from "lucide-react";
+import HelpButton from "@/components/help-button";
 import {
   ResponsiveContainer,
   BarChart,
@@ -475,7 +476,10 @@ export default function ClientesPage() {
       {/* Header */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
         <div>
-          <h1 style={{ fontSize: 24, fontWeight: 800, color: "#0F172A", margin: 0 }}>Analisis de Clientes y Precios</h1>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <h1 style={{ fontSize: 24, fontWeight: 800, color: "#0F172A", margin: 0 }}>Analisis de Clientes y Precios</h1>
+            <HelpButton module="clientes" />
+          </div>
           <p style={{ fontSize: 13, color: "#64748B", margin: "4px 0 0" }}>
             Venta 2026 (SQ/MAH/EQM/EVA) vs Venta total 2025 — Impacto precio/volumen
           </p>

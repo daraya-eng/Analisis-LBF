@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback, Fragment } from "react";
 import { api, clearClientCache } from "@/lib/api";
 import { fmtAbs, fmtPct, semaforo, fmt } from "@/lib/format";
 import { RefreshCw, ChevronDown, ChevronRight } from "lucide-react";
+import HelpButton from "@/components/help-button";
 import {
   ResponsiveContainer,
   ComposedChart,
@@ -333,7 +334,10 @@ export default function TeleventasPage() {
       {/* Header */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
         <div>
-          <h1 style={{ fontSize: 24, fontWeight: 800, color: "#0F172A", margin: 0 }}>Televentas</h1>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <h1 style={{ fontSize: 24, fontWeight: 800, color: "#0F172A", margin: 0 }}>Televentas</h1>
+            <HelpButton module="televentas" />
+          </div>
           <p style={{ fontSize: 13, color: "#64748B", margin: "4px 0 0" }}>
             PPTO vs Venta (Facturas + Guias) &mdash; Canal 16-TELEVENTAS
           </p>

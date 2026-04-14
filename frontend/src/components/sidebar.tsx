@@ -15,6 +15,7 @@ import {
   ChevronRight,
   Receipt,
   Shield,
+  BookOpen,
 } from "lucide-react";
 import { useState } from "react";
 
@@ -26,6 +27,7 @@ const NAV_ITEMS = [
   { href: "/dashboard/categoria", label: "MultiProducto", icon: Package, module: "categoria" },
   { href: "/dashboard/mercado", label: "Análisis de Mercado", icon: BarChart3, module: "mercado" },
   { href: "/dashboard/facturacion", label: "Adj. vs Facturado", icon: Receipt, module: "facturacion" },
+  { href: "/dashboard/glosario", label: "Glosario", icon: BookOpen, module: "dashboard" },
 ];
 
 export default function Sidebar() {

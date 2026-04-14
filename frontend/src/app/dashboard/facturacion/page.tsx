@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback, Fragment } from "react";
 import { api, apiFetch } from "@/lib/api";
 import { fmt, fmtAbs, fmtPct } from "@/lib/format";
 import { ChevronDown, ChevronRight, MessageSquare } from "lucide-react";
+import HelpButton from "@/components/help-button";
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip,
   CartesianGrid, Cell, LabelList,
@@ -336,7 +337,10 @@ export default function FacturacionPage() {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
       <div>
-        <h1 style={{ fontSize: 22, fontWeight: 700, color: "#0F172A", marginBottom: 4 }}>Adjudicado vs Facturado</h1>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <h1 style={{ fontSize: 22, fontWeight: 700, color: "#0F172A", marginBottom: 4 }}>Adjudicado vs Facturado</h1>
+          <HelpButton module="facturacion" />
+        </div>
         <p style={{ fontSize: 13, color: "#94A3B8" }}>Licitaciones vigentes — seguimiento de facturación contra montos adjudicados (solo facturación tipo Licitación)</p>
       </div>
 

@@ -6,6 +6,7 @@ import { fmt, fmtAbs, fmtPct } from "@/lib/format";
 import {
   ChevronDown, ChevronRight, Target, Award, Search, ShoppingCart, AlertTriangle,
 } from "lucide-react";
+import HelpButton from "@/components/help-button";
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip,
   CartesianGrid, Cell, Legend,
@@ -491,7 +492,10 @@ export default function MercadoPage() {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
       <div>
-        <h1 style={{ fontSize: 22, fontWeight: 700, color: "#0F172A", marginBottom: 4 }}>Analisis de Mercado</h1>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <h1 style={{ fontSize: 22, fontWeight: 700, color: "#0F172A", marginBottom: 4 }}>Analisis de Mercado</h1>
+          <HelpButton module="mercado" />
+        </div>
         <p style={{ fontSize: 13, color: "#94A3B8" }}>Desempeno en licitaciones, participacion y competidores</p>
       </div>
 

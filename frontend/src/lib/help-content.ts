@@ -32,7 +32,7 @@ export const HELP: Record<string, ModuleHelp> = {
       { term: "Gap", definition: "Diferencia entre venta real y meta. Negativo = falta vender. Positivo = supera la meta." },
       { term: "Crec. vs 2025", definition: "Crecimiento porcentual de la venta 2026 vs el mismo periodo de 2025. La venta 2025 se trae por cliente y periodo (sin filtrar por categoria, ya que la categorizacion cambio entre anos)." },
       ...CATEGORIAS_HELP,
-      { term: "Margen %", definition: "Contribucion / Venta x 100. Mide la rentabilidad de cada venta. Semaforo: <30% rojo, 30-40% amarillo, >=40% verde." },
+      { term: "Margen % (Margen Bruto)", definition: "Margen bruto de producto: (Venta - Costo) / Venta x 100. El costo corresponde al costo directo del producto, sin incluir costos logisticos, comisiones u otros gastos variables. Semaforo: <30% rojo, 30-40% amarillo, >=40% verde." },
     ],
   },
   televentas: {
@@ -54,7 +54,7 @@ export const HELP: Record<string, ModuleHelp> = {
       { term: "Zona", definition: "Division geografica de ventas (ej: STGO 1, ZONA SUR, V REGION). V REGION y V REGION II se unifican." },
       { term: "Mix de Categorias", definition: "Peso porcentual de cada categoria (SQ, MAH, EQM, EVA) en la venta total de la zona. Se compara con el mix del presupuesto para detectar desalineaciones." },
       { term: "Delta (mix)", definition: "Diferencia entre el peso real y el presupuestado de cada categoria. Verde = vende mas de lo presupuestado. Rojo = vende menos." },
-      { term: "Margen Meta", definition: "Margen % objetivo definido en Meta_Categoria. Se usa como referencia para evaluar si el margen real esta en linea." },
+      { term: "Margen Meta", definition: "Margen bruto % objetivo definido en Meta_Categoria. Se usa como referencia para evaluar si el margen bruto real esta en linea con lo presupuestado." },
       { term: "Top 25 Clientes", definition: "Los 25 clientes con mayor gap (diferencia venta - meta) en la zona seleccionada." },
     ],
   },

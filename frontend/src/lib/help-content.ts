@@ -32,7 +32,7 @@ export const HELP: Record<string, ModuleHelp> = {
       { term: "Gap", definition: "Diferencia entre venta real y meta. Negativo = falta vender. Positivo = supera la meta." },
       { term: "Crec. vs 2025", definition: "Crecimiento porcentual de la venta 2026 vs el mismo periodo de 2025. La venta 2025 se trae por cliente y periodo (sin filtrar por categoria, ya que la categorizacion cambio entre anos)." },
       ...CATEGORIAS_HELP,
-      { term: "Margen % (Margen Bruto)", definition: "Margen bruto de producto: (Venta - Costo) / Venta x 100. El costo corresponde al costo directo del producto, sin incluir costos logisticos, comisiones u otros gastos variables. Semaforo: <30% rojo, 30-40% amarillo, >=40% verde." },
+      { term: "Margen % (Margen Bruto)", definition: "Margen bruto de producto: (Venta - Costo) / Venta x 100. El costo es el costo promedio ponderado puesto en bodega (no incluye costos logisticos de despacho, comisiones ni otros gastos variables). Semaforo: <30% rojo, 30-40% amarillo, >=40% verde." },
     ],
   },
   televentas: {

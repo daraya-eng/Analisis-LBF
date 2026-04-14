@@ -63,6 +63,19 @@ def _load_facturacion() -> dict:
         if rut:
             kam_map[rut] = str(r[1] or "").strip()
 
+    # Fallback: FFVV_ZONA de licitaciones para RUTs sin KAM en BI
+    cur.execute("""
+        SELECT rut_cliente, MAX(FFVV_ZONA) AS zona
+        FROM vw_LICITACIONES_CATEGORIZADAS
+        WHERE EsLBF = 1 AND FFVV_ZONA IS NOT NULL AND FFVV_ZONA != ''
+        GROUP BY rut_cliente
+    """)
+    zona_map = {}
+    for r in cur.fetchall():
+        rut = str(r[0] or "").strip()
+        if rut and rut not in kam_map:
+            zona_map[rut] = str(r[1] or "").strip()
+
     # ── Licitaciones vigentes LBF, ordenadas por fecha_termino ASC ──
     cur.execute(f"""
         WITH adj AS (
@@ -106,7 +119,7 @@ def _load_facturacion() -> dict:
             urgentes += 1
         sem = "red" if dias <= 30 else ("yellow" if dias <= 90 else "green")
         rut_str = str(r[1] or "").strip()
-        kam = kam_map.get(rut_str, "Sin KAM")
+        kam = kam_map.get(rut_str) or zona_map.get(rut_str, "Sin KAM")
         row = {
             "licitacion": str(r[0] or "").strip(),
             "rut": rut_str,
@@ -184,7 +197,7 @@ def _load_facturacion() -> dict:
             "cumplimiento": pct,
             "dias_mas_pronto": dias,
             "semaforo": "red" if pct < 50 else ("yellow" if pct < 80 else "green"),
-            "kam": kam_map.get(rut_str, "Sin KAM"),
+            "kam": kam_map.get(rut_str) or zona_map.get(rut_str, "Sin KAM"),
         })
 
     # ── Canales de venta (para contexto) ──
@@ -219,9 +232,12 @@ def _load_facturacion() -> dict:
         if n:
             u["nota"] = n
 
+    # Lista de KAMs únicos para filtro
+    kams_set = sorted(set(l["kam"] for l in licitaciones))
+
     return {"kpis": kpis, "licitaciones": licitaciones, "clientes": clientes,
             "canales": canales, "urgentes_reales": urgentes_reales,
-            "mes_nombre": _MES_NOMBRE}
+            "mes_nombre": _MES_NOMBRE, "kams": kams_set}
 
 
 def _load_detalle_licitacion(licitacion: str) -> dict:

@@ -271,6 +271,7 @@ export default function FacturacionPage() {
   const [tab, setTab] = useState<TabId>("urgentes");
   const [filtroAno, setFiltroAno] = useState<string>("todos");
   const [filtroMes, setFiltroMes] = useState<string>("todos");
+  const [filtroKam, setFiltroKam] = useState<string>("todos");
 
   useEffect(() => {
     setLoading(true);
@@ -303,8 +304,12 @@ export default function FacturacionPage() {
     7:"Julio",8:"Agosto",9:"Septiembre",10:"Octubre",11:"Noviembre",12:"Diciembre"
   };
 
+  // KAMs disponibles
+  const kamsDisponibles: string[] = data.kams || [];
+
   // Filtrar licitaciones
   const licFiltradas = licitaciones.filter(l => {
+    if (filtroKam !== "todos" && l.kam !== filtroKam) return false;
     const p = parseFechaTermino(l.fecha_termino);
     if (!p) return true;
     if (filtroAno !== "todos" && p.year !== parseInt(filtroAno)) return false;
@@ -312,9 +317,12 @@ export default function FacturacionPage() {
     return true;
   });
 
+  // Filtrar urgentes por KAM
+  const urgentesFiltradas = filtroKam !== "todos" ? urgentes.filter((u: any) => u.kam === filtroKam) : urgentes;
+
   // Agrupar urgentes por KAM
   const kamMap: Record<string, { kam: string; count: number; gap: number; adj: number; fac: number }> = {};
-  for (const u of urgentes) {
+  for (const u of urgentesFiltradas) {
     const k2 = u.kam || "Sin KAM";
     if (!kamMap[k2]) kamMap[k2] = { kam: k2, count: 0, gap: 0, adj: 0, fac: 0 };
     kamMap[k2].count++;
@@ -408,11 +416,25 @@ export default function FacturacionPage() {
       {/* ═══ Tab: Urgentes mes ═══ */}
       {tab === "urgentes" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          {/* Filtro KAM */}
+          <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+            <span style={{ fontSize: 12, color: "#64748B", fontWeight: 600 }}>Filtrar:</span>
+            <select value={filtroKam} onChange={e => setFiltroKam(e.target.value)} style={selectStyle}>
+              <option value="todos">Todos los KAM</option>
+              {kamsDisponibles.map(k2 => <option key={k2} value={k2}>{k2}</option>)}
+            </select>
+            {filtroKam !== "todos" && (
+              <button onClick={() => setFiltroKam("todos")}
+                style={{ ...selectStyle, color: "#EF4444", borderColor: "#FECACA", cursor: "pointer" }}>
+                Limpiar
+              </button>
+            )}
+          </div>
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-            <KpiCard title={`Vencen en ${mesNombre}`} value={k.urgentes_reales.toString()} color="#EF4444" sub="Vencen este mes, < 100% facturado" />
-            <KpiCard title={`Adjudicado ${mesNombre}`} value={fmt(k.urgentes_reales_adj)} />
-            <KpiCard title="Facturado" value={fmt(k.urgentes_reales_fac)} color="#10B981" />
-            <KpiCard title="Gap Recuperable" value={fmt(k.urgentes_reales_gap)} color="#EF4444" sub="Si no se factura, se pierde" />
+            <KpiCard title={`Vencen en ${mesNombre}`} value={urgentesFiltradas.length.toString()} color="#EF4444" sub="Vencen este mes, < 100% facturado" />
+            <KpiCard title={`Adjudicado ${mesNombre}`} value={fmt(urgentesFiltradas.reduce((s: number, u: any) => s + u.adjudicado, 0))} />
+            <KpiCard title="Facturado" value={fmt(urgentesFiltradas.reduce((s: number, u: any) => s + u.facturado, 0))} color="#10B981" />
+            <KpiCard title="Gap Recuperable" value={fmt(urgentesFiltradas.reduce((s: number, u: any) => s + u.adjudicado - u.facturado, 0))} color="#EF4444" sub="Si no se factura, se pierde" />
           </div>
 
           {/* Resumen por KAM */}
@@ -467,7 +489,7 @@ export default function FacturacionPage() {
                 </tr>
               </thead>
               <tbody>
-                <LicTable rows={urgentes} colCount={LIC_COLS} />
+                <LicTable rows={urgentesFiltradas} colCount={LIC_COLS} />
               </tbody>
             </table>
           </div>
@@ -478,8 +500,12 @@ export default function FacturacionPage() {
       {tab === "licitaciones" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           {/* Filtros */}
-          <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-            <span style={{ fontSize: 12, color: "#64748B", fontWeight: 600 }}>Filtrar por término:</span>
+          <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+            <span style={{ fontSize: 12, color: "#64748B", fontWeight: 600 }}>Filtrar:</span>
+            <select value={filtroKam} onChange={e => setFiltroKam(e.target.value)} style={selectStyle}>
+              <option value="todos">Todos los KAM</option>
+              {kamsDisponibles.map(k2 => <option key={k2} value={k2}>{k2}</option>)}
+            </select>
             <select value={filtroAno} onChange={e => setFiltroAno(e.target.value)} style={selectStyle}>
               <option value="todos">Todos los años</option>
               {anos.map(a => <option key={a} value={a}>{a}</option>)}
@@ -488,8 +514,8 @@ export default function FacturacionPage() {
               <option value="todos">Todos los meses</option>
               {meses.map(m => <option key={m} value={m}>{MESES_NOMBRE[m]}</option>)}
             </select>
-            {(filtroAno !== "todos" || filtroMes !== "todos") && (
-              <button onClick={() => { setFiltroAno("todos"); setFiltroMes("todos"); }}
+            {(filtroAno !== "todos" || filtroMes !== "todos" || filtroKam !== "todos") && (
+              <button onClick={() => { setFiltroAno("todos"); setFiltroMes("todos"); setFiltroKam("todos"); }}
                 style={{ ...selectStyle, color: "#EF4444", borderColor: "#FECACA", cursor: "pointer" }}>
                 Limpiar
               </button>

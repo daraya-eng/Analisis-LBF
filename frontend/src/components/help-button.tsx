@@ -47,7 +47,7 @@ export default function HelpButton({ module }: HelpButtonProps) {
         <div
           ref={panelRef}
           style={{
-            position: "absolute", top: 36, right: 0, zIndex: 50,
+            position: "absolute", top: 36, left: 0, zIndex: 50,
             width: 380, maxHeight: 480, overflowY: "auto",
             background: "white", borderRadius: 12,
             border: "1px solid #E2E8F0",

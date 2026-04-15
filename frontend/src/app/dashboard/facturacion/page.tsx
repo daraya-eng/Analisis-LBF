@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback, Fragment } from "react";
 import { api, apiFetch } from "@/lib/api";
 import { fmt, fmtAbs, fmtPct } from "@/lib/format";
-import { ChevronDown, ChevronRight, MessageSquare } from "lucide-react";
+import { ChevronDown, ChevronRight, MessageSquare, Mail } from "lucide-react";
 import HelpButton from "@/components/help-button";
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip,
@@ -254,6 +254,59 @@ function LicTable({ rows, colCount }: { rows: any[]; colCount: number }) {
 
 type TabId = "urgentes" | "licitaciones" | "clientes";
 
+/* ─── Helper: generar email KAM ──── */
+function kamToEmail(kam: string): string {
+  if (!kam || kam === "Sin KAM") return "";
+  // Normalizar: quitar tildes
+  const norm = (s: string) => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+  const parts = kam.trim().split(/\s+/);
+  if (parts.length < 2) return "";
+  const inicial = norm(parts[0])[0];
+  const apellido = norm(parts[parts.length - 1]);
+  return `${inicial}${apellido}@lbf.cl`;
+}
+
+function buildMailtoLic(kam: string, lics: any[], tab: "urgentes" | "licitaciones") {
+  const email = kamToEmail(kam);
+  if (!email) return "";
+
+  const hoy = new Date().toLocaleDateString("es-CL", { day: "2-digit", month: "long", year: "numeric" });
+  const esUrgente = tab === "urgentes";
+  const subject = esUrgente
+    ? `Seguimiento Licitaciones Urgentes - ${kam}`
+    : `Seguimiento Licitaciones - ${kam}`;
+
+  // Ordenar por cumplimiento ascendente (más críticas primero)
+  const sorted = [...lics].sort((a, b) => a.cumplimiento - b.cumplimiento);
+
+  let body = `Hola ${kam.split(" ")[0]},\n\n`;
+  body += esUrgente
+    ? `Te comparto el estado de tus licitaciones que vencen este mes y requieren atención:\n\n`
+    : `Te comparto el estado actualizado de tus licitaciones al ${hoy}:\n\n`;
+
+  // Resumen
+  const totalAdj = sorted.reduce((s, l) => s + (l.adjudicado || 0), 0);
+  const totalFac = sorted.reduce((s, l) => s + (l.facturado || 0), 0);
+  const totalGap = totalAdj - totalFac;
+  const pctGlobal = totalAdj > 0 ? Math.round(totalFac / totalAdj * 100) : 0;
+  body += `RESUMEN: ${sorted.length} licitaciones | Adjudicado: $${totalAdj.toLocaleString("es-CL")} | Facturado: $${totalFac.toLocaleString("es-CL")} | Gap: $${totalGap.toLocaleString("es-CL")} | Cumpl: ${pctGlobal}%\n\n`;
+  body += `─────────────────────────────────────\n`;
+
+  for (const l of sorted) {
+    const gap = (l.adjudicado || 0) - (l.facturado || 0);
+    body += `• ${l.licitacion} — ${l.cliente}\n`;
+    body += `  Adjudicado: $${(l.adjudicado || 0).toLocaleString("es-CL")} | Facturado: $${(l.facturado || 0).toLocaleString("es-CL")} | Gap: $${gap.toLocaleString("es-CL")} | Cumpl: ${l.cumplimiento}%`;
+    if (l.fecha_termino) body += ` | Término: ${l.fecha_termino}`;
+    if (l.dias != null) body += ` (${l.dias} días)`;
+    body += `\n\n`;
+  }
+
+  body += `─────────────────────────────────────\n`;
+  body += `Saludos,\nAnálisis Comercial LBF`;
+
+  return `mailto:${email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+}
+
 /* ─── Helper: parse dd-mm-yyyy to extract year/month ──── */
 function parseFechaTermino(ft: string): { year: number; month: number } | null {
   if (!ft || ft.length < 10) return null;
@@ -424,10 +477,19 @@ export default function FacturacionPage() {
               {kamsDisponibles.map(k2 => <option key={k2} value={k2}>{k2}</option>)}
             </select>
             {filtroKam !== "todos" && (
-              <button onClick={() => setFiltroKam("todos")}
-                style={{ ...selectStyle, color: "#EF4444", borderColor: "#FECACA", cursor: "pointer" }}>
-                Limpiar
-              </button>
+              <>
+                <button onClick={() => setFiltroKam("todos")}
+                  style={{ ...selectStyle, color: "#EF4444", borderColor: "#FECACA", cursor: "pointer" }}>
+                  Limpiar
+                </button>
+                {kamToEmail(filtroKam) && (
+                  <a href={buildMailtoLic(filtroKam, urgentesFiltradas, "urgentes")}
+                    style={{ ...selectStyle, display: "inline-flex", alignItems: "center", gap: 5,
+                      color: "#2563EB", borderColor: "#BFDBFE", textDecoration: "none", cursor: "pointer" }}>
+                    <Mail size={14} /> Enviar a {filtroKam.split(" ")[0]}
+                  </a>
+                )}
+              </>
             )}
           </div>
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
@@ -519,6 +581,13 @@ export default function FacturacionPage() {
                 style={{ ...selectStyle, color: "#EF4444", borderColor: "#FECACA", cursor: "pointer" }}>
                 Limpiar
               </button>
+            )}
+            {filtroKam !== "todos" && kamToEmail(filtroKam) && (
+              <a href={buildMailtoLic(filtroKam, licFiltradas, "licitaciones")}
+                style={{ ...selectStyle, display: "inline-flex", alignItems: "center", gap: 5,
+                  color: "#2563EB", borderColor: "#BFDBFE", textDecoration: "none", cursor: "pointer" }}>
+                <Mail size={14} /> Enviar a {filtroKam.split(" ")[0]}
+              </a>
             )}
             <span style={{ fontSize: 12, color: "#94A3B8", marginLeft: 8 }}>
               {licFiltradas.length} de {licitaciones.length} licitaciones

@@ -25,6 +25,7 @@ ALL_MODULES = [
     "categoria",
     "mercado",
     "facturacion",
+    "stock",
 ]
 
 MODULE_LABELS = {
@@ -35,6 +36,7 @@ MODULE_LABELS = {
     "categoria": "MultiProducto",
     "mercado": "Análisis de Mercado",
     "facturacion": "Adj. vs Facturado",
+    "stock": "Inventario",
 }
 
 # ── User storage (JSON file) ─────────────────────────────────────────────────

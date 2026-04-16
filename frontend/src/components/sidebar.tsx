@@ -16,6 +16,7 @@ import {
   Receipt,
   Shield,
   BookOpen,
+  Warehouse,
 } from "lucide-react";
 import { useState } from "react";
 
@@ -27,6 +28,7 @@ const NAV_ITEMS = [
   { href: "/dashboard/categoria", label: "MultiProducto", icon: Package, module: "categoria" },
   { href: "/dashboard/mercado", label: "Análisis de Mercado", icon: BarChart3, module: "mercado" },
   { href: "/dashboard/facturacion", label: "Adj. vs Facturado", icon: Receipt, module: "facturacion" },
+  { href: "/dashboard/stock", label: "Inventario", icon: Warehouse, module: "stock" },
   { href: "/dashboard/glosario", label: "Glosario", icon: BookOpen, module: "dashboard" },
 ];
 

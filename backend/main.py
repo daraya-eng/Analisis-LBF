@@ -3,7 +3,7 @@ LBF Advanced Analytics — FastAPI Backend
 """
 from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
-from routes import auth_routes, dashboard_routes, zona_routes, categoria_routes, resumen_routes, televentas_routes, multiproducto_routes, clientes_routes, mercado_routes, facturacion_routes
+from routes import auth_routes, dashboard_routes, zona_routes, categoria_routes, resumen_routes, televentas_routes, multiproducto_routes, clientes_routes, mercado_routes, facturacion_routes, stock_routes
 from auth import get_current_user
 from cache import clear_mem_cache
 
@@ -27,6 +27,7 @@ app.include_router(multiproducto_routes.router, prefix="/api/multiproducto", tag
 app.include_router(clientes_routes.router, prefix="/api/clientes", tags=["clientes"])
 app.include_router(mercado_routes.router, prefix="/api/mercado", tags=["mercado"])
 app.include_router(facturacion_routes.router, prefix="/api/facturacion", tags=["facturacion"])
+app.include_router(stock_routes.router, prefix="/api/stock", tags=["stock"])
 
 
 @app.get("/api/health")

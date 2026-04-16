@@ -13,6 +13,7 @@ const PATH_TO_MODULE: Record<string, string> = {
   categoria: "categoria",
   mercado: "mercado",
   facturacion: "facturacion",
+  stock: "stock",
 };
 
 export default function DashboardLayout({

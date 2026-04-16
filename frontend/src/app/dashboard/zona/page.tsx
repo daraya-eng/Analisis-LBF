@@ -190,7 +190,7 @@ function ClientDetail({ zona, categoria, period }: { zona: string; categoria: st
 export default function ZonaPage() {
   const [data, setData] = useState<ZonaData | null>(null);
   const [loading, setLoading] = useState(true);
-  const [period, setPeriod] = useState("ytd");
+  const [period, setPeriod] = useState(`mes-${new Date().getMonth() + 1}`);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [expandedCat, setExpandedCat] = useState<string | null>(null); // "ZONA|CAT"
 

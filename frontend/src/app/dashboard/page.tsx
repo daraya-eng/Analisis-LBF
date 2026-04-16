@@ -73,6 +73,8 @@ interface VentaMensual {
   meta: number;
   venta: number;
   cumplimiento: number | null;
+  contrib: number;
+  margen: number | null;
   SQ: number;
   EVA: number;
   MAH: number;
@@ -201,7 +203,7 @@ const MONTH_OPTIONS = [
 export default function DashboardPage() {
   const [data, setData] = useState<DashData | null>(null);
   const [loading, setLoading] = useState(true);
-  const [period, setPeriod] = useState("ytd");
+  const [period, setPeriod] = useState(`mes-${new Date().getMonth() + 1}`);
 
   const fetchDashboard = useCallback(async (periodo: string) => {
     setLoading(true);
@@ -260,9 +262,11 @@ export default function DashboardPage() {
     return null;
   };
   const selectedMeses = getSelectedMeses(period);
+  const currentMonth = new Date().getMonth() + 1; // 1-based
+  const allMonthly = data?.ventas_mensuales ?? [];
   const chartData = selectedMeses
-    ? (data?.ventas_mensuales ?? []).filter(m => selectedMeses.includes(m.MES))
-    : (data?.ventas_mensuales ?? []);
+    ? allMonthly.filter(m => selectedMeses.includes(m.MES) && m.MES <= currentMonth)
+    : allMonthly.filter(m => m.MES <= currentMonth);
 
   const segPieData = segData.map(s => ({
     name: s.segmento === "PUBLICO" ? "Publico" : "Privado",
@@ -461,6 +465,63 @@ export default function DashboardPage() {
               />
             </ComposedChart>
           </ResponsiveContainer>
+
+          {/* ── Tabla de valores absolutos ── */}
+          <div style={{ overflowX: "auto", marginTop: 12 }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+              <thead>
+                <tr style={{ borderBottom: "2px solid #E2E8F0" }}>
+                  <th style={{ textAlign: "left", padding: "6px 8px", color: "#64748B", fontWeight: 600 }}>Mes</th>
+                  {chartData.map(m => (
+                    <th key={m.MES} style={{ textAlign: "right", padding: "6px 8px", color: "#64748B", fontWeight: 600 }}>
+                      {m.mes_nombre}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                <tr style={{ borderBottom: "1px solid #F1F5F9" }}>
+                  <td style={{ padding: "5px 8px", fontWeight: 600, color: "#8B5CF6" }}>Meta</td>
+                  {chartData.map(m => (
+                    <td key={m.MES} style={{ textAlign: "right", padding: "5px 8px", color: "#334155" }}>{fmt(m.meta)}</td>
+                  ))}
+                </tr>
+                <tr style={{ borderBottom: "1px solid #F1F5F9" }}>
+                  <td style={{ padding: "5px 8px", fontWeight: 600, color: "#10B981" }}>Venta</td>
+                  {chartData.map(m => (
+                    <td key={m.MES} style={{ textAlign: "right", padding: "5px 8px", color: "#334155" }}>{fmt(m.venta)}</td>
+                  ))}
+                </tr>
+                <tr style={{ borderBottom: "1px solid #F1F5F9" }}>
+                  <td style={{ padding: "5px 8px", fontWeight: 600, color: "#64748B" }}>Gap</td>
+                  {chartData.map(m => {
+                    const gap = m.venta - m.meta;
+                    return (
+                      <td key={m.MES} style={{ textAlign: "right", padding: "5px 8px", color: gap >= 0 ? "#10B981" : "#EF4444", fontWeight: 500 }}>
+                        {fmt(gap)}
+                      </td>
+                    );
+                  })}
+                </tr>
+                <tr style={{ borderBottom: "1px solid #F1F5F9" }}>
+                  <td style={{ padding: "5px 8px", fontWeight: 600, color: "#F59E0B" }}>Cumpl.</td>
+                  {chartData.map(m => (
+                    <td key={m.MES} style={{ textAlign: "right", padding: "5px 8px", color: "#334155" }}>
+                      {m.cumplimiento != null ? `${m.cumplimiento.toFixed(1)}%` : "—"}
+                    </td>
+                  ))}
+                </tr>
+                <tr>
+                  <td style={{ padding: "5px 8px", fontWeight: 600, color: "#0EA5E9" }}>Margen</td>
+                  {chartData.map(m => (
+                    <td key={m.MES} style={{ textAlign: "right", padding: "5px 8px", color: "#334155" }}>
+                      {m.margen != null ? `${m.margen.toFixed(1)}%` : "—"}
+                    </td>
+                  ))}
+                </tr>
+              </tbody>
+            </table>
+          </div>
         </div>
 
         {/* Pie chart: Segmento */}

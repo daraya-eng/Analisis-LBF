@@ -3,11 +3,13 @@ Adjudicado vs Facturado — Licitaciones vigentes con cruce BI_TOTAL_FACTURA.
 Solo facturación con TIPO_OC='LICITACION'.
 """
 import datetime
+import io
 import json
 import os
 from fastapi import APIRouter, Depends, Query
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, List
 from auth import get_current_user
 from db import get_conn, hoy
 from cache import mem_get, mem_set, _mem_cache
@@ -326,6 +328,320 @@ async def get_detalle_licitacion(
         return data
     except Exception as e:
         return {"error": str(e), "adjudicados": [], "facturados": []}
+
+
+class DetalleBatchBody(BaseModel):
+    licitaciones: List[str]
+
+
+@router.post("/detalle-batch")
+async def get_detalle_batch(
+    body: DetalleBatchBody,
+    current_user: dict = Depends(get_current_user),
+):
+    """Detalle de productos para múltiples licitaciones (para email)."""
+    try:
+        if not body.licitaciones:
+            return {}
+        conn = get_conn()
+        cur = conn.cursor()
+        placeholders = ",".join(["?" for _ in body.licitaciones])
+
+        # Adjudicados
+        cur.execute(f"""
+            SELECT licitacion, descripcion_producto, DescripcionMaestro,
+                   TRY_CAST(monto_licitacion AS bigint) AS monto
+            FROM vw_LICITACIONES_CATEGORIZADAS
+            WHERE licitacion IN ({placeholders}) AND EsLBF = 1
+            ORDER BY licitacion, TRY_CAST(monto_licitacion AS bigint) DESC
+        """, body.licitaciones)
+        adj_map: dict = {}
+        for r in cur.fetchall():
+            lic = str(r[0] or "").strip()
+            if lic not in adj_map:
+                adj_map[lic] = []
+            adj_map[lic].append({
+                "producto": str(r[1] or "").strip(),
+                "producto_lbf": str(r[2] or "").strip(),
+                "monto": int(r[3] or 0),
+            })
+
+        # Facturados
+        cur.execute(f"""
+            SELECT LICITACION, CODIGO, DESCRIPCION,
+                   SUM(CAST(VENTA AS float)) AS venta
+            FROM BI_TOTAL_FACTURA
+            WHERE LICITACION IN ({placeholders}) AND TIPO_OC = 'LICITACION'
+            GROUP BY LICITACION, CODIGO, DESCRIPCION
+            ORDER BY LICITACION, SUM(CAST(VENTA AS float)) DESC
+        """, body.licitaciones)
+        fac_map: dict = {}
+        for r in cur.fetchall():
+            lic = str(r[0] or "").strip()
+            if lic not in fac_map:
+                fac_map[lic] = []
+            fac_map[lic].append({
+                "codigo": str(r[1] or "").strip(),
+                "descripcion": str(r[2] or "").strip(),
+                "venta": round(float(r[3] or 0)),
+            })
+
+        conn.close()
+
+        result = {}
+        for lic in body.licitaciones:
+            result[lic] = {
+                "adjudicados": adj_map.get(lic, []),
+                "facturados": fac_map.get(lic, []),
+            }
+        return result
+    except Exception as e:
+        return {"error": str(e)}
+
+
+class ExcelEmailBody(BaseModel):
+    licitaciones: List[str]
+    kam: str
+
+
+@router.post("/excel-detalle")
+async def get_excel_detalle(
+    body: ExcelEmailBody,
+    current_user: dict = Depends(get_current_user),
+):
+    """Genera Excel con detalle de productos por licitación para un KAM."""
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+
+    conn = get_conn()
+    cur = conn.cursor()
+    placeholders = ",".join(["?" for _ in body.licitaciones])
+
+    # Datos de licitaciones (resumen)
+    cur.execute(f"""
+        SELECT l.licitacion, l.rut_cliente, l.nombre_cliente,
+               SUM(TRY_CAST(l.monto_licitacion AS bigint)) AS adjudicado,
+               MIN(l.fecha_inicio) AS fecha_inicio,
+               MAX(l.fecha_termino) AS fecha_termino
+        FROM vw_LICITACIONES_CATEGORIZADAS l
+        WHERE l.licitacion IN ({placeholders}) AND l.EsLBF = 1
+        GROUP BY l.licitacion, l.rut_cliente, l.nombre_cliente
+        ORDER BY l.licitacion
+    """, body.licitaciones)
+    resumen = []
+    for r in cur.fetchall():
+        resumen.append({
+            "licitacion": str(r[0] or "").strip(),
+            "rut": str(r[1] or "").strip(),
+            "cliente": str(r[2] or "").strip(),
+            "adjudicado": int(r[3] or 0),
+            "fecha_inicio": str(r[4] or "")[:10],
+            "fecha_termino": str(r[5] or "")[:10],
+        })
+
+    # Adjudicados por licitación
+    cur.execute(f"""
+        SELECT licitacion, descripcion_producto, DescripcionMaestro,
+               TRY_CAST(monto_licitacion AS bigint) AS monto, estado
+        FROM vw_LICITACIONES_CATEGORIZADAS
+        WHERE licitacion IN ({placeholders}) AND EsLBF = 1
+              AND TRY_CAST(monto_licitacion AS bigint) > 0
+        ORDER BY licitacion, TRY_CAST(monto_licitacion AS bigint) DESC
+    """, body.licitaciones)
+    adj_map: dict = {}
+    for r in cur.fetchall():
+        lic = str(r[0] or "").strip()
+        if lic not in adj_map:
+            adj_map[lic] = []
+        adj_map[lic].append({
+            "producto": str(r[1] or "").strip(),
+            "producto_lbf": str(r[2] or "").strip(),
+            "monto": int(r[3] or 0),
+            "estado": str(r[4] or "").strip(),
+        })
+
+    # Facturados por licitación
+    cur.execute(f"""
+        SELECT LICITACION, CODIGO, DESCRIPCION, DOC_CODE,
+               SUM(CAST(VENTA AS float)) AS venta,
+               COUNT(*) AS n_docs,
+               MAX(DIA) AS ultima_fecha
+        FROM BI_TOTAL_FACTURA
+        WHERE LICITACION IN ({placeholders}) AND TIPO_OC = 'LICITACION'
+        GROUP BY LICITACION, CODIGO, DESCRIPCION, DOC_CODE
+        ORDER BY LICITACION, CODIGO
+    """, body.licitaciones)
+    fac_map: dict = {}
+    for r in cur.fetchall():
+        lic = str(r[0] or "").strip()
+        if lic not in fac_map:
+            fac_map[lic] = []
+        doc = str(r[3] or "").strip()
+        fac_map[lic].append({
+            "codigo": str(r[1] or "").strip(),
+            "descripcion": str(r[2] or "").strip(),
+            "tipo": "Nota Crédito" if doc in ("NT", "CM") else ("Guía" if doc == "GF" else "Factura"),
+            "venta": round(float(r[4] or 0)),
+            "n_docs": int(r[5] or 0),
+            "ultima_fecha": str(r[6] or "")[:10],
+        })
+
+    conn.close()
+
+    # ── Generar Excel ──
+    wb = Workbook()
+    ws_res = wb.active
+    ws_res.title = "Resumen"
+
+    header_font = Font(bold=True, color="FFFFFF", size=11)
+    header_fill = PatternFill(start_color="1E293B", end_color="1E293B", fill_type="solid")
+    green_font = Font(color="10B981", bold=True)
+    red_font = Font(color="EF4444", bold=True)
+    border = Border(
+        bottom=Side(style="thin", color="E2E8F0"),
+    )
+    money_fmt = '#,##0'
+
+    # Hoja Resumen
+    headers_res = ["Licitación", "RUT", "Cliente", "Adjudicado", "Facturado", "Gap", "Cumpl.%", "Término"]
+    for c, h in enumerate(headers_res, 1):
+        cell = ws_res.cell(row=1, column=c, value=h)
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = Alignment(horizontal="center")
+
+    # Necesitamos facturado por licitación
+    fac_totals: dict = {}
+    for lic, items in fac_map.items():
+        fac_totals[lic] = sum(p["venta"] for p in items)
+
+    for i, r in enumerate(resumen, 2):
+        fac_total = fac_totals.get(r["licitacion"], 0)
+        gap = r["adjudicado"] - fac_total
+        pct = round(fac_total / r["adjudicado"] * 100, 1) if r["adjudicado"] > 0 else 0
+        ws_res.cell(row=i, column=1, value=r["licitacion"]).border = border
+        ws_res.cell(row=i, column=2, value=r["rut"]).border = border
+        ws_res.cell(row=i, column=3, value=r["cliente"]).border = border
+        c_adj = ws_res.cell(row=i, column=4, value=r["adjudicado"])
+        c_adj.number_format = money_fmt
+        c_adj.border = border
+        c_fac = ws_res.cell(row=i, column=5, value=fac_total)
+        c_fac.number_format = money_fmt
+        c_fac.font = green_font
+        c_fac.border = border
+        c_gap = ws_res.cell(row=i, column=6, value=gap)
+        c_gap.number_format = money_fmt
+        c_gap.font = red_font
+        c_gap.border = border
+        c_pct = ws_res.cell(row=i, column=7, value=pct)
+        c_pct.number_format = '0.0"%"'
+        c_pct.alignment = Alignment(horizontal="center")
+        c_pct.border = border
+        ws_res.cell(row=i, column=8, value=r["fecha_termino"]).border = border
+
+    # Ajustar anchos
+    ws_res.column_dimensions["A"].width = 20
+    ws_res.column_dimensions["B"].width = 14
+    ws_res.column_dimensions["C"].width = 45
+    ws_res.column_dimensions["D"].width = 16
+    ws_res.column_dimensions["E"].width = 16
+    ws_res.column_dimensions["F"].width = 16
+    ws_res.column_dimensions["G"].width = 10
+    ws_res.column_dimensions["H"].width = 14
+
+    # ── Hoja Adjudicados ──
+    lic_fill = PatternFill(start_color="EFF6FF", end_color="EFF6FF", fill_type="solid")
+    lic_font = Font(bold=True, size=11, color="1E40AF")
+
+    ws_adj = wb.create_sheet("Productos Adjudicados")
+    h_adj = ["Producto Licitación", "Producto LBF", "Monto Adjudicado", "Estado"]
+    for c, h in enumerate(h_adj, 1):
+        cell = ws_adj.cell(row=1, column=c, value=h)
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = Alignment(horizontal="center" if c >= 3 else "left")
+
+    row = 2
+    for r in resumen:
+        lic = r["licitacion"]
+        items = adj_map.get(lic, [])
+        if not items:
+            continue
+        # Fila separadora con nombre de licitación + cliente
+        ws_adj.merge_cells(start_row=row, start_column=1, end_row=row, end_column=4)
+        cell = ws_adj.cell(row=row, column=1, value=f"{lic} — {r['cliente']}")
+        cell.font = lic_font
+        cell.fill = lic_fill
+        cell.border = border
+        row += 1
+        for a in items:
+            ws_adj.cell(row=row, column=1, value=a["producto"]).border = border
+            ws_adj.cell(row=row, column=2, value=a["producto_lbf"]).border = border
+            c_m = ws_adj.cell(row=row, column=3, value=a["monto"])
+            c_m.number_format = money_fmt
+            c_m.border = border
+            ws_adj.cell(row=row, column=4, value=a["estado"]).border = border
+            row += 1
+        row += 1  # Línea en blanco entre licitaciones
+
+    ws_adj.column_dimensions["A"].width = 55
+    ws_adj.column_dimensions["B"].width = 55
+    ws_adj.column_dimensions["C"].width = 18
+    ws_adj.column_dimensions["D"].width = 14
+
+    # ── Hoja Facturados ──
+    ws_fac = wb.create_sheet("Productos Facturados")
+    h_fac = ["Código", "Descripción", "Tipo Doc", "Facturado", "# Docs", "Última Fecha"]
+    for c, h in enumerate(h_fac, 1):
+        cell = ws_fac.cell(row=1, column=c, value=h)
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = Alignment(horizontal="center" if c >= 3 else "left")
+
+    row = 2
+    for r in resumen:
+        lic = r["licitacion"]
+        items = fac_map.get(lic, [])
+        if not items:
+            continue
+        # Fila separadora
+        ws_fac.merge_cells(start_row=row, start_column=1, end_row=row, end_column=6)
+        cell = ws_fac.cell(row=row, column=1, value=f"{lic} — {r['cliente']}")
+        cell.font = lic_font
+        cell.fill = lic_fill
+        cell.border = border
+        row += 1
+        for p in items:
+            ws_fac.cell(row=row, column=1, value=p["codigo"]).border = border
+            ws_fac.cell(row=row, column=2, value=p["descripcion"]).border = border
+            ws_fac.cell(row=row, column=3, value=p["tipo"]).border = border
+            c_v = ws_fac.cell(row=row, column=4, value=p["venta"])
+            c_v.number_format = money_fmt
+            c_v.font = green_font
+            c_v.border = border
+            ws_fac.cell(row=row, column=5, value=p["n_docs"]).border = border
+            ws_fac.cell(row=row, column=6, value=p["ultima_fecha"]).border = border
+            row += 1
+        row += 1
+
+    ws_fac.column_dimensions["A"].width = 16
+    ws_fac.column_dimensions["B"].width = 55
+    ws_fac.column_dimensions["C"].width = 16
+    ws_fac.column_dimensions["D"].width = 18
+    ws_fac.column_dimensions["E"].width = 10
+    ws_fac.column_dimensions["F"].width = 14
+
+    # Escribir a buffer
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+
+    filename = f"Licitaciones_{body.kam.replace(' ', '_')}_{datetime.date.today().isoformat()}.xlsx"
+    return StreamingResponse(
+        buf,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 class NotaBody(BaseModel):

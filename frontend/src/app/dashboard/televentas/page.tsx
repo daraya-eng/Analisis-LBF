@@ -295,7 +295,7 @@ const PERIOD_OPTIONS = [
 export default function TeleventasPage() {
   const [data, setData] = useState<TVData | null>(null);
   const [loading, setLoading] = useState(true);
-  const [period, setPeriod] = useState("ytd");
+  const [period, setPeriod] = useState(`mes-${new Date().getMonth() + 1}`);
 
   const loadData = useCallback(async (p?: string) => {
     setLoading(true);

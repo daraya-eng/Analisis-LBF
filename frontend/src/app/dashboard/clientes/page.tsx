@@ -413,7 +413,7 @@ function ClientTable({ title, icon, clientes, period, expandedRut, onToggle, seg
 export default function ClientesPage() {
   const [data, setData] = useState<ClientesData | null>(null);
   const [loading, setLoading] = useState(true);
-  const [period, setPeriod] = useState("ytd");
+  const [period, setPeriod] = useState(`mes-${new Date().getMonth() + 1}`);
   const [segFilter, setSegFilter] = useState("");
   const [expandedLoss, setExpandedLoss] = useState<string | null>(null);
   const [expandedGain, setExpandedGain] = useState<string | null>(null);

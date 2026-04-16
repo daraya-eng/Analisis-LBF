@@ -258,13 +258,17 @@ def _build_for_period(raw: dict, meses: list[int]) -> dict:
     for m in range(1, 13):
         meta_m = sum(meta_cat_mes.get(c, {}).get(m, {}).get("venta", 0) for c in _CATS_VALIDAS)
         venta_m = sum(venta_cat_mes.get(c, {}).get(m, 0) for c in _CATS_VALIDAS)
+        contrib_m = sum(contrib_cat_mes.get(c, {}).get(m, 0) for c in _CATS_VALIDAS)
         cumpl_m = (venta_m / meta_m * 100) if meta_m > 0 and venta_m > 0 else None
+        margen_m = (contrib_m / venta_m * 100) if venta_m > 0 else None
         row = {
             "MES": m,
             "mes_nombre": MESES_NOMBRE.get(m, str(m))[:3],
             "meta": round(meta_m),
             "venta": round(venta_m),
             "cumplimiento": round(cumpl_m, 1) if cumpl_m is not None else None,
+            "contrib": round(contrib_m),
+            "margen": round(margen_m, 1) if margen_m is not None else None,
         }
         for cat in _CATS_VALIDAS:
             row[cat] = round(venta_cat_mes.get(cat, {}).get(m, 0))

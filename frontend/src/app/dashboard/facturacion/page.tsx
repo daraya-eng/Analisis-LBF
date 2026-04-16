@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, Fragment } from "react";
+import { useEffect, useState, useCallback, useRef, Fragment, memo } from "react";
 import { api, apiFetch } from "@/lib/api";
 import { fmt, fmtAbs, fmtPct } from "@/lib/format";
 import { ChevronDown, ChevronRight, MessageSquare, Mail } from "lucide-react";
@@ -50,7 +50,7 @@ function CumplimientoBar({ pct, w }: { pct: number; w?: number }) {
 }
 
 /* ─── Detalle expandido de una licitación ──────────────── */
-function LicDetalle({ licId, notaInicial }: { licId: string; notaInicial?: any }) {
+const LicDetalle = memo(function LicDetalle({ licId, notaInicial }: { licId: string; notaInicial?: any }) {
   const [det, setDet] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [notaText, setNotaText] = useState("");
@@ -59,14 +59,17 @@ function LicDetalle({ licId, notaInicial }: { licId: string; notaInicial?: any }
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
+    let cancelled = false;
     setLoading(true);
-    api.get<any>(`/api/facturacion/detalle?licitacion=${encodeURIComponent(licId)}`, { noCache: true })
+    api.get<any>(`/api/facturacion/detalle?licitacion=${encodeURIComponent(licId)}`)
       .then(r => {
+        if (cancelled) return;
         setDet(r);
         if (r.nota) { setNota(r.nota); }
         setLoading(false);
       })
-      .catch(() => setLoading(false));
+      .catch(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
   }, [licId]);
 
   const guardarNota = async () => {
@@ -206,49 +209,98 @@ function LicDetalle({ licId, notaInicial }: { licId: string; notaInicial?: any }
       </div>
     </div>
   );
-}
+});
 
-/* ─── Tabla de licitaciones con filas expandibles ──────── */
+/* ─── Fila individual memoizada ──────── */
+const LicRow = memo(function LicRow({ l, i, isOpen, onToggle, colCount }: {
+  l: any; i: number; isOpen: boolean; onToggle: (id: string) => void; colCount: number;
+}) {
+  const gap = l.adjudicado - l.facturado;
+  return (
+    <Fragment>
+      <tr
+        onClick={() => onToggle(l.licitacion)}
+        style={{ borderBottom: "1px solid #F1F5F9", background: isOpen ? "#EFF6FF" : rowBg(i), cursor: "pointer" }}
+      >
+        <td style={tdC}>
+          <div style={{ display: "flex", alignItems: "center", gap: 2 }}>
+            {isOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+            {l.nota && <MessageSquare size={11} style={{ color: "#D97706" }} />}
+          </div>
+        </td>
+        <td style={{ ...td, fontSize: 12, fontWeight: 600, color: "#4338CA" }}>{l.kam}</td>
+        <td style={{ ...td, fontSize: 12, maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis" }} title={l.licitacion}>{l.licitacion}</td>
+        <td style={{ ...td, maxWidth: 160, overflow: "hidden", textOverflow: "ellipsis" }} title={l.nombre}>{l.nombre}</td>
+        <td style={{ ...tdR, fontWeight: 600 }}>{fmtAbs(l.adjudicado)}</td>
+        <td style={{ ...tdR, color: "#10B981" }}>{fmtAbs(l.facturado)}</td>
+        <td style={{ ...tdR, fontWeight: 700, color: "#EF4444" }}>{fmtAbs(gap)}</td>
+        <td style={td}><CumplimientoBar pct={l.cumplimiento} w={60} /></td>
+        <td style={{ ...tdC, fontSize: 11, fontWeight: l.semaforo === "red" ? 700 : 400, color: l.semaforo === "red" ? "#EF4444" : "#1F2937" }}>{l.fecha_termino}</td>
+        <td style={{ ...tdC, fontWeight: 700, color: semColor(l.semaforo) }}>{l.dias_restantes}</td>
+      </tr>
+      {isOpen && (
+        <tr><td colSpan={colCount} style={{ padding: 0 }}>
+          <LicDetalle licId={l.licitacion} notaInicial={l.nota} />
+        </td></tr>
+      )}
+    </Fragment>
+  );
+}, (prev, next) => prev.isOpen === next.isOpen && prev.i === next.i && prev.l === next.l);
+
+type SortKey = "adjudicado" | "facturado" | "gap" | "cumplimiento" | "dias_restantes" | null;
+type SortDir = "asc" | "desc";
+
+/* ─── Tabla de licitaciones con filas expandibles y sorting ──────── */
 function LicTable({ rows, colCount }: { rows: any[]; colCount: number }) {
   const [sel, setSel] = useState<string | null>(null);
+  const [sortKey, setSortKey] = useState<SortKey>(null);
+  const [sortDir, setSortDir] = useState<SortDir>("desc");
   const toggle = useCallback((id: string) => setSel(prev => prev === id ? null : id), []);
 
+  const handleSort = (key: SortKey) => {
+    if (sortKey === key) {
+      setSortDir(prev => prev === "desc" ? "asc" : "desc");
+    } else {
+      setSortKey(key);
+      setSortDir("desc");
+    }
+  };
+
+  const sorted = sortKey ? [...rows].sort((a, b) => {
+    const va = sortKey === "gap" ? (a.adjudicado - a.facturado) : (a[sortKey] ?? 0);
+    const vb = sortKey === "gap" ? (b.adjudicado - b.facturado) : (b[sortKey] ?? 0);
+    return sortDir === "desc" ? vb - va : va - vb;
+  }) : rows;
+
+  const sortIcon = (key: SortKey) => {
+    if (sortKey !== key) return " ↕";
+    return sortDir === "desc" ? " ↓" : " ↑";
+  };
+  const thSort: React.CSSProperties = { ...thR, cursor: "pointer", userSelect: "none" };
+  const thSortC: React.CSSProperties = { ...thC, cursor: "pointer", userSelect: "none" };
+
   return (
-    <>
-      {rows.map((l: any, i: number) => {
-        const isOpen = sel === l.licitacion;
-        const gap = l.adjudicado - l.facturado;
-        return (
-          <Fragment key={l.licitacion}>
-            <tr
-              onClick={() => toggle(l.licitacion)}
-              style={{ borderBottom: "1px solid #F1F5F9", background: isOpen ? "#EFF6FF" : rowBg(i), cursor: "pointer" }}
-            >
-              <td style={tdC}>
-                <div style={{ display: "flex", alignItems: "center", gap: 2 }}>
-                  {isOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-                  {l.nota && <MessageSquare size={11} style={{ color: "#D97706" }} />}
-                </div>
-              </td>
-              <td style={{ ...td, fontSize: 12, fontWeight: 600, color: "#4338CA" }}>{l.kam}</td>
-              <td style={{ ...td, fontSize: 12, maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis" }} title={l.licitacion}>{l.licitacion}</td>
-              <td style={{ ...td, maxWidth: 160, overflow: "hidden", textOverflow: "ellipsis" }} title={l.nombre}>{l.nombre}</td>
-              <td style={{ ...tdR, fontWeight: 600 }}>{fmtAbs(l.adjudicado)}</td>
-              <td style={{ ...tdR, color: "#10B981" }}>{fmtAbs(l.facturado)}</td>
-              <td style={{ ...tdR, fontWeight: 700, color: "#EF4444" }}>{fmtAbs(gap)}</td>
-              <td style={td}><CumplimientoBar pct={l.cumplimiento} w={60} /></td>
-              <td style={{ ...tdC, fontSize: 11, fontWeight: l.semaforo === "red" ? 700 : 400, color: l.semaforo === "red" ? "#EF4444" : "#1F2937" }}>{l.fecha_termino}</td>
-              <td style={{ ...tdC, fontWeight: 700, color: semColor(l.semaforo) }}>{l.dias_restantes}</td>
-            </tr>
-            {isOpen && (
-              <tr><td colSpan={colCount} style={{ padding: 0 }}>
-                <LicDetalle licId={l.licitacion} notaInicial={l.nota} />
-              </td></tr>
-            )}
-          </Fragment>
-        );
-      })}
-    </>
+    <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 1100 }}>
+      <thead>
+        <tr style={{ background: "#F8FAFC" }}>
+          <th style={{ ...thC, width: 30 }}></th>
+          <th style={thS}>KAM</th>
+          <th style={thS}>Licitación</th>
+          <th style={thS}>Cliente</th>
+          <th style={thSort} onClick={() => handleSort("adjudicado")}>Adjudicado{sortIcon("adjudicado")}</th>
+          <th style={thSort} onClick={() => handleSort("facturado")}>Facturado{sortIcon("facturado")}</th>
+          <th style={thSort} onClick={() => handleSort("gap")}>Gap{sortIcon("gap")}</th>
+          <th style={{ ...thS, cursor: "pointer", userSelect: "none" }} onClick={() => handleSort("cumplimiento")}>Cumpl.{sortIcon("cumplimiento")}</th>
+          <th style={thSortC} onClick={() => handleSort("dias_restantes")}>Término{sortIcon("dias_restantes")}</th>
+          <th style={thSortC} onClick={() => handleSort("dias_restantes")}>Días{sortIcon("dias_restantes")}</th>
+        </tr>
+      </thead>
+      <tbody>
+        {sorted.map((l: any, i: number) => (
+          <LicRow key={l.licitacion} l={l} i={i} isOpen={sel === l.licitacion} onToggle={toggle} colCount={colCount} />
+        ))}
+      </tbody>
+    </table>
   );
 }
 
@@ -266,45 +318,210 @@ function kamToEmail(kam: string): string {
   return `${inicial}${apellido}@lbf.cl`;
 }
 
-function buildMailtoLic(kam: string, lics: any[], tab: "urgentes" | "licitaciones") {
-  const email = kamToEmail(kam);
-  if (!email) return "";
-
+function buildEmailHtml(kam: string, lics: any[], esUrgente: boolean): string {
   const hoy = new Date().toLocaleDateString("es-CL", { day: "2-digit", month: "long", year: "numeric" });
-  const esUrgente = tab === "urgentes";
-  const subject = esUrgente
-    ? `Seguimiento Licitaciones Urgentes - ${kam}`
-    : `Seguimiento Licitaciones - ${kam}`;
-
-  // Ordenar por cumplimiento ascendente (más críticas primero)
+  const nombre = kam.split(" ")[0];
   const sorted = [...lics].sort((a, b) => a.cumplimiento - b.cumplimiento);
-
-  let body = `Hola ${kam.split(" ")[0]},\n\n`;
-  body += esUrgente
-    ? `Te comparto el estado de tus licitaciones que vencen este mes y requieren atención:\n\n`
-    : `Te comparto el estado actualizado de tus licitaciones al ${hoy}:\n\n`;
-
-  // Resumen
   const totalAdj = sorted.reduce((s, l) => s + (l.adjudicado || 0), 0);
   const totalFac = sorted.reduce((s, l) => s + (l.facturado || 0), 0);
   const totalGap = totalAdj - totalFac;
   const pctGlobal = totalAdj > 0 ? Math.round(totalFac / totalAdj * 100) : 0;
-  body += `RESUMEN: ${sorted.length} licitaciones | Adjudicado: $${totalAdj.toLocaleString("es-CL")} | Facturado: $${totalFac.toLocaleString("es-CL")} | Gap: $${totalGap.toLocaleString("es-CL")} | Cumpl: ${pctGlobal}%\n\n`;
-  body += `─────────────────────────────────────\n`;
+  const f = (n: number) => "$" + n.toLocaleString("es-CL");
+  const semColor = (p: number) => p >= 80 ? "#10B981" : p >= 50 ? "#F59E0B" : "#EF4444";
 
+  const tdH = "padding:8px 12px;font-size:13px;";
+
+  let rows = "";
   for (const l of sorted) {
     const gap = (l.adjudicado || 0) - (l.facturado || 0);
-    body += `• ${l.licitacion} — ${l.cliente}\n`;
-    body += `  Adjudicado: $${(l.adjudicado || 0).toLocaleString("es-CL")} | Facturado: $${(l.facturado || 0).toLocaleString("es-CL")} | Gap: $${gap.toLocaleString("es-CL")} | Cumpl: ${l.cumplimiento}%`;
-    if (l.fecha_termino) body += ` | Término: ${l.fecha_termino}`;
-    if (l.dias != null) body += ` (${l.dias} días)`;
-    body += `\n\n`;
+    const c = semColor(l.cumplimiento);
+    rows += `<tr style="border-bottom:1px solid #E2E8F0;background:#FFFFFF;">
+      <td style="${tdH}color:#1F2937;font-weight:600;">${l.licitacion}</td>
+      <td style="${tdH}color:#1F2937;">${l.nombre}</td>
+      <td style="${tdH}text-align:right;color:#1F2937;">${f(l.adjudicado || 0)}</td>
+      <td style="${tdH}text-align:right;color:#10B981;">${f(l.facturado || 0)}</td>
+      <td style="${tdH}text-align:right;color:#EF4444;font-weight:600;">${f(gap)}</td>
+      <td style="${tdH}text-align:center;"><span style="color:${c};font-weight:700;">&#9679; ${l.cumplimiento}%</span></td>
+      <td style="${tdH}text-align:center;color:#64748B;">${l.fecha_termino || ""}</td>
+      <td style="${tdH}text-align:center;color:${(l.dias_restantes || 0) <= 30 ? "#EF4444" : "#64748B"};font-weight:${(l.dias_restantes || 0) <= 30 ? "700" : "400"};">${l.dias_restantes ?? ""}</td>
+    </tr>`;
   }
 
-  body += `─────────────────────────────────────\n`;
-  body += `Saludos,\nAnálisis Comercial LBF`;
+  return `<div style="font-family:Arial,sans-serif;max-width:900px;">
+  <p style="font-size:14px;color:#1F2937;">Hola ${nombre},</p>
+  <p style="font-size:14px;color:#1F2937;">${esUrgente
+    ? "Te comparto el estado de tus licitaciones que <b>vencen este mes</b> y requieren atenci&oacute;n:"
+    : `Te comparto el estado actualizado de tus licitaciones al <b>${hoy}</b>:`}</p>
 
-  return `mailto:${email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+  <div style="background:#F8FAFC;border:1px solid #E2E8F0;border-radius:8px;padding:16px;margin:16px 0;display:flex;gap:24px;">
+    <div style="text-align:center;"><div style="font-size:11px;color:#64748B;text-transform:uppercase;">Licitaciones</div><div style="font-size:20px;font-weight:800;color:#0F172A;">${sorted.length}</div></div>
+    <div style="text-align:center;"><div style="font-size:11px;color:#64748B;text-transform:uppercase;">Adjudicado</div><div style="font-size:20px;font-weight:800;color:#0F172A;">${f(totalAdj)}</div></div>
+    <div style="text-align:center;"><div style="font-size:11px;color:#64748B;text-transform:uppercase;">Facturado</div><div style="font-size:20px;font-weight:800;color:#10B981;">${f(totalFac)}</div></div>
+    <div style="text-align:center;"><div style="font-size:11px;color:#64748B;text-transform:uppercase;">Gap</div><div style="font-size:20px;font-weight:800;color:#EF4444;">${f(totalGap)}</div></div>
+    <div style="text-align:center;"><div style="font-size:11px;color:#64748B;text-transform:uppercase;">Cumpl.</div><div style="font-size:20px;font-weight:800;color:${semColor(pctGlobal)};">${pctGlobal}%</div></div>
+  </div>
+
+  <table style="width:100%;border-collapse:collapse;border:1px solid #E2E8F0;border-radius:8px;overflow:hidden;">
+    <thead>
+      <tr style="background:#1E293B;">
+        <th style="padding:10px 12px;font-size:12px;color:white;text-align:left;">Licitaci&oacute;n</th>
+        <th style="padding:10px 12px;font-size:12px;color:white;text-align:left;">Cliente</th>
+        <th style="padding:10px 12px;font-size:12px;color:white;text-align:right;">Adjudicado</th>
+        <th style="padding:10px 12px;font-size:12px;color:white;text-align:right;">Facturado</th>
+        <th style="padding:10px 12px;font-size:12px;color:white;text-align:right;">Gap</th>
+        <th style="padding:10px 12px;font-size:12px;color:white;text-align:center;">Cumpl.</th>
+        <th style="padding:10px 12px;font-size:12px;color:white;text-align:center;">T&eacute;rmino</th>
+        <th style="padding:10px 12px;font-size:12px;color:white;text-align:center;">D&iacute;as</th>
+      </tr>
+    </thead>
+    <tbody>${rows}</tbody>
+    <tfoot>
+      <tr style="background:#F1F5F9;border-top:2px solid #CBD5E1;">
+        <td style="padding:10px 12px;font-size:13px;font-weight:700;color:#0F172A;" colspan="2">TOTAL</td>
+        <td style="padding:10px 12px;font-size:13px;font-weight:700;text-align:right;color:#0F172A;">${f(totalAdj)}</td>
+        <td style="padding:10px 12px;font-size:13px;font-weight:700;text-align:right;color:#10B981;">${f(totalFac)}</td>
+        <td style="padding:10px 12px;font-size:13px;font-weight:700;text-align:right;color:#EF4444;">${f(totalGap)}</td>
+        <td style="padding:10px 12px;font-size:13px;font-weight:700;text-align:center;color:${semColor(pctGlobal)};">${pctGlobal}%</td>
+        <td colspan="2"></td>
+      </tr>
+    </tfoot>
+  </table>
+
+  <p style="font-size:13px;color:#64748B;margin-top:16px;padding:12px 16px;background:#F0F9FF;border:1px solid #BAE6FD;border-radius:6px;">
+    <b>Adjunto:</b> Excel con el detalle de productos adjudicados y facturados por licitaci&oacute;n.
+    Por favor revisar y confirmar qu&eacute; montos son recuperables y cu&aacute;les no.
+  </p>
+  <p style="font-size:14px;color:#1F2937;margin-top:16px;">Saludos</p>
+</div>`;
+}
+
+function EmailPreviewModal({ kam, lics, esUrgente, onClose }: {
+  kam: string; lics: any[]; esUrgente: boolean; onClose: () => void;
+}) {
+  const [copied, setCopied] = useState(false);
+  const [downloading, setDownloading] = useState(false);
+  const [downloaded, setDownloaded] = useState(false);
+  const contentRef = useRef<HTMLDivElement>(null);
+  const email = kamToEmail(kam);
+  const subject = esUrgente
+    ? `Seguimiento Licitaciones Urgentes - ${kam}`
+    : `Seguimiento Licitaciones - ${kam}`;
+
+  const html = buildEmailHtml(kam, lics, esUrgente);
+
+  const handleCopy = async () => {
+    try {
+      const blob = new Blob([html], { type: "text/html" });
+      const textBlob = new Blob([contentRef.current?.innerText || ""], { type: "text/plain" });
+      await navigator.clipboard.write([new ClipboardItem({ "text/html": blob, "text/plain": textBlob })]);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 3000);
+    } catch {
+      if (contentRef.current) {
+        const range = document.createRange();
+        range.selectNodeContents(contentRef.current);
+        const sel = window.getSelection();
+        sel?.removeAllRanges();
+        sel?.addRange(range);
+        document.execCommand("copy");
+        sel?.removeAllRanges();
+        setCopied(true);
+        setTimeout(() => setCopied(false), 3000);
+      }
+    }
+  };
+
+  const openGmail = () => {
+    const gmailUrl = `https://mail.google.com/mail/?view=cm&to=${encodeURIComponent(email)}&su=${encodeURIComponent(subject)}`;
+    window.open(gmailUrl, "_blank");
+  };
+
+  const handleDownloadExcel = async () => {
+    setDownloading(true);
+    try {
+      const token = localStorage.getItem("lbf_token") || "";
+      const baseUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+      const resp = await fetch(`${baseUrl}/api/facturacion/excel-detalle`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
+        body: JSON.stringify({ licitaciones: lics.map(l => l.licitacion), kam }),
+      });
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const blob = await resp.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `Licitaciones_${kam.replace(/ /g, "_")}_${new Date().toISOString().slice(0, 10)}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      setDownloaded(true);
+    } catch (e) {
+      console.error("Error descargando Excel:", e);
+    }
+    setDownloading(false);
+  };
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 9999,
+      display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}
+      onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+      <div style={{ background: "white", borderRadius: 12, maxWidth: 960, width: "100%",
+        maxHeight: "90vh", display: "flex", flexDirection: "column", overflow: "hidden",
+        boxShadow: "0 25px 50px rgba(0,0,0,0.25)" }}>
+        {/* Header */}
+        <div style={{ padding: "16px 24px", borderBottom: "1px solid #E2E8F0",
+          display: "flex", justifyContent: "space-between", alignItems: "center", flexShrink: 0 }}>
+          <div>
+            <div style={{ fontSize: 16, fontWeight: 700, color: "#0F172A" }}>Vista previa del correo</div>
+            <div style={{ fontSize: 12, color: "#64748B", marginTop: 2 }}>
+              Para: <b>{email}</b> — {subject}
+            </div>
+          </div>
+          <button onClick={onClose}
+            style={{ border: "none", background: "transparent", fontSize: 20, cursor: "pointer", color: "#94A3B8", padding: 4 }}>
+            ✕
+          </button>
+        </div>
+
+        {/* Email preview */}
+        <div style={{ flex: 1, overflow: "auto", padding: 24, background: "#F8FAFC" }}>
+          <div style={{ background: "white", border: "1px solid #E2E8F0", borderRadius: 8, padding: 24 }}>
+            <div ref={contentRef} dangerouslySetInnerHTML={{ __html: html }} />
+          </div>
+        </div>
+
+        {/* Actions */}
+        <div style={{ padding: "16px 24px", borderTop: "1px solid #E2E8F0",
+          display: "flex", gap: 12, justifyContent: "flex-end", alignItems: "center", flexShrink: 0, flexWrap: "wrap" }}>
+          <span style={{ fontSize: 12, color: "#64748B", marginRight: "auto" }}>
+            1. Descarga Excel — 2. Copia el resumen — 3. Abre Gmail — 4. Pega y adjunta Excel
+          </span>
+          <button onClick={handleDownloadExcel} disabled={downloading}
+            style={{ padding: "8px 20px", borderRadius: 8, border: "none", fontSize: 13, fontWeight: 600,
+              cursor: "pointer", display: "flex", alignItems: "center", gap: 6,
+              background: downloaded ? "#10B981" : "#059669", color: "white",
+              transition: "background 0.2s", opacity: downloading ? 0.6 : 1 }}>
+            {downloading ? "Generando..." : downloaded ? "Excel descargado" : "Descargar Excel"}
+          </button>
+          <button onClick={handleCopy}
+            style={{ padding: "8px 20px", borderRadius: 8, border: "none", fontSize: 13, fontWeight: 600,
+              cursor: "pointer", display: "flex", alignItems: "center", gap: 6,
+              background: copied ? "#10B981" : "#1E293B", color: "white",
+              transition: "background 0.2s" }}>
+            {copied ? "Copiado" : "Copiar resumen"}
+          </button>
+          <button onClick={() => { if (!copied) handleCopy().then(openGmail); else openGmail(); }}
+            style={{ padding: "8px 20px", borderRadius: 8, border: "none", fontSize: 13, fontWeight: 600,
+              cursor: "pointer", display: "flex", alignItems: "center", gap: 6,
+              background: "#2563EB", color: "white" }}>
+            <Mail size={14} /> Abrir Gmail
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 /* ─── Helper: parse dd-mm-yyyy to extract year/month ──── */
@@ -325,6 +542,7 @@ export default function FacturacionPage() {
   const [filtroAno, setFiltroAno] = useState<string>("todos");
   const [filtroMes, setFiltroMes] = useState<string>("todos");
   const [filtroKam, setFiltroKam] = useState<string>("todos");
+  const [emailModal, setEmailModal] = useState<{ kam: string; lics: any[]; urgente: boolean } | null>(null);
 
   useEffect(() => {
     setLoading(true);
@@ -483,11 +701,11 @@ export default function FacturacionPage() {
                   Limpiar
                 </button>
                 {kamToEmail(filtroKam) && (
-                  <a href={buildMailtoLic(filtroKam, urgentesFiltradas, "urgentes")}
+                  <button onClick={() => setEmailModal({ kam: filtroKam, lics: urgentesFiltradas, urgente: true })}
                     style={{ ...selectStyle, display: "inline-flex", alignItems: "center", gap: 5,
-                      color: "#2563EB", borderColor: "#BFDBFE", textDecoration: "none", cursor: "pointer" }}>
+                      color: "#2563EB", borderColor: "#BFDBFE", cursor: "pointer", background: "white" }}>
                     <Mail size={14} /> Enviar a {filtroKam.split(" ")[0]}
-                  </a>
+                  </button>
                 )}
               </>
             )}
@@ -535,25 +753,7 @@ export default function FacturacionPage() {
             <div style={{ padding: "12px 16px", borderBottom: "1px solid #E2E8F0", background: "#FEF2F2" }}>
               <span style={{ fontSize: 13, fontWeight: 700, color: "#991B1B" }}>Detalle — Licitaciones que vencen en {mesNombre} con facturación pendiente</span>
             </div>
-            <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 1100 }}>
-              <thead>
-                <tr style={{ background: "#F8FAFC" }}>
-                  <th style={{ ...thC, width: 30 }}></th>
-                  <th style={thS}>KAM</th>
-                  <th style={thS}>Licitación</th>
-                  <th style={thS}>Cliente</th>
-                  <th style={thR}>Adjudicado</th>
-                  <th style={thR}>Facturado</th>
-                  <th style={thR}>Gap</th>
-                  <th style={thS}>Cumpl.</th>
-                  <th style={thC}>Término</th>
-                  <th style={thC}>Días</th>
-                </tr>
-              </thead>
-              <tbody>
-                <LicTable rows={urgentesFiltradas} colCount={LIC_COLS} />
-              </tbody>
-            </table>
+            <LicTable rows={urgentesFiltradas} colCount={LIC_COLS} />
           </div>
         </div>
       )}
@@ -583,11 +783,11 @@ export default function FacturacionPage() {
               </button>
             )}
             {filtroKam !== "todos" && kamToEmail(filtroKam) && (
-              <a href={buildMailtoLic(filtroKam, licFiltradas, "licitaciones")}
+              <button onClick={() => setEmailModal({ kam: filtroKam, lics: licFiltradas, urgente: false })}
                 style={{ ...selectStyle, display: "inline-flex", alignItems: "center", gap: 5,
-                  color: "#2563EB", borderColor: "#BFDBFE", textDecoration: "none", cursor: "pointer" }}>
+                  color: "#2563EB", borderColor: "#BFDBFE", cursor: "pointer", background: "white" }}>
                 <Mail size={14} /> Enviar a {filtroKam.split(" ")[0]}
-              </a>
+              </button>
             )}
             <span style={{ fontSize: 12, color: "#94A3B8", marginLeft: 8 }}>
               {licFiltradas.length} de {licitaciones.length} licitaciones
@@ -595,25 +795,7 @@ export default function FacturacionPage() {
           </div>
 
           <div style={{ ...card, padding: 0, overflow: "auto" }}>
-            <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 1100 }}>
-              <thead>
-                <tr style={{ background: "#F8FAFC" }}>
-                  <th style={{ ...thC, width: 30 }}></th>
-                  <th style={thS}>KAM</th>
-                  <th style={thS}>Licitación</th>
-                  <th style={thS}>Cliente</th>
-                  <th style={thR}>Adjudicado</th>
-                  <th style={thR}>Facturado</th>
-                  <th style={thR}>Gap</th>
-                  <th style={thS}>Cumpl.</th>
-                  <th style={thC}>Término</th>
-                  <th style={thC}>Días</th>
-                </tr>
-              </thead>
-              <tbody>
-                <LicTable rows={licFiltradas} colCount={LIC_COLS} />
-              </tbody>
-            </table>
+            <LicTable rows={licFiltradas} colCount={LIC_COLS} />
           </div>
         </div>
       )}
@@ -667,6 +849,16 @@ export default function FacturacionPage() {
           <li><strong>Cumplimiento {">"}100%:</strong> Estas licitaciones ya no requieren gestión y se excluyen de urgentes</li>
         </ul>
       </div>
+
+      {/* Modal email preview */}
+      {emailModal && (
+        <EmailPreviewModal
+          kam={emailModal.kam}
+          lics={emailModal.lics}
+          esUrgente={emailModal.urgente}
+          onClose={() => setEmailModal(null)}
+        />
+      )}
     </div>
   );
 }

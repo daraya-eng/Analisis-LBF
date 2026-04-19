@@ -11,8 +11,8 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "LBF Advanced Analytics",
-  description: "Business Intelligence Platform — Comercial LBF Limitada",
+  title: "Inteligencia Comercial LBF",
+  description: "Plataforma de Inteligencia Comercial — Comercial LBF Limitada",
   icons: {
     icon: "/favicon.ico",
   },
@@ -24,7 +24,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" className={`${inter.variable} h-full antialiased`}>
+    <html lang="es" className={`${inter.variable} h-full antialiased`}>
       <body className="min-h-full">
         <AuthProvider>{children}</AuthProvider>
       </body>

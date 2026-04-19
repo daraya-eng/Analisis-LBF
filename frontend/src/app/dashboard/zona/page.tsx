@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import { api, clearClientCache } from "@/lib/api";
 import { fmtAbs, fmtPct, semaforo, fmt } from "@/lib/format";
 import { RefreshCw, ChevronDown, ChevronRight } from "lucide-react";
+import { ExportButton, TableToolbar, SearchInput } from "@/components/table-tools";
 import HelpButton from "@/components/help-button";
 import {
   BarChart,
@@ -424,24 +425,39 @@ export default function ZonaPage() {
 
       {/* ═══ Main table: Zona/KAM with expandable category + client detail ═══ */}
       <div style={{ background: "white", borderRadius: 10, border: "1px solid #E2E8F0", overflow: "hidden", marginBottom: 24 }}>
-        <div style={{ padding: "16px 20px", borderBottom: "1px solid #E2E8F0" }}>
+        <div style={{ padding: "16px 20px", borderBottom: "1px solid #E2E8F0", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <h3 style={{ fontSize: 16, fontWeight: 700, color: "#0F172A", margin: 0 }}>
             Detalle por Zona / KAM
-            <span style={{ fontSize: 13, fontWeight: 400, color: "#64748B", marginLeft: 8 }}>{periodLabel} &mdash; Click en zona para ver categorias, click en categoria para ver clientes</span>
+            <span style={{ fontSize: 13, fontWeight: 400, color: "#64748B", marginLeft: 8 }}>{periodLabel} &mdash; Haz clic en zona para ver categorias</span>
           </h3>
+          <ExportButton
+            data={zonas.map(z => ({
+              zona: z.zona, kam: z.kam, meta_periodo: z.meta_periodo, venta: z.venta,
+              gap: z.gap, cumpl: z.cumpl, venta_25: z.venta_25, crec_vs_25: z.crec_vs_25,
+              margen: z.margen, contrib: z.contrib,
+            }))}
+            columns={[
+              { key: "zona", label: "Zona" }, { key: "kam", label: "KAM" },
+              { key: "meta_periodo", label: "Meta" }, { key: "venta", label: "Venta" },
+              { key: "gap", label: "Gap" }, { key: "cumpl", label: "Cumpl %" },
+              { key: "venta_25", label: "Venta 2025" }, { key: "crec_vs_25", label: "Crec %" },
+              { key: "contrib", label: "Contribucion" }, { key: "margen", label: "Margen %" },
+            ]}
+            filename="zonas_kam"
+          />
         </div>
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
           <thead>
             <tr style={{ background: "#F8FAFC" }}>
               <th style={{ ...thStyle, width: 28 }}></th>
               <th style={thStyle}>Zona</th>
-              <th style={thStyle}>KAM</th>
-              <th style={thR}>Meta</th>
-              <th style={thR}>Venta</th>
-              <th style={thR}>Gap</th>
-              <th style={thR}>Cumpl.</th>
-              <th style={thR}>Venta 25</th>
-              <th style={thR}>Crec.</th>
+              <th style={thStyle} title="Key Account Manager responsable">KAM</th>
+              <th style={thR} title="Presupuesto de venta del periodo">Meta</th>
+              <th style={thR} title="Venta neta acumulada">Venta</th>
+              <th style={thR} title="Venta - Meta">Gap</th>
+              <th style={thR} title="Venta / Meta x 100">Cumpl.</th>
+              <th style={thR} title="Venta del mismo periodo en 2025">Venta 25</th>
+              <th style={thR} title="Crecimiento vs 2025">Crec.</th>
             </tr>
           </thead>
           <tbody>

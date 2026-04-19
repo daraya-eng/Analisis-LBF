@@ -4,6 +4,8 @@ import { useEffect, useState, useCallback, Fragment } from "react";
 import { api } from "@/lib/api";
 import { fmt, fmtAbs } from "@/lib/format";
 import { ChevronDown, ChevronRight, ArrowUpDown, ArrowDown, ArrowUp } from "lucide-react";
+import { SearchInput, ExportButton, TableToolbar } from "@/components/table-tools";
+import HelpButton from "@/components/help-button";
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip,
   CartesianGrid, Cell, Legend, PieChart, Pie,
@@ -156,6 +158,7 @@ export default function StockPage() {
   const [sortKey, setSortKey] = useState<string>("total_perdido");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
   const [tab, setTab] = useState<"stock" | "quiebres">("stock");
+  const [qSearch, setQSearch] = useState("");
 
   useEffect(() => {
     (async () => {
@@ -234,7 +237,16 @@ export default function StockPage() {
     }
   };
 
-  const sortedQuiebres = [...quiebres].sort((a, b) => {
+  const filteredQuiebres = qSearch.trim()
+    ? quiebres.filter(q => {
+        const lower = qSearch.toLowerCase().trim();
+        return q.codigo_producto.toLowerCase().includes(lower) ||
+               q.descripcion_producto.toLowerCase().includes(lower) ||
+               (q.categoria || "").toLowerCase().includes(lower);
+      })
+    : quiebres;
+
+  const sortedQuiebres = [...filteredQuiebres].sort((a, b) => {
     if (!sortDir || !sortKey) return 0;
     const av = (a as unknown as Record<string, number>)[sortKey];
     const bv = (b as unknown as Record<string, number>)[sortKey];
@@ -262,9 +274,12 @@ export default function StockPage() {
       {/* Header */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 20 }}>
         <div>
-          <h1 style={{ fontSize: 22, fontWeight: 800, color: "#0F172A", margin: 0 }}>
-            Inventario & Quiebres de Stock
-          </h1>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <h1 style={{ fontSize: 22, fontWeight: 800, color: "#0F172A", margin: 0 }}>
+              Inventario & Quiebres de Stock
+            </h1>
+            <HelpButton module="stock" />
+          </div>
           <p style={{ fontSize: 12, color: "#94A3B8", marginTop: 4 }}>
             Stock al {fechaStock} &middot; Fuente: WMS + ERP
           </p>
@@ -587,6 +602,22 @@ export default function StockPage() {
 
           {/* Quiebres table */}
           <div style={{ ...card, padding: 0, overflow: "hidden" }}>
+            <TableToolbar>
+              <SearchInput value={qSearch} onChange={setQSearch} placeholder="Buscar producto o codigo..." width={240} />
+              {qSearch && (
+                <span style={{ fontSize: 12, color: "#64748B" }}>{sortedQuiebres.length} de {quiebres.length}</span>
+              )}
+              <div style={{ flex: 1 }} />
+              <ExportButton
+                data={sortedQuiebres}
+                columns={[
+                  { key: "codigo_producto", label: "Codigo" }, { key: "descripcion_producto", label: "Producto" },
+                  { key: "categoria", label: "Categoria" }, { key: "veces_quiebre", label: "Quiebres" },
+                  { key: "total_perdido", label: "Venta Perdida" }, { key: "stock_actual", label: "Stock Actual" },
+                ]}
+                filename="quiebres_stock"
+              />
+            </TableToolbar>
             {loadingQ ? (
               <div style={{ padding: 40, textAlign: "center", color: "#94A3B8" }}>Cargando...</div>
             ) : (

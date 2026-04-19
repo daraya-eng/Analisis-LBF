@@ -10,6 +10,7 @@ import React, {
 } from "react";
 import { useRouter } from "next/navigation";
 import type { LoginResponse } from "./api";
+import { api } from "./api";
 
 /* ─── Types ──────────────────────────────────────────────────────────────── */
 
@@ -17,6 +18,7 @@ export interface AuthUser {
   username: string;
   display_name: string;
   role: string;
+  cargo: string;
   modules: string[];
 }
 
@@ -46,7 +48,7 @@ function readStorage(): { token: string | null; user: AuthUser | null } {
     if (!raw) return { token, user: null };
     const parsed = JSON.parse(raw);
     // Ensure modules array exists (backwards compat with old localStorage)
-    const user: AuthUser = { ...parsed, modules: parsed.modules ?? [] };
+    const user: AuthUser = { ...parsed, modules: parsed.modules ?? [], cargo: parsed.cargo ?? "" };
     return { token, user };
   } catch {
     return { token: null, user: null };
@@ -76,6 +78,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       isLoading:       false,
       isAuthenticated: !!token,
     });
+    // Sync user profile from backend (picks up cargo/role changes)
+    if (token) {
+      api.get<AuthUser>("/api/auth/me", { noCache: true }).then((fresh) => {
+        const updated: AuthUser = { ...fresh, modules: fresh.modules ?? [], cargo: fresh.cargo ?? "" };
+        localStorage.setItem(USER_KEY, JSON.stringify(updated));
+        setState((s) => ({ ...s, user: updated }));
+      }).catch(() => {});
+    }
   }, []);
 
   const login = useCallback((response: LoginResponse) => {

@@ -6,6 +6,7 @@ import { api, apiFetch } from "@/lib/api";
 import {
   Shield, Plus, Pencil, Trash2, X, Check, Eye, EyeOff,
   UserPlus, Users, ChevronDown, ChevronUp, ToggleLeft, ToggleRight,
+  BarChart3, Clock, Activity,
 } from "lucide-react";
 
 /* ─── Types ──────────────────────────────────────────────────────────────── */
@@ -13,6 +14,7 @@ import {
 interface UserData {
   username: string;
   display_name: string;
+  cargo: string;
   role: string;
   modules: string[];
   active: boolean;
@@ -21,6 +23,21 @@ interface UserData {
 interface ModuleInfo {
   id: string;
   label: string;
+}
+
+interface UsageStat {
+  username: string;
+  display_name: string;
+  cargo: string;
+  role: string;
+  active: boolean;
+  last_active: string | null;
+  total_requests: number;
+  requests_today: number;
+  requests_week: number;
+  days_active: number;
+  top_modules: { module: string; label: string; count: number }[];
+  trend: { date: string; requests: number }[];
 }
 
 const ROLE_OPTIONS = [
@@ -41,15 +58,19 @@ export default function AdminPage() {
   const [editingUser, setEditingUser] = useState<UserData | null>(null);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+  const [usageStats, setUsageStats] = useState<UsageStat[]>([]);
+  const [showUsage, setShowUsage] = useState(false);
 
   const loadData = useCallback(async () => {
     try {
-      const [usersRes, modulesRes] = await Promise.all([
+      const [usersRes, modulesRes, usageRes] = await Promise.all([
         api.get<{ users: UserData[] }>("/api/auth/users", { noCache: true }),
         api.get<{ modules: ModuleInfo[] }>("/api/auth/modules", { noCache: true }),
+        api.get<{ stats: UsageStat[] }>("/api/auth/usage", { noCache: true }).catch(() => ({ stats: [] })),
       ]);
       setUsers(usersRes.users);
       setModules(modulesRes.modules);
+      setUsageStats(usageRes.stats);
     } catch {
       setError("Error cargando datos");
     } finally {
@@ -161,6 +182,40 @@ export default function AdminPage() {
           ))}
         </div>
       )}
+
+      {/* ═══ Usage Stats Section ═══ */}
+      <div style={{ marginTop: 40 }}>
+        <button
+          onClick={() => setShowUsage((v) => !v)}
+          style={{
+            display: "flex", alignItems: "center", gap: 10, width: "100%",
+            padding: "14px 20px", borderRadius: 12,
+            border: "1px solid #E2E8F0", background: "white",
+            cursor: "pointer", fontSize: 16, fontWeight: 700, color: "#0F172A",
+          }}
+        >
+          <Activity size={20} color="#8B5CF6" />
+          Actividad de la Plataforma
+          <span style={{ fontSize: 13, fontWeight: 400, color: "#94A3B8", marginLeft: 8 }}>
+            Uso por usuario en los ultimos 30 dias
+          </span>
+          <span style={{ marginLeft: "auto" }}>
+            {showUsage ? <ChevronUp size={18} color="#94A3B8" /> : <ChevronDown size={18} color="#94A3B8" />}
+          </span>
+        </button>
+
+        {showUsage && (
+          <div style={{ marginTop: 16, display: "flex", flexDirection: "column", gap: 12 }}>
+            {usageStats.length === 0 ? (
+              <div style={{ textAlign: "center", padding: 40, color: "#94A3B8", fontSize: 14 }}>
+                Sin datos de actividad aun. Los datos se registran automaticamente al navegar la plataforma.
+              </div>
+            ) : (
+              usageStats.map((s) => <UsageCard key={s.username} stat={s} />)
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -204,13 +259,16 @@ function UserCard({ user, modules, isSelf, onEdit, onToggleActive, onDelete }: {
           {user.display_name.split(" ").map((w) => w[0]).join("").slice(0, 2).toUpperCase()}
         </div>
 
-        {/* Name + username */}
+        {/* Name + cargo */}
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: 15, fontWeight: 600, color: "#0F172A" }}>
             {user.display_name}
-            {isSelf && <span style={{ fontSize: 11, color: "#3B82F6", marginLeft: 8 }}>(tu)</span>}
+            <span style={{ fontSize: 11, color: "#94A3B8", marginLeft: 8 }}>{user.username}</span>
+            {isSelf && <span style={{ fontSize: 11, color: "#3B82F6", marginLeft: 4 }}>(tu)</span>}
           </div>
-          <div style={{ fontSize: 13, color: "#64748B" }}>{user.username}</div>
+          <div style={{ fontSize: 13, color: "#64748B" }}>
+            {user.cargo || <span style={{ color: "#CBD5E1", fontStyle: "italic" }}>Sin cargo asignado</span>}
+          </div>
         </div>
 
         {/* Role badge */}
@@ -308,6 +366,148 @@ function UserCard({ user, modules, isSelf, onEdit, onToggleActive, onDelete }: {
   );
 }
 
+/* ─── Usage Card ────────────────────────────────────────────────────────── */
+
+function UsageCard({ stat }: { stat: UsageStat }) {
+  const roleInfo = ROLE_OPTIONS.find((r) => r.value === stat.role) ?? ROLE_OPTIONS[3];
+  const maxTrend = Math.max(...stat.trend.map((t) => t.requests), 1);
+
+  const formatLastActive = (dt: string | null) => {
+    if (!dt) return "Nunca";
+    const d = new Date(dt);
+    const now = new Date();
+    const diffMs = now.getTime() - d.getTime();
+    const diffMin = Math.floor(diffMs / 60000);
+    if (diffMin < 1) return "Hace un momento";
+    if (diffMin < 60) return `Hace ${diffMin} min`;
+    const diffHrs = Math.floor(diffMin / 60);
+    if (diffHrs < 24) return `Hace ${diffHrs}h`;
+    const diffDays = Math.floor(diffHrs / 24);
+    if (diffDays === 1) return "Ayer";
+    if (diffDays < 7) return `Hace ${diffDays} dias`;
+    return d.toLocaleDateString("es-CL", { day: "numeric", month: "short" });
+  };
+
+  return (
+    <div style={{
+      background: "white", borderRadius: 12, border: "1px solid #E2E8F0",
+      padding: "16px 20px", opacity: stat.active ? 1 : 0.5,
+    }}>
+      {/* Top row: user info + KPIs */}
+      <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 14 }}>
+        {/* Avatar */}
+        <div style={{
+          width: 36, height: 36, borderRadius: 8,
+          background: `${roleInfo.color}18`, color: roleInfo.color,
+          display: "flex", alignItems: "center", justifyContent: "center",
+          fontSize: 13, fontWeight: 700, flexShrink: 0,
+        }}>
+          {stat.display_name.split(" ").map((w) => w[0]).join("").slice(0, 2).toUpperCase()}
+        </div>
+
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 14, fontWeight: 600, color: "#0F172A" }}>
+            {stat.display_name}
+          </div>
+          {stat.cargo && (
+            <div style={{ fontSize: 12, color: "#94A3B8" }}>{stat.cargo}</div>
+          )}
+        </div>
+
+        {/* Last active */}
+        <div style={{ textAlign: "right", minWidth: 100 }}>
+          <div style={{ fontSize: 11, color: "#94A3B8", marginBottom: 2 }}>Ultima sesion</div>
+          <div style={{
+            fontSize: 13, fontWeight: 500,
+            color: stat.last_active ? "#475569" : "#CBD5E1",
+          }}>
+            <Clock size={12} style={{ display: "inline", marginRight: 4, verticalAlign: "text-bottom" }} />
+            {formatLastActive(stat.last_active)}
+          </div>
+        </div>
+
+        {/* KPIs */}
+        <div style={{
+          display: "flex", gap: 16,
+          padding: "6px 16px", background: "#F8FAFC", borderRadius: 8,
+        }}>
+          <div style={{ textAlign: "center" }}>
+            <div style={{ fontSize: 11, color: "#94A3B8" }}>Hoy</div>
+            <div style={{ fontSize: 16, fontWeight: 700, color: stat.requests_today > 0 ? "#3B82F6" : "#CBD5E1" }}>
+              {stat.requests_today}
+            </div>
+          </div>
+          <div style={{ width: 1, background: "#E2E8F0" }} />
+          <div style={{ textAlign: "center" }}>
+            <div style={{ fontSize: 11, color: "#94A3B8" }}>Semana</div>
+            <div style={{ fontSize: 16, fontWeight: 700, color: stat.requests_week > 0 ? "#10B981" : "#CBD5E1" }}>
+              {stat.requests_week}
+            </div>
+          </div>
+          <div style={{ width: 1, background: "#E2E8F0" }} />
+          <div style={{ textAlign: "center" }}>
+            <div style={{ fontSize: 11, color: "#94A3B8" }}>Total</div>
+            <div style={{ fontSize: 16, fontWeight: 700, color: stat.total_requests > 0 ? "#8B5CF6" : "#CBD5E1" }}>
+              {stat.total_requests}
+            </div>
+          </div>
+          <div style={{ width: 1, background: "#E2E8F0" }} />
+          <div style={{ textAlign: "center" }}>
+            <div style={{ fontSize: 11, color: "#94A3B8" }}>Dias</div>
+            <div style={{ fontSize: 16, fontWeight: 700, color: stat.days_active > 0 ? "#F59E0B" : "#CBD5E1" }}>
+              {stat.days_active}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Bottom row: trend + top modules */}
+      <div style={{ display: "flex", gap: 20, alignItems: "flex-end" }}>
+        {/* Trend sparkline */}
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: 11, color: "#94A3B8", marginBottom: 6 }}>
+            <BarChart3 size={11} style={{ display: "inline", marginRight: 4, verticalAlign: "text-bottom" }} />
+            Actividad ultimos 14 dias
+          </div>
+          <div style={{ display: "flex", alignItems: "flex-end", gap: 2, height: 32 }}>
+            {stat.trend.map((t, i) => (
+              <div
+                key={i}
+                title={`${t.date}: ${t.requests} requests`}
+                style={{
+                  flex: 1, borderRadius: 2,
+                  height: t.requests > 0 ? Math.max(4, (t.requests / maxTrend) * 32) : 2,
+                  background: t.requests > 0
+                    ? (i >= stat.trend.length - 1 ? "#3B82F6" : i >= stat.trend.length - 7 ? "#60A5FA" : "#93C5FD")
+                    : "#F1F5F9",
+                  transition: "height 0.3s",
+                }}
+              />
+            ))}
+          </div>
+        </div>
+
+        {/* Top modules */}
+        {stat.top_modules.length > 0 && (
+          <div style={{ minWidth: 200 }}>
+            <div style={{ fontSize: 11, color: "#94A3B8", marginBottom: 6 }}>Modulos mas usados</div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+              {stat.top_modules.slice(0, 4).map((m) => (
+                <span key={m.module} style={{
+                  padding: "2px 8px", borderRadius: 4, fontSize: 11,
+                  background: "#F1F5F9", color: "#475569",
+                }}>
+                  {m.label} <span style={{ color: "#94A3B8" }}>({m.count})</span>
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 /* ─── User Form (Create / Edit) ──────────────────────────────────────────── */
 
 function UserForm({ user, modules, onClose, onSaved, onError }: {
@@ -321,6 +521,7 @@ function UserForm({ user, modules, onClose, onSaved, onError }: {
   const [form, setForm] = useState({
     username: user?.username ?? "",
     display_name: user?.display_name ?? "",
+    cargo: user?.cargo ?? "",
     role: user?.role ?? "viewer",
     password: "",
     modules: user?.modules ?? [],
@@ -355,6 +556,7 @@ function UserForm({ user, modules, onClose, onSaved, onError }: {
       if (isEdit) {
         const body: Record<string, unknown> = {
           display_name: form.display_name,
+          cargo: form.cargo,
           role: form.role,
           modules: form.modules,
           active: form.active,
@@ -367,6 +569,7 @@ function UserForm({ user, modules, onClose, onSaved, onError }: {
           username: form.username,
           password: form.password,
           display_name: form.display_name,
+          cargo: form.cargo,
           role: form.role,
           modules: form.modules,
         });
@@ -426,6 +629,17 @@ function UserForm({ user, modules, onClose, onSaved, onError }: {
               value={form.display_name}
               onChange={(e) => setForm((f) => ({ ...f, display_name: e.target.value }))}
               placeholder="ej: Juan Perez"
+              style={inputStyle}
+            />
+          </div>
+
+          {/* Cargo */}
+          <div>
+            <label style={labelStyle}>Cargo</label>
+            <input
+              value={form.cargo}
+              onChange={(e) => setForm((f) => ({ ...f, cargo: e.target.value }))}
+              placeholder="ej: Gerente Comercial, KAM Zona Sur"
               style={inputStyle}
             />
           </div>

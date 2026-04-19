@@ -1032,7 +1032,7 @@ export default function LoginPage() {
           {/* Status badge */}
           <div className="hero-badge animate-badge-pop">
             <span className="hero-badge-dot" />
-            <span>Sistema Activo — Plataforma BI</span>
+            <span>Sistema Activo — Inteligencia Comercial</span>
           </div>
 
           {/* Logo + title block */}
@@ -1057,7 +1057,7 @@ export default function LoginPage() {
                 lineHeight: 1.15,
               }}
             >
-              Análisis<br />Comercial LBF
+              Inteligencia<br />Comercial LBF
             </div>
 
             <div className="hero-divider" style={{ margin: "4px auto 0", maxWidth: 180 }} />
@@ -1071,7 +1071,7 @@ export default function LoginPage() {
                 letterSpacing: "0.05em",
               }}
             >
-              Plataforma de Inteligencia de Negocios
+              Plataforma Ejecutiva de Analisis Comercial
             </div>
           </div>
 

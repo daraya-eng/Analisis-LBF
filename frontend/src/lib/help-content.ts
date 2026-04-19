@@ -90,6 +90,50 @@ export const HELP: Record<string, ModuleHelp> = {
       { term: "OC", definition: "Orden de Compra — documento formal emitido por la institucion para adquirir productos." },
     ],
   },
+  stock: {
+    title: "Stock y Quiebres",
+    description: "Monitoreo de inventario, quiebres de stock y cobertura. Identifica productos sin stock disponible que afectan la venta.",
+    entries: [
+      { term: "Quiebre de Stock", definition: "Producto con stock 0 en bodega. Si hay demanda activa, representa venta perdida." },
+      { term: "Cobertura (dias)", definition: "Dias estimados que dura el stock actual al ritmo de venta promedio: Stock / Venta diaria promedio." },
+      { term: "Stock Disponible", definition: "Unidades fisicamente en bodega, descontando reservas y comprometidos." },
+      { term: "Dias sin Movimiento", definition: "Cantidad de dias desde la ultima salida del producto. Mayor valor = posible obsolescencia." },
+    ],
+  },
+  ma: {
+    title: "M&A Targets",
+    description: "Analisis de empresas objetivo para adquisicion o alianza comercial. Basado en datos de compras publicas: identifica distribuidores con alta sinergia con LBF.",
+    entries: [
+      { term: "Target", definition: "Empresa distribuidora de insumos medicos que participa en Mercado Publico y podria ser candidata a adquisicion o alianza." },
+      { term: "Overlap %", definition: "Porcentaje de subcategorias en comun entre la empresa y LBF. Mayor overlap = mayor sinergia de portafolio." },
+      { term: "YoY (Year over Year)", definition: "Crecimiento de la empresa en 2026 vs 2025 en monto adjudicado." },
+      { term: "Canales (SE/CM/AG/TD)", definition: "SE = Licitaciones. CM = Convenio Marco. AG = Compra Agil. TD = Trato Directo. Barra de colores muestra la distribucion de venta por canal." },
+      { term: "Filtro de Venta", definition: "Filtra empresas por rango de venta total en Mercado Publico. Solo muestra distribuidores entre $100M y $1.900M CLP." },
+    ],
+  },
+  "mercado-publico": {
+    title: "Mercado Publico",
+    description: "Posicion competitiva de LBF en compras publicas de insumos medicos. Incluye licitaciones directas (SE), Convenio Marco (CM), Compra Agil (AG) y Trato Directo (TD).",
+    entries: [
+      { term: "SE (Licitaciones)", definition: "Compras por licitacion publica donde LBF participa directamente ofertando." },
+      { term: "CM (Convenio Marco)", definition: "Canal de compra directa habilitado por ChileCompra. No requiere licitacion." },
+      { term: "AG (Compra Agil)", definition: "Segundo llamado de licitacion. LBF no participa directamente — sus revendedores compran y revenden." },
+      { term: "Participacion de Mercado", definition: "Monto adjudicado a LBF / monto total del mercado x 100." },
+      { term: "Revendedor AG", definition: "Cliente de LBF que compra productos LBF y los oferta en Compra Agil como distribuidor." },
+    ],
+  },
+  oportunidades: {
+    title: "Oportunidades por KAM",
+    description: "Mapa completo de clientes por KAM para preparar reuniones. Cruza ventas, licitaciones, productos perdidos y Convenio Marco para detectar oportunidades de crecimiento.",
+    entries: [
+      { term: "Productos Perdidos", definition: "Productos que el cliente compro en 2025 pero NO ha comprado en 2026. Representa oportunidad de recuperar venta." },
+      { term: "Dias sin Compra", definition: "Dias desde la ultima factura del cliente. Rojo >60d, amarillo >30d, verde <=30d." },
+      { term: "Adj. sin Facturar", definition: "Monto adjudicado en licitaciones vigentes que aun no se ha facturado. Oportunidad de cobro." },
+      { term: "CM Competencia", definition: "Monto que la institucion compra a competidores por Convenio Marco en insumos medicos. Oportunidad de desplazar." },
+      { term: "Crec. %", definition: "Crecimiento de la venta 2026 vs 2025 del cliente en el periodo seleccionado." },
+      { term: "Alertas", definition: "Senales automaticas: caida de venta, dias sin compra, productos perdidos, compra a competidores por CM, adjudicado sin facturar." },
+    ],
+  },
   facturacion: {
     title: "Adj. vs Facturado",
     description: "Compara el monto adjudicado en licitaciones con lo efectivamente facturado. Detecta licitaciones con baja ejecucion o sub-facturacion.",

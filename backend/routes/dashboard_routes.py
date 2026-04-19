@@ -347,6 +347,109 @@ async def get_dashboard_all(
                 "segmento": [], "ventas_mensuales": []}
 
 
+@router.get("/categoria-detail")
+async def get_categoria_detail(
+    categoria: str = Query(...),
+    periodo: str = Query("ytd"),
+    mes: Optional[int] = Query(None),
+    current_user: dict = Depends(get_current_user),
+):
+    """Zone-level breakdown for a specific category — used by dashboard drill-down."""
+    try:
+        if categoria not in _CATS_VALIDAS:
+            return {"error": "Categoria invalida", "zonas": []}
+        cache_key = f"dash_catdet:{categoria}:{periodo}:{mes}"
+        cached = mem_get(cache_key)
+        if cached:
+            return cached
+
+        meses, label = _parse_periodo(periodo, mes)
+        h = hoy()
+        _ANO = h["ano"]
+        mes_list = ",".join(str(m) for m in meses)
+
+        cat_filter = f"= '{categoria}'"
+        if categoria == "EQM":
+            cat_filter = "IN ('EQM','SERVICIOS')"
+
+        conn = get_conn()
+        cur = conn.cursor()
+
+        # Venta + contrib 2026 por zona para esta categoría
+        cur.execute(f"""
+            SELECT VENDEDOR AS zona,
+                   SUM(CAST(VENTA AS float)) AS venta,
+                   SUM(CAST(CONTRIBUCION AS float)) AS contrib
+            FROM BI_TOTAL_FACTURA
+            WHERE ANO = {_ANO} AND MES IN ({mes_list})
+              AND {_EXCL_DW}
+              AND LTRIM(RTRIM(CATEGORIA)) {cat_filter}
+            GROUP BY VENDEDOR
+            ORDER BY SUM(CAST(VENTA AS float)) DESC
+        """)
+        zona_rows = []
+        for r in cur.fetchall():
+            zona_raw = str(r[0]).strip()
+            # Strip numeric prefix
+            parts = zona_raw.split("-", 1)
+            zona_label = parts[1] if len(parts) > 1 else zona_raw
+            venta = float(r[1] or 0)
+            contrib = float(r[2] or 0)
+            margen = (contrib / venta * 100) if venta > 0 else 0
+            zona_rows.append({
+                "zona": zona_label,
+                "venta": round(venta),
+                "contrib": round(contrib),
+                "margen": round(margen, 1),
+            })
+
+        # Merge V REGION zones
+        merged: dict = {}
+        for zr in zona_rows:
+            key = "V REGION" if zr["zona"] in ("V REGION", "V REGION II") else zr["zona"]
+            if key not in merged:
+                merged[key] = {"zona": key, "venta": 0, "contrib": 0}
+            merged[key]["venta"] += zr["venta"]
+            merged[key]["contrib"] += zr["contrib"]
+        final_rows = []
+        for z in merged.values():
+            z["margen"] = round((z["contrib"] / z["venta"] * 100) if z["venta"] > 0 else 0, 1)
+            final_rows.append(z)
+        final_rows.sort(key=lambda r: -r["venta"])
+
+        # Top 10 clientes para esta categoría
+        cur.execute(f"""
+            SELECT TOP 10 RUT, MAX(NOMBRE) AS nombre,
+                   SUM(CAST(VENTA AS float)) AS venta
+            FROM BI_TOTAL_FACTURA
+            WHERE ANO = {_ANO} AND MES IN ({mes_list})
+              AND {_EXCL_DW}
+              AND LTRIM(RTRIM(CATEGORIA)) {cat_filter}
+            GROUP BY RUT
+            ORDER BY SUM(CAST(VENTA AS float)) DESC
+        """)
+        top_clientes = []
+        for r in cur.fetchall():
+            top_clientes.append({
+                "rut": str(r[0] or "").strip(),
+                "nombre": str(r[1] or "").strip(),
+                "venta": round(float(r[2] or 0)),
+            })
+
+        conn.close()
+
+        result = {
+            "categoria": categoria,
+            "label": label,
+            "zonas": final_rows,
+            "top_clientes": top_clientes,
+        }
+        mem_set(cache_key, result)
+        return result
+    except Exception as e:
+        return {"error": str(e), "zonas": [], "top_clientes": []}
+
+
 # Legacy endpoint
 @router.get("/kpis")
 async def get_kpis(current_user: dict = Depends(get_current_user)):

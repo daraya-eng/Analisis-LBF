@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback, Fragment } from "react";
 import { api, clearClientCache } from "@/lib/api";
 import { fmtAbs, fmtPct, semaforo, fmt } from "@/lib/format";
 import { RefreshCw, ChevronDown, ChevronRight } from "lucide-react";
+import { SearchInput, ExportButton, TableToolbar } from "@/components/table-tools";
 import HelpButton from "@/components/help-button";
 import {
   ResponsiveContainer,
@@ -213,29 +214,74 @@ function ClientTable({
   subtitle,
   clients,
   columns,
+  exportFilename,
 }: {
   title: string;
   subtitle?: string;
   clients: ClienteRow[];
   columns: { key: string; label: string; align?: "right"; render?: (c: ClienteRow, i: number) => React.ReactNode }[];
+  exportFilename?: string;
 }) {
   const [expanded, setExpanded] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
+  const [sortCol, setSortCol] = useState<string | null>(null);
+  const [sortAsc, setSortAsc] = useState(false);
+
+  const filtered = search.trim()
+    ? clients.filter(c => {
+        const lower = search.toLowerCase().trim();
+        return (c.NOMBRE || "").toLowerCase().includes(lower) || c.RUT.toLowerCase().includes(lower);
+      })
+    : clients;
+
+  const sorted = sortCol
+    ? [...filtered].sort((a, b) => {
+        const va = (a as unknown as Record<string, unknown>)[sortCol];
+        const vb = (b as unknown as Record<string, unknown>)[sortCol];
+        if (typeof va === "number" && typeof vb === "number") return sortAsc ? va - vb : vb - va;
+        const sa = String(va ?? "").toLowerCase();
+        const sb = String(vb ?? "").toLowerCase();
+        return sortAsc ? sa.localeCompare(sb) : sb.localeCompare(sa);
+      })
+    : filtered;
+
+  const handleSort = (key: string) => {
+    if (sortCol === key) setSortAsc(!sortAsc);
+    else { setSortCol(key); setSortAsc(false); }
+  };
+
+  const exportCols = columns.filter(c => c.key !== "#").map(c => ({ key: c.key, label: c.label }));
 
   return (
     <div style={{ background: "white", borderRadius: 10, border: "1px solid #E2E8F0", marginBottom: 24, overflow: "hidden" }}>
       <SectionTitle title={title} subtitle={subtitle} />
+      <TableToolbar>
+        <SearchInput value={search} onChange={setSearch} placeholder="Buscar cliente o RUT..." width={220} />
+        {search && (
+          <span style={{ fontSize: 12, color: "#64748B" }}>{filtered.length} de {clients.length}</span>
+        )}
+        <div style={{ flex: 1 }} />
+        <ExportButton data={filtered} columns={exportCols} filename={exportFilename || "televentas_clientes"} />
+      </TableToolbar>
       <div style={{ maxHeight: 500, overflowY: "auto" }}>
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
           <thead>
             <tr style={{ background: "#F8FAFC", position: "sticky", top: 0, zIndex: 1 }}>
               <th style={{ ...thStyle, width: 30 }}></th>
               {columns.map((col) => (
-                <th key={col.key} style={{ ...thStyle, textAlign: col.align || "left" }}>{col.label}</th>
+                <th
+                  key={col.key}
+                  onClick={() => col.key !== "#" && handleSort(col.key)}
+                  style={{ ...thStyle, textAlign: col.align || "left", cursor: col.key !== "#" ? "pointer" : "default", userSelect: "none" }}
+                >
+                  {col.label}
+                  {sortCol === col.key && <span style={{ marginLeft: 4, fontSize: 10 }}>{sortAsc ? "▲" : "▼"}</span>}
+                </th>
               ))}
             </tr>
           </thead>
           <tbody>
-            {clients.map((c, i) => {
+            {sorted.map((c, i) => {
               const isExpanded = expanded === c.RUT;
               return (
                 <Fragment key={c.RUT}>
@@ -572,6 +618,7 @@ export default function TeleventasPage() {
           title="Top 10 Clientes 2026"
           subtitle="Por venta YTD (facturas) — click para ver productos"
           clients={data.top10_clientes}
+          exportFilename="televentas_top10"
           columns={[
             { key: "#", label: "#", render: (_c, i) => (
               <span style={{ fontWeight: 700, color: i < 3 ? "#3B82F6" : "#64748B" }}>{i + 1}</span>
@@ -610,6 +657,7 @@ export default function TeleventasPage() {
           title="Clientes Nuevos 2026"
           subtitle={`${data.clientes_nuevos.length} clientes con primera compra en 2026 — Total: ${fmtAbs(k.total_venta_nuevos)}`}
           clients={data.clientes_nuevos}
+          exportFilename="televentas_nuevos"
           columns={[
             { key: "RUT", label: "RUT" },
             { key: "NOMBRE", label: "Nombre" },
@@ -631,6 +679,7 @@ export default function TeleventasPage() {
           title="Clientes Q4-2025 sin compra en 2026"
           subtitle={`${data.clientes_q4_sin_compra.length} clientes — Venta perdida: ${fmtAbs(k.total_venta_q4)}`}
           clients={data.clientes_q4_sin_compra}
+          exportFilename="televentas_q4_sin_compra"
           columns={[
             { key: "RUT", label: "RUT" },
             { key: "NOMBRE", label: "Nombre" },

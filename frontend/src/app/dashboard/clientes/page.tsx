@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import { api, clearClientCache } from "@/lib/api";
 import { fmtAbs, fmtPct, fmt } from "@/lib/format";
-import { RefreshCw, ChevronDown, ChevronRight, TrendingDown, TrendingUp } from "lucide-react";
+import { RefreshCw, ChevronDown, ChevronRight, TrendingDown, TrendingUp, ArrowUpDown, ArrowUp, ArrowDown } from "lucide-react";
+import { SearchInput, AmountFilter, ExportButton, TableToolbar } from "@/components/table-tools";
 import HelpButton from "@/components/help-button";
 import {
   ResponsiveContainer,
@@ -318,8 +319,81 @@ function ClientTable({ title, icon, clientes, period, expandedRut, onToggle, seg
   onToggle: (rut: string) => void;
   segFilter: string;
 }) {
-  const filtered = segFilter ? clientes.filter(c => c.segmento === segFilter) : clientes;
+  const segFiltered = segFilter ? clientes.filter(c => c.segmento === segFilter) : clientes;
+
+  // Search + sort + amount filter
+  const [search, setSearch] = useState("");
+  const [sortKey, setSortKey] = useState<string | null>("diff");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+  const [amtMin, setAmtMin] = useState("");
+  const [amtMax, setAmtMax] = useState("");
+
+  const handleSort = useCallback((key: string) => {
+    if (sortKey === key) setSortDir(d => d === "asc" ? "desc" : "asc");
+    else { setSortKey(key); setSortDir("desc"); }
+  }, [sortKey]);
+
+  const filtered = useMemo(() => {
+    let result = segFiltered;
+
+    // Text search
+    if (search.trim()) {
+      const lower = search.toLowerCase().trim();
+      result = result.filter(c =>
+        (c.nombre || "").toLowerCase().includes(lower) ||
+        c.rut.toLowerCase().includes(lower)
+      );
+    }
+
+    // Amount filter on venta_26
+    if (amtMin || amtMax) {
+      const min = amtMin ? Number(amtMin) : -Infinity;
+      const max = amtMax ? Number(amtMax) : Infinity;
+      result = result.filter(c => c.venta_26 >= min && c.venta_26 <= max);
+    }
+
+    // Sort
+    if (sortKey) {
+      result = [...result].sort((a, b) => {
+        const va = (a as unknown as Record<string, unknown>)[sortKey];
+        const vb = (b as unknown as Record<string, unknown>)[sortKey];
+        if (va == null && vb == null) return 0;
+        if (va == null) return 1;
+        if (vb == null) return -1;
+        const cmp = typeof va === "number" && typeof vb === "number" ? va - vb : String(va).localeCompare(String(vb));
+        return sortDir === "asc" ? cmp : -cmp;
+      });
+    }
+
+    return result;
+  }, [segFiltered, search, sortKey, sortDir, amtMin, amtMax]);
+
   const totalDiff = filtered.reduce((s, c) => s + c.diff, 0);
+
+  const exportCols = [
+    { key: "rut", label: "RUT" }, { key: "nombre", label: "Cliente" }, { key: "segmento", label: "Segmento" },
+    { key: "venta_25", label: "Venta 2025" }, { key: "venta_26", label: "Venta 2026" },
+    { key: "diff", label: "Diferencia" }, { key: "crec", label: "Crec %" },
+    { key: "precio_25", label: "Precio 25" }, { key: "precio_26", label: "Precio 26" },
+    { key: "cant_25", label: "Cant 25" }, { key: "cant_26", label: "Cant 26" },
+  ];
+
+  // Sortable header helper
+  const SH = ({ col, label, align }: { col: string; label: string; align?: "left" | "right" }) => {
+    const isActive = sortKey === col;
+    return (
+      <th onClick={() => handleSort(col)} style={{
+        ...align === "right" ? thR : thStyle, fontSize: 11,
+        cursor: "pointer", userSelect: "none",
+        color: isActive ? "#1E40AF" : "#374151",
+      }}>
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 3 }}>
+          {label}
+          {isActive ? (sortDir === "asc" ? <ArrowUp size={10} /> : <ArrowDown size={10} />) : <ArrowUpDown size={9} style={{ opacity: 0.3 }} />}
+        </span>
+      </th>
+    );
+  };
 
   return (
     <div style={{ background: "white", borderRadius: 10, border: "1px solid #E2E8F0", overflow: "hidden", marginBottom: 24 }}>
@@ -328,28 +402,46 @@ function ClientTable({ title, icon, clientes, period, expandedRut, onToggle, seg
           {icon}
           <h3 style={{ fontSize: 15, fontWeight: 700, color: "#0F172A", margin: 0 }}>
             {title}
-            <span style={{ fontSize: 12, fontWeight: 400, color: "#64748B", marginLeft: 8 }}>{filtered.length} clientes</span>
+            <span style={{ fontSize: 12, fontWeight: 400, color: "#64748B", marginLeft: 8 }}>
+              {filtered.length}{filtered.length !== segFiltered.length ? ` de ${segFiltered.length}` : ""} clientes
+            </span>
           </h3>
         </div>
         <span style={{ fontSize: 13, fontWeight: 800, color: totalDiff >= 0 ? "#10B981" : "#EF4444" }}>
           Total: {totalDiff >= 0 ? "+" : ""}{fmtAbs(totalDiff)}
         </span>
       </div>
+
+      {/* Toolbar: search + amount filter + export */}
+      <TableToolbar>
+        <SearchInput value={search} onChange={setSearch} placeholder="Buscar cliente o RUT..." width={220} />
+        <AmountFilter
+          label="Venta 2026"
+          minValue={amtMin}
+          maxValue={amtMax}
+          onMinChange={setAmtMin}
+          onMaxChange={setAmtMax}
+          onClear={() => { setAmtMin(""); setAmtMax(""); }}
+        />
+        <div style={{ flex: 1 }} />
+        <ExportButton data={filtered} columns={exportCols} filename={`clientes_${title.includes("Perdida") ? "perdida" : "ganancia"}`} />
+      </TableToolbar>
+
       <div style={{ maxHeight: 600, overflowY: "auto" }}>
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
           <thead>
             <tr style={{ background: "#F8FAFC", position: "sticky", top: 0, zIndex: 1 }}>
               <th style={{ ...thStyle, width: 28, fontSize: 11 }}></th>
-              <th style={{ ...thStyle, fontSize: 11 }}>Cliente</th>
+              <SH col="nombre" label="Cliente" />
               <th style={{ ...thStyle, fontSize: 11 }}>Seg.</th>
-              <th style={{ ...thR, fontSize: 11 }}>Venta 2025</th>
-              <th style={{ ...thR, fontSize: 11 }}>Venta 2026</th>
-              <th style={{ ...thR, fontSize: 11 }}>Diferencia</th>
-              <th style={{ ...thR, fontSize: 11 }}>Crec.</th>
-              <th style={{ ...thR, fontSize: 11 }}>Precio 25</th>
-              <th style={{ ...thR, fontSize: 11 }}>Precio 26</th>
-              <th style={{ ...thR, fontSize: 11 }}>Cant 25</th>
-              <th style={{ ...thR, fontSize: 11 }}>Cant 26</th>
+              <SH col="venta_25" label="Venta 2025" align="right" />
+              <SH col="venta_26" label="Venta 2026" align="right" />
+              <SH col="diff" label="Diferencia" align="right" />
+              <SH col="crec" label="Crec." align="right" />
+              <SH col="precio_25" label="Precio 25" align="right" />
+              <SH col="precio_26" label="Precio 26" align="right" />
+              <SH col="cant_25" label="Cant 25" align="right" />
+              <SH col="cant_26" label="Cant 26" align="right" />
             </tr>
           </thead>
           <tbody>

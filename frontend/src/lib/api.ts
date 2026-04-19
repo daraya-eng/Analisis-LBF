@@ -155,6 +155,7 @@ export interface LoginResponse {
     username: string;
     display_name: string;
     role: string;
+    cargo: string;
     modules: string[];
   };
 }

@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 import { api, clearClientCache } from "@/lib/api";
 import { fmtAbs, fmtPct, semaforo, fmt } from "@/lib/format";
-import { RefreshCw } from "lucide-react";
+import { RefreshCw, ChevronDown, ChevronRight } from "lucide-react";
+import { ExportButton } from "@/components/table-tools";
 import HelpButton from "@/components/help-button";
 import {
   ComposedChart,
@@ -67,6 +68,28 @@ interface SegRow {
   EQM: number;
 }
 
+interface CatDetailZona {
+  zona: string;
+  kam: string;
+  venta: number;
+  contrib: number;
+  margen: number;
+}
+
+interface ZonaCatData {
+  venta: number;
+  contrib: number;
+  margen: number;
+  pct_zona: number;
+}
+
+interface ZonaRow {
+  zona: string;
+  kam: string;
+  venta: number;
+  categorias: Record<string, ZonaCatData>;
+}
+
 interface VentaMensual {
   MES: number;
   mes_nombre: string;
@@ -93,13 +116,16 @@ interface DashData {
 
 /* ─── Stat Card ─────────────────────────────────────────────────────── */
 
-function StatCard({ label, value, sub, color }: { label: string; value: string; sub?: string; color: string }) {
+function StatCard({ label, value, sub, color, tooltip }: { label: string; value: string; sub?: string; color: string; tooltip?: string }) {
   return (
-    <div style={{
-      flex: "1 1 180px", background: "white", borderRadius: 10,
-      border: "1px solid #E2E8F0", overflow: "hidden",
-      boxShadow: "0 1px 3px rgba(0,0,0,0.04)",
-    }}>
+    <div
+      title={tooltip}
+      style={{
+        flex: "1 1 180px", background: "white", borderRadius: 10,
+        border: "1px solid #E2E8F0", overflow: "hidden",
+        boxShadow: "0 1px 3px rgba(0,0,0,0.04)",
+      }}
+    >
       <div style={{ height: 4, background: color }} />
       <div style={{ padding: "16px 20px" }}>
         <div style={{ fontSize: 12, fontWeight: 500, color: "#64748B", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.04em" }}>
@@ -204,6 +230,9 @@ export default function DashboardPage() {
   const [data, setData] = useState<DashData | null>(null);
   const [loading, setLoading] = useState(true);
   const [period, setPeriod] = useState(`mes-${new Date().getMonth() + 1}`);
+  const [expandedCat, setExpandedCat] = useState<string | null>(null);
+  const [catDetailZonas, setCatDetailZonas] = useState<CatDetailZona[]>([]);
+  const [catDetailLoading, setCatDetailLoading] = useState(false);
 
   const fetchDashboard = useCallback(async (periodo: string) => {
     setLoading(true);
@@ -233,6 +262,46 @@ export default function DashboardPage() {
     api.post("/api/refresh").catch(() => {});
     fetchDashboard(period);
   }, [fetchDashboard, period]);
+
+  const handleCatClick = useCallback((cat: string) => {
+    if (cat === "Total") return;
+    if (expandedCat === cat) {
+      setExpandedCat(null);
+      setCatDetailZonas([]);
+      return;
+    }
+    setExpandedCat(cat);
+    setCatDetailLoading(true);
+    setCatDetailZonas([]);
+    let queryParam = `?periodo=${period}`;
+    if (period.startsWith("mes-")) {
+      const mesNum = period.split("-")[1];
+      queryParam = `?periodo=mes&mes=${mesNum}`;
+    }
+    api.get<{ zonas: ZonaRow[] }>(`/api/zona/${queryParam}`)
+      .then(r => {
+        const zonas = (r.zonas ?? [])
+          .map((z: ZonaRow) => {
+            const catData = z.categorias?.[cat];
+            if (!catData || catData.venta === 0) return null;
+            return {
+              zona: z.zona,
+              kam: z.kam,
+              venta: catData.venta,
+              contrib: catData.contrib,
+              margen: catData.margen,
+            };
+          })
+          .filter((z): z is CatDetailZona => z !== null)
+          .sort((a, b) => b.venta - a.venta);
+        setCatDetailZonas(zonas);
+        setCatDetailLoading(false);
+      })
+      .catch(() => setCatDetailLoading(false));
+  }, [expandedCat, period]);
+
+  // Reset expanded category when period changes
+  useEffect(() => { setExpandedCat(null); setCatDetailZonas([]); }, [period]);
 
   if (loading) {
     return (
@@ -370,24 +439,29 @@ export default function DashboardPage() {
 
       {/* ═══ KPIs ROW 1 ═══ */}
       <div style={{ display: "flex", gap: 12, marginBottom: 12, flexWrap: "wrap" }}>
-        <StatCard label="Meta Anual 2026" value={fmtAbs(k.meta_anual)} color="#6366F1" />
-        <StatCard label={`Meta ${periodLabel}`} value={fmtAbs(k.meta_periodo)} color="#8B5CF6" />
+        <StatCard label="Meta Anual 2026" value={fmtAbs(k.meta_anual)} color="#6366F1"
+          tooltip="Presupuesto de venta total anual 2026, sumando todas las zonas y categorias" />
+        <StatCard label={`Meta ${periodLabel}`} value={fmtAbs(k.meta_periodo)} color="#8B5CF6"
+          tooltip="Presupuesto de venta para el periodo seleccionado" />
         <StatCard
           label={`Venta ${periodLabel}`}
           value={fmtAbs(k.venta)}
           sub={`2025: ${fmtAbs(k.venta_25)}`}
           color="#3B82F6"
+          tooltip="Venta neta acumulada (facturas + guias pendientes). Debajo se muestra la venta 2025 del mismo periodo"
         />
         <StatCard
           label="Cumpl. Venta"
           value={`${semaforo(k.cumpl)} ${fmtPct(k.cumpl)}`}
           sub={`Gap: ${fmtAbs(k.gap)}`}
           color={k.cumpl >= 100 ? "#10B981" : k.cumpl >= 80 ? "#F59E0B" : "#EF4444"}
+          tooltip="Venta / Meta x 100. Verde >=100%, amarillo >=80%, rojo <80%"
         />
         <StatCard
           label="Crec. vs 2025"
           value={`${k.crec_vs_25 >= 0 ? "+" : ""}${fmtPct(k.crec_vs_25)}`}
           color={k.crec_vs_25 >= 0 ? "#10B981" : "#EF4444"}
+          tooltip="Crecimiento porcentual de venta 2026 vs mismo periodo 2025"
         />
       </div>
 
@@ -398,12 +472,14 @@ export default function DashboardPage() {
           value={fmtAbs(k.contrib_real)}
           sub={`Meta: ${fmtAbs(k.meta_contrib_periodo)} | Cumpl: ${fmtPct(k.cumpl_contrib)}`}
           color={k.cumpl_contrib >= 100 ? "#10B981" : k.cumpl_contrib >= 80 ? "#F59E0B" : "#EF4444"}
+          tooltip="Margen bruto en pesos: Venta - Costo. Mide la ganancia bruta de producto"
         />
         <StatCard
           label="Margen Bruto"
           value={`${fmtPct(k.margen_real)}`}
           sub={`Meta: ${fmtPct(k.margen_meta)} | ${k.margen_real >= k.margen_meta ? "Por encima" : "Por debajo"}`}
           color={k.margen_real >= k.margen_meta ? "#10B981" : "#EF4444"}
+          tooltip="(Venta - Costo) / Venta x 100. No incluye costos logisticos ni comisiones"
         />
       </div>
 
@@ -572,50 +648,130 @@ export default function DashboardPage() {
 
       {/* ═══ TABLA: Meta vs Venta por Categoria ═══ */}
       <div style={{ background: "white", borderRadius: 10, border: "1px solid #E2E8F0", marginBottom: 24, overflow: "hidden" }}>
-        <SectionTitle
-          title="Meta vs Venta por Categoria"
-          subtitle={periodLabel}
-        />
+        <div style={{ padding: "16px 20px", borderBottom: "1px solid #E2E8F0", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <div>
+            <h3 style={{ fontSize: 16, fontWeight: 700, color: "#0F172A", margin: 0 }}>
+              Meta vs Venta por Categoria
+              <span style={{ fontSize: 13, fontWeight: 400, color: "#64748B", marginLeft: 8 }}>{periodLabel}</span>
+            </h3>
+            <p style={{ fontSize: 11, color: "#94A3B8", margin: "2px 0 0" }}>Haz clic en una categoria para ver detalle por zona y clientes</p>
+          </div>
+          <ExportButton
+            data={catData}
+            columns={[
+              { key: "categoria", label: "Categoria" }, { key: "meta_anual", label: "Meta Anual" },
+              { key: "meta_periodo", label: "Meta Periodo" }, { key: "venta", label: "Venta" },
+              { key: "gap", label: "Gap" }, { key: "cumpl", label: "Cumpl %" },
+              { key: "margen_real", label: "Margen Real %" }, { key: "margen_meta", label: "Margen Meta %" },
+            ]}
+            filename="categoria_meta_venta"
+          />
+        </div>
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
           <thead>
             <tr style={{ background: "#F8FAFC" }}>
               <th style={thStyle}>Categoria</th>
-              <th style={thR}>Meta Anual</th>
-              <th style={thR}>Meta Periodo</th>
-              <th style={thR}>Venta</th>
-              <th style={thR}>Gap</th>
-              <th style={thR}>Cumpl. Venta</th>
-              <th style={thR}>Margen %</th>
+              <th style={thR} title="Presupuesto anual 2026">Meta Anual</th>
+              <th style={thR} title="Presupuesto del periodo seleccionado">Meta Periodo</th>
+              <th style={thR} title="Venta neta acumulada (facturas + guias)">Venta</th>
+              <th style={thR} title="Venta - Meta (positivo = supera meta)">Gap</th>
+              <th style={thR} title="Venta / Meta x 100">Cumpl. Venta</th>
+              <th style={thR} title="Margen bruto: (Venta - Costo) / Venta x 100">Margen %</th>
             </tr>
           </thead>
           <tbody>
             {catData.map((row, i) => {
               const isTotal = row.categoria === "Total";
+              const isExpanded = expandedCat === row.categoria;
               const cumplColor = row.cumpl >= 100 ? "#10B981" : row.cumpl >= 80 ? "#F59E0B" : "#EF4444";
               return (
-                <tr key={i} style={{
-                  borderBottom: "1px solid #F1F5F9",
-                  fontWeight: isTotal ? 700 : 400,
-                  background: isTotal ? "#F1F5F9" : i % 2 === 0 ? "white" : "#FAFBFD",
-                }}>
-                  <td style={{ ...tdStyle, fontWeight: 600 }}>
-                    {!isTotal && <span style={{
-                      display: "inline-block", width: 10, height: 10, borderRadius: 3,
-                      background: CAT_COLORS[row.categoria] ?? "#94A3B8", marginRight: 8,
-                    }} />}
-                    {row.categoria}
-                  </td>
-                  <td style={tdR}>{fmtAbs(row.meta_anual)}</td>
-                  <td style={tdR}>{fmtAbs(row.meta_periodo)}</td>
-                  <td style={{ ...tdR, fontWeight: 600 }}>{fmtAbs(row.venta)}</td>
-                  <td style={{ ...tdR, color: row.gap >= 0 ? "#10B981" : "#EF4444" }}>{fmtAbs(row.gap)}</td>
-                  <td style={{ ...tdR, fontWeight: 600, color: cumplColor }}>
-                    {semaforo(row.cumpl)} {fmtPct(row.cumpl)}
-                  </td>
-                  <td style={tdR}>
-                    <MarginGauge real={row.margen_real} meta={row.margen_meta} />
-                  </td>
-                </tr>
+                <React.Fragment key={i}>
+                  <tr
+                    onClick={() => handleCatClick(row.categoria)}
+                    style={{
+                      borderBottom: isExpanded ? "none" : "1px solid #F1F5F9",
+                      fontWeight: isTotal ? 700 : 400,
+                      background: isExpanded ? "#EFF6FF" : isTotal ? "#F1F5F9" : i % 2 === 0 ? "white" : "#FAFBFD",
+                      cursor: isTotal ? "default" : "pointer",
+                      transition: "background 0.15s",
+                    }}
+                    onMouseEnter={e => { if (!isTotal && !isExpanded) e.currentTarget.style.background = "#F8FAFC"; }}
+                    onMouseLeave={e => { if (!isTotal && !isExpanded) e.currentTarget.style.background = i % 2 === 0 ? "white" : "#FAFBFD"; }}
+                  >
+                    <td style={{ ...tdStyle, fontWeight: 600 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                        {!isTotal && (
+                          isExpanded
+                            ? <ChevronDown size={14} color="#3B82F6" />
+                            : <ChevronRight size={14} color="#94A3B8" />
+                        )}
+                        {!isTotal && <span style={{
+                          display: "inline-block", width: 10, height: 10, borderRadius: 3,
+                          background: CAT_COLORS[row.categoria] ?? "#94A3B8",
+                        }} />}
+                        {row.categoria}
+                      </div>
+                    </td>
+                    <td style={tdR}>{fmtAbs(row.meta_anual)}</td>
+                    <td style={tdR}>{fmtAbs(row.meta_periodo)}</td>
+                    <td style={{ ...tdR, fontWeight: 600 }}>{fmtAbs(row.venta)}</td>
+                    <td style={{ ...tdR, color: row.gap >= 0 ? "#10B981" : "#EF4444" }}>{fmtAbs(row.gap)}</td>
+                    <td style={{ ...tdR, fontWeight: 600, color: cumplColor }}>
+                      {semaforo(row.cumpl)} {fmtPct(row.cumpl)}
+                    </td>
+                    <td style={tdR}>
+                      <MarginGauge real={row.margen_real} meta={row.margen_meta} />
+                    </td>
+                  </tr>
+                  {isExpanded && (
+                    <tr>
+                      <td colSpan={7} style={{ padding: 0, background: "#F8FAFC", borderBottom: "1px solid #E2E8F0" }}>
+                        {catDetailLoading ? (
+                          <div style={{ padding: 24, textAlign: "center", color: "#64748B", fontSize: 13 }}>
+                            <div className="spinner-ring animate-spin-ring" style={{ width: 18, height: 18, borderWidth: 2, borderColor: "rgba(59,130,246,0.2)", borderTopColor: "#3B82F6", display: "inline-block", marginRight: 8, verticalAlign: "middle" }} />
+                            Cargando detalle por zona...
+                          </div>
+                        ) : catDetailZonas.length > 0 ? (
+                          <div style={{ padding: "12px 20px 16px" }}>
+                            <h4 style={{ fontSize: 13, fontWeight: 700, color: "#374151", margin: "0 0 8px" }}>
+                              Venta por Zona — {row.categoria}
+                            </h4>
+                            <div style={{ background: "white", borderRadius: 8, border: "1px solid #E2E8F0", overflow: "hidden" }}>
+                              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                                <thead>
+                                  <tr style={{ background: "#F8FAFC" }}>
+                                    <th style={{ ...thStyle, fontSize: 11, padding: "6px 10px" }}>Zona</th>
+                                    <th style={{ ...thStyle, fontSize: 11, padding: "6px 10px" }}>KAM</th>
+                                    <th style={{ ...thR, fontSize: 11, padding: "6px 10px" }}>Venta</th>
+                                    <th style={{ ...thR, fontSize: 11, padding: "6px 10px" }}>Contrib.</th>
+                                    <th style={{ ...thR, fontSize: 11, padding: "6px 10px" }}>Margen %</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {catDetailZonas.map((z, zi) => (
+                                    <tr key={zi} style={{ borderBottom: "1px solid #F1F5F9", background: zi % 2 === 0 ? "white" : "#FAFBFC" }}>
+                                      <td style={{ padding: "5px 10px", fontSize: 12, color: "#1F2937", fontWeight: 500 }}>{z.zona}</td>
+                                      <td style={{ padding: "5px 10px", fontSize: 12, color: "#64748B" }}>{z.kam}</td>
+                                      <td style={{ padding: "5px 10px", textAlign: "right", fontSize: 12, fontVariantNumeric: "tabular-nums", fontWeight: 600 }}>{fmtAbs(z.venta)}</td>
+                                      <td style={{ padding: "5px 10px", textAlign: "right", fontSize: 12, fontVariantNumeric: "tabular-nums" }}>{fmtAbs(z.contrib)}</td>
+                                      <td style={{ padding: "5px 10px", textAlign: "right", fontSize: 12, fontWeight: 600, color: z.margen >= 40 ? "#10B981" : z.margen >= 30 ? "#F59E0B" : "#EF4444" }}>
+                                        {fmtPct(z.margen)}
+                                      </td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          </div>
+                        ) : (
+                          <div style={{ padding: 20, textAlign: "center", color: "#94A3B8", fontSize: 12 }}>
+                            Sin datos de zona para {row.categoria}
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  )}
+                </React.Fragment>
               );
             })}
           </tbody>

@@ -17,6 +17,8 @@ import {
   Shield,
   BookOpen,
   Warehouse,
+  TrendingUp,
+  Target,
 } from "lucide-react";
 import { useState } from "react";
 
@@ -24,11 +26,13 @@ const NAV_ITEMS = [
   { href: "/dashboard", label: "Panel Principal", icon: LayoutDashboard, module: "dashboard" },
   { href: "/dashboard/televentas", label: "Televentas", icon: Phone, module: "televentas" },
   { href: "/dashboard/zona", label: "KAM", icon: Building2, module: "zona" },
+  { href: "/dashboard/oportunidades", label: "Oportunidades", icon: Target, module: "zona" },
   { href: "/dashboard/clientes", label: "Clientes", icon: Users, module: "clientes" },
-  { href: "/dashboard/categoria", label: "MultiProducto", icon: Package, module: "categoria" },
-  { href: "/dashboard/mercado", label: "Análisis de Mercado", icon: BarChart3, module: "mercado" },
+  { href: "/dashboard/categoria", label: "Compra Agil", icon: Package, module: "categoria" },
   { href: "/dashboard/facturacion", label: "Adj. vs Facturado", icon: Receipt, module: "facturacion" },
+  { href: "/dashboard/mercado-publico", label: "Mercado Publico", icon: TrendingUp, module: "mercado_publico" },
   { href: "/dashboard/stock", label: "Inventario", icon: Warehouse, module: "stock" },
+  { href: "/dashboard/ma", label: "M&A Targets", icon: Target, module: "ma" },
   { href: "/dashboard/glosario", label: "Glosario", icon: BookOpen, module: "dashboard" },
 ];
 
@@ -48,7 +52,7 @@ export default function Sidebar() {
     .slice(0, 2)
     .toUpperCase() ?? "U";
 
-  const roleLabel = isSuperAdmin ? "Super Admin" : user?.role === "admin" ? "Admin" : user?.role ?? "";
+  const cargoLabel = user?.cargo || (isSuperAdmin ? "Administrador" : user?.role === "admin" ? "Admin" : user?.role ?? "");
 
   return (
     <aside
@@ -99,10 +103,10 @@ export default function Sidebar() {
         {!collapsed && (
           <div style={{ overflow: "hidden" }}>
             <div style={{ fontSize: 14, fontWeight: 700, color: "white", whiteSpace: "nowrap" }}>
-              LBF Analytics
+              Inteligencia Comercial
             </div>
             <div style={{ fontSize: 11, color: "rgba(148,163,184,0.8)", whiteSpace: "nowrap" }}>
-              Advanced Platform
+              Comercial LBF Ltda.
             </div>
           </div>
         )}
@@ -239,7 +243,7 @@ export default function Sidebar() {
                 {user?.display_name}
               </div>
               <div style={{ fontSize: 11, color: isSuperAdmin ? "#FBBF24" : "#64748B", textTransform: "capitalize" }}>
-                {roleLabel}
+                {cargoLabel}
               </div>
             </div>
           )}
@@ -263,10 +267,10 @@ export default function Sidebar() {
             borderRadius: 8,
             transition: "color 0.15s",
           }}
-          title="Sign out"
+          title="Cerrar Sesion"
         >
           <LogOut size={16} />
-          {!collapsed && <span>Sign Out</span>}
+          {!collapsed && <span>Cerrar Sesion</span>}
         </button>
 
         {/* Collapse toggle */}
@@ -285,7 +289,7 @@ export default function Sidebar() {
             borderRadius: 8,
             marginTop: 4,
           }}
-          title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+          title={collapsed ? "Expandir menu" : "Colapsar menu"}
         >
           {collapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
         </button>

@@ -26,7 +26,7 @@ export default function DataTable({
   data,
   onRowClick,
   maxHeight = "500px",
-  emptyMessage = "No data available",
+  emptyMessage = "Sin datos disponibles",
 }: DataTableProps) {
   const [sortKey, setSortKey] = useState<string | null>(null);
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");

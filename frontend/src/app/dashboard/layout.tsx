@@ -9,11 +9,14 @@ import Sidebar from "@/components/sidebar";
 const PATH_TO_MODULE: Record<string, string> = {
   televentas: "televentas",
   zona: "zona",
+  oportunidades: "zona",
   clientes: "clientes",
   categoria: "categoria",
   mercado: "mercado",
   facturacion: "facturacion",
   stock: "stock",
+  "mercado-publico": "mercado_publico",
+  ma: "ma",
 };
 
 export default function DashboardLayout({

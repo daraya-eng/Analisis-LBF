@@ -8,7 +8,7 @@ from typing import Optional
 from auth import (
     authenticate_user, create_access_token, get_current_user,
     require_superadmin, list_users, create_user, update_user, delete_user,
-    ALL_MODULES, MODULE_LABELS,
+    ALL_MODULES, MODULE_LABELS, get_usage_stats,
 )
 
 router = APIRouter()
@@ -25,6 +25,7 @@ def _user_response(user: dict) -> dict:
         "username": user["username"],
         "display_name": user["display_name"],
         "role": user["role"],
+        "cargo": user.get("cargo", ""),
         "modules": user.get("modules", []),
     }
 
@@ -80,18 +81,21 @@ class CreateUserRequest(BaseModel):
     password: str
     display_name: str
     role: str = "viewer"
+    cargo: str = ""
     modules: list[str] = []
 
 
 @router.post("/users")
 async def post_user(req: CreateUserRequest, admin: dict = Depends(require_superadmin)):
-    user = create_user(req.username, req.password, req.display_name, req.role, req.modules)
+    user = create_user(req.username, req.password, req.display_name,
+                       req.role, req.modules, req.cargo)
     return {"status": "ok", "user": user}
 
 
 class UpdateUserRequest(BaseModel):
     display_name: Optional[str] = None
     role: Optional[str] = None
+    cargo: Optional[str] = None
     modules: Optional[list[str]] = None
     password: Optional[str] = None
     active: Optional[bool] = None
@@ -101,7 +105,7 @@ class UpdateUserRequest(BaseModel):
 async def put_user(username: str, req: UpdateUserRequest,
                    admin: dict = Depends(require_superadmin)):
     user = update_user(username, req.display_name, req.role,
-                       req.modules, req.password, req.active)
+                       req.modules, req.password, req.active, req.cargo)
     return {"status": "ok", "user": user}
 
 
@@ -110,3 +114,9 @@ async def del_user(username: str, admin: dict = Depends(require_superadmin)):
     # Prevent self-deletion
     delete_user(username)
     return {"status": "ok"}
+
+
+@router.get("/usage")
+async def get_usage(admin: dict = Depends(require_superadmin)):
+    """Return platform usage stats per user (superadmin only)."""
+    return {"stats": get_usage_stats()}

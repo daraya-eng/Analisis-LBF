@@ -7,6 +7,7 @@ import pandas as pd
 from fastapi import APIRouter, Depends, Query
 from auth import get_current_user
 from db import get_conn, hoy, MESES_NOMBRE
+from cache import mem_get, mem_set
 
 router = APIRouter()
 
@@ -145,34 +146,58 @@ def _build_zona_table(df: pd.DataFrame) -> list:
 
 @router.get("/kpis")
 async def get_resumen_kpis(current_user: dict = Depends(get_current_user)):
-    return _load_kpis_dashboard()
+    ck = "resumen_kpis"
+    cached = mem_get(ck)
+    if cached:
+        return cached
+    data = _load_kpis_dashboard()
+    mem_set(ck, data)
+    return data
 
 
 @router.get("/all")
 async def get_resumen_all(current_user: dict = Depends(get_current_user)):
     """Single endpoint that loads PPTO_VS_VENTA once and returns both tables + KPIs."""
+    ck = "resumen_all"
+    cached = mem_get(ck)
+    if cached:
+        return cached
     kpis = _load_kpis_dashboard()
     df = _load_ppto_vs_venta_df()
     cat_data = _build_categoria_table(df) if not df.empty else []
     zona_data = _build_zona_table(df) if not df.empty else []
-    return {
+    result = {
         "kpis": kpis,
         "categoria": cat_data,
         "zona": zona_data,
     }
+    mem_set(ck, result)
+    return result
 
 
 @router.get("/categoria")
 async def get_resumen_categoria(current_user: dict = Depends(get_current_user)):
+    ck = "resumen_categoria"
+    cached = mem_get(ck)
+    if cached:
+        return cached
     df = _load_ppto_vs_venta_df()
     if df.empty:
         return {"data": []}
-    return {"data": _build_categoria_table(df)}
+    result = {"data": _build_categoria_table(df)}
+    mem_set(ck, result)
+    return result
 
 
 @router.get("/zona")
 async def get_resumen_zona(current_user: dict = Depends(get_current_user)):
+    ck = "resumen_zona"
+    cached = mem_get(ck)
+    if cached:
+        return cached
     df = _load_ppto_vs_venta_df()
     if df.empty:
         return {"data": []}
-    return {"data": _build_zona_table(df)}
+    result = {"data": _build_zona_table(df)}
+    mem_set(ck, result)
+    return result

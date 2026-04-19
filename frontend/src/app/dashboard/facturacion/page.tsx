@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback, useRef, Fragment, memo } from "react"
 import { api, apiFetch } from "@/lib/api";
 import { fmt, fmtAbs, fmtPct } from "@/lib/format";
 import { ChevronDown, ChevronRight, MessageSquare, Mail } from "lucide-react";
+import { ExportButton } from "@/components/table-tools";
 import HelpButton from "@/components/help-button";
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip,
@@ -792,6 +793,22 @@ export default function FacturacionPage() {
             <span style={{ fontSize: 12, color: "#94A3B8", marginLeft: 8 }}>
               {licFiltradas.length} de {licitaciones.length} licitaciones
             </span>
+            <ExportButton
+              data={licFiltradas.map((l: any) => ({
+                kam: l.kam, licitacion: l.licitacion, cliente: l.cliente_nombre,
+                adjudicado: l.adjudicado, facturado: l.facturado,
+                gap: l.adjudicado - l.facturado, cumplimiento: l.cumplimiento,
+                termino: l.termino, dias_restantes: l.dias_restantes,
+              }))}
+              columns={[
+                { key: "kam", label: "KAM" }, { key: "licitacion", label: "Licitacion" },
+                { key: "cliente", label: "Cliente" }, { key: "adjudicado", label: "Adjudicado" },
+                { key: "facturado", label: "Facturado" }, { key: "gap", label: "Gap" },
+                { key: "cumplimiento", label: "Cumpl %" }, { key: "termino", label: "Termino" },
+                { key: "dias_restantes", label: "Dias Restantes" },
+              ]}
+              filename="licitaciones_facturacion"
+            />
           </div>
 
           <div style={{ ...card, padding: 0, overflow: "auto" }}>

@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useState, useCallback, Fragment } from "react";
+import { useEffect, useState, useCallback, Fragment, useMemo } from "react";
 import { api } from "@/lib/api";
 import { fmt, fmtAbs, fmtPct } from "@/lib/format";
 import {
   ChevronDown, ChevronRight, Target, Award, Search, ShoppingCart, AlertTriangle,
 } from "lucide-react";
 import HelpButton from "@/components/help-button";
+import { ExportButton, SearchInput, TableToolbar } from "@/components/table-tools";
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip,
   CartesianGrid, Cell, Legend,
@@ -102,7 +103,7 @@ function DesempenoTab({ periodo }: { periodo: string }) {
             <Tooltip formatter={(v: any) => fmtAbs(v)} contentStyle={tt} />
             <Legend />
             <Bar dataKey="LBF" stackId="a" fill="#3B82F6" radius={[0, 0, 0, 0]} />
-            <Bar dataKey="Competencia" stackId="a" fill="#E2E8F0" radius={[0, 4, 4, 0]} />
+            <Bar dataKey="Competencia" stackId="a" fill="#94A3B8" radius={[0, 4, 4, 0]} />
           </BarChart>
         </ResponsiveContainer>
       </div>
@@ -110,7 +111,13 @@ function DesempenoTab({ periodo }: { periodo: string }) {
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
         {/* Categorías tabla */}
         <div style={card}>
-          <h3 style={{ fontSize: 14, fontWeight: 700, color: "#0F172A", marginBottom: 12 }}>Win Rate por Categoria</h3>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+            <h3 style={{ fontSize: 14, fontWeight: 700, color: "#0F172A", margin: 0 }}>Win Rate por Categoria</h3>
+            <ExportButton data={d.categorias || []} filename="categorias_winrate" columns={[
+              { key: "categoria", label: "Categoria" }, { key: "ganadas", label: "Ganadas" }, { key: "perdidas", label: "Perdidas" },
+              { key: "win_rate", label: "Win Rate %" }, { key: "participacion", label: "Participacion %" },
+            ]} />
+          </div>
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead><tr><th style={thS}>Categoria</th><th style={thC}>G</th><th style={thC}>P</th><th style={thS}>Win Rate</th><th style={thR}>Part.</th></tr></thead>
             <tbody>
@@ -128,7 +135,13 @@ function DesempenoTab({ periodo }: { periodo: string }) {
 
         {/* Zonas */}
         <div style={card}>
-          <h3 style={{ fontSize: 14, fontWeight: 700, color: "#0F172A", marginBottom: 12 }}>Win Rate por Zona</h3>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+            <h3 style={{ fontSize: 14, fontWeight: 700, color: "#0F172A", margin: 0 }}>Win Rate por Zona</h3>
+            <ExportButton data={d.zonas || []} filename="zonas_winrate" columns={[
+              { key: "zona", label: "Zona" }, { key: "ganadas", label: "Ganadas" }, { key: "perdidas", label: "Perdidas" },
+              { key: "win_rate", label: "Win Rate %" }, { key: "monto_lbf", label: "Monto LBF" },
+            ]} />
+          </div>
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead><tr><th style={thS}>Zona</th><th style={thC}>G</th><th style={thC}>P</th><th style={thS}>Win Rate</th><th style={thR}>Monto LBF</th></tr></thead>
             <tbody>
@@ -148,7 +161,13 @@ function DesempenoTab({ periodo }: { periodo: string }) {
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
         {/* Tipo licitación */}
         <div style={card}>
-          <h3 style={{ fontSize: 14, fontWeight: 700, color: "#0F172A", marginBottom: 12 }}>Por Tipo de Licitacion</h3>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+            <h3 style={{ fontSize: 14, fontWeight: 700, color: "#0F172A", margin: 0 }}>Por Tipo de Licitacion</h3>
+            <ExportButton data={d.tipos || []} filename="tipos_licitacion" columns={[
+              { key: "tipo", label: "Tipo" }, { key: "ganadas", label: "Ganadas" }, { key: "perdidas", label: "Perdidas" },
+              { key: "win_rate", label: "Win Rate %" }, { key: "monto", label: "Monto" },
+            ]} />
+          </div>
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead><tr><th style={thS}>Tipo</th><th style={thC}>G</th><th style={thC}>P</th><th style={thS}>Win Rate</th><th style={thR}>Monto</th></tr></thead>
             <tbody>
@@ -181,7 +200,13 @@ function DesempenoTab({ periodo }: { periodo: string }) {
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
         {/* Mejores productos */}
         <div style={{ ...card, borderTop: "3px solid #10B981" }}>
-          <h3 style={{ fontSize: 14, fontWeight: 700, color: "#10B981", marginBottom: 12 }}>Productos Mas Competitivos (mejor win rate)</h3>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+            <h3 style={{ fontSize: 14, fontWeight: 700, color: "#10B981", margin: 0 }}>Productos Mas Competitivos (mejor win rate)</h3>
+            <ExportButton data={d.top_productos || []} filename="productos_competitivos" columns={[
+              { key: "producto", label: "Producto" }, { key: "ganadas", label: "Ganadas" }, { key: "participadas", label: "Participadas" },
+              { key: "win_rate", label: "Win Rate %" }, { key: "monto", label: "Monto" },
+            ]} />
+          </div>
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead><tr><th style={thS}>Producto</th><th style={thC}>G/P</th><th style={thS}>Win Rate</th><th style={thR}>Monto</th></tr></thead>
             <tbody>
@@ -199,7 +224,13 @@ function DesempenoTab({ periodo }: { periodo: string }) {
 
         {/* Peores productos */}
         <div style={{ ...card, borderTop: "3px solid #EF4444" }}>
-          <h3 style={{ fontSize: 14, fontWeight: 700, color: "#EF4444", marginBottom: 12 }}>Productos Menos Competitivos (peor win rate)</h3>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+            <h3 style={{ fontSize: 14, fontWeight: 700, color: "#EF4444", margin: 0 }}>Productos Menos Competitivos (peor win rate)</h3>
+            <ExportButton data={d.worst_productos || []} filename="productos_menos_competitivos" columns={[
+              { key: "producto", label: "Producto" }, { key: "ganadas", label: "Ganadas" }, { key: "participadas", label: "Participadas" },
+              { key: "win_rate", label: "Win Rate %" }, { key: "monto", label: "Monto" },
+            ]} />
+          </div>
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead><tr><th style={thS}>Producto</th><th style={thC}>G/P</th><th style={thS}>Win Rate</th><th style={thR}>Monto</th></tr></thead>
             <tbody>
@@ -257,13 +288,15 @@ function CompetidoresTab({ periodo }: { periodo: string }) {
         </ResponsiveContainer>
       </div>
 
-      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-        <Search size={14} style={{ color: "#94A3B8" }} />
-        <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar competidor..."
-          style={{ background: "white", border: "1px solid #E2E8F0", borderRadius: 8, padding: "6px 12px", color: "#1F2937", fontSize: 13, width: 300, outline: "none" }} />
-      </div>
-
       <div style={{ ...card, padding: 0, overflow: "hidden" }}>
+        <TableToolbar>
+          <SearchInput value={search} onChange={setSearch} placeholder="Buscar competidor..." width={280} />
+          <ExportButton data={filtered} filename="competidores_ranking" columns={[
+            { key: "empresa", label: "Empresa" }, { key: "monto", label: "Monto" },
+            { key: "n_licitaciones", label: "Licitaciones" }, { key: "n_clientes", label: "Clientes" }, { key: "n_categorias", label: "Categorias" },
+          ]} />
+          {search && <span style={{ fontSize: 11, color: "#94A3B8" }}>{filtered.length} de {ranking.length}</span>}
+        </TableToolbar>
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead><tr style={{ background: "#F8FAFC" }}>
             <th style={{ ...thS, width: 30 }}></th><th style={thS}>Empresa</th>
@@ -398,9 +431,15 @@ function ConvenioMarcoTab() {
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
         {/* Fuga: instituciones con lic LBF + CM competidor */}
         <div style={{ ...card, borderTop: "3px solid #EF4444" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 12 }}>
-            <AlertTriangle size={16} style={{ color: "#EF4444" }} />
-            <h3 style={{ fontSize: 14, fontWeight: 700, color: "#EF4444" }}>Fuga por Convenio Marco</h3>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <AlertTriangle size={16} style={{ color: "#EF4444" }} />
+              <h3 style={{ fontSize: 14, fontWeight: 700, color: "#EF4444", margin: 0 }}>Fuga por Convenio Marco</h3>
+            </div>
+            <ExportButton data={d.fuga || []} filename="fuga_cm" columns={[
+              { key: "nombre", label: "Institucion" }, { key: "ocs_competidor", label: "OCs Competidor" },
+              { key: "monto_competidor", label: "Monto Competidor" }, { key: "n_proveedores", label: "Proveedores" },
+            ]} />
           </div>
           <p style={{ fontSize: 11, color: "#94A3B8", marginBottom: 12 }}>Instituciones donde LBF tiene licitacion pero compran a competidores por CM</p>
           <div style={{ maxHeight: 400, overflow: "auto" }}>
@@ -424,7 +463,12 @@ function ConvenioMarcoTab() {
 
         {/* Productos LBF en CM */}
         <div style={{ ...card, borderTop: "3px solid #10B981" }}>
-          <h3 style={{ fontSize: 14, fontWeight: 700, color: "#10B981", marginBottom: 12 }}>Productos LBF en Convenio Marco</h3>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+            <h3 style={{ fontSize: 14, fontWeight: 700, color: "#10B981", margin: 0 }}>Productos LBF en Convenio Marco</h3>
+            <ExportButton data={d.productos_lbf || []} filename="productos_lbf_cm" columns={[
+              { key: "tipo", label: "Tipo Producto" }, { key: "ocs", label: "OCs" }, { key: "monto", label: "Monto" },
+            ]} />
+          </div>
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead><tr><th style={thS}>Tipo Producto</th><th style={thR}>OCs</th><th style={thR}>Monto</th></tr></thead>
             <tbody>
@@ -442,7 +486,13 @@ function ConvenioMarcoTab() {
 
       {/* Competidores tabla detalle */}
       <div style={card}>
-        <h3 style={{ fontSize: 14, fontWeight: 700, color: "#0F172A", marginBottom: 12 }}>Competidores CM en Instituciones LBF — Detalle</h3>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+          <h3 style={{ fontSize: 14, fontWeight: 700, color: "#0F172A", margin: 0 }}>Competidores CM en Instituciones LBF — Detalle</h3>
+          <ExportButton data={d.competidores || []} filename="competidores_cm_detalle" columns={[
+            { key: "proveedor", label: "Proveedor" }, { key: "instituciones", label: "Instituciones" },
+            { key: "ocs", label: "OCs" }, { key: "monto", label: "Monto" },
+          ]} />
+        </div>
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead><tr style={{ background: "#F8FAFC" }}>
             <th style={thS}>Proveedor</th><th style={thR}>Instituciones</th><th style={thR}>OCs</th><th style={thR}>Monto</th>
@@ -462,7 +512,12 @@ function ConvenioMarcoTab() {
 
       {/* Clientes LBF en CM */}
       <div style={card}>
-        <h3 style={{ fontSize: 14, fontWeight: 700, color: "#0F172A", marginBottom: 12 }}>Top Instituciones que Compran a LBF por CM</h3>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+          <h3 style={{ fontSize: 14, fontWeight: 700, color: "#0F172A", margin: 0 }}>Top Instituciones que Compran a LBF por CM</h3>
+          <ExportButton data={d.clientes_lbf || []} filename="instituciones_lbf_cm" columns={[
+            { key: "nombre", label: "Institucion" }, { key: "ocs", label: "OCs" }, { key: "monto", label: "Monto" },
+          ]} />
+        </div>
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead><tr style={{ background: "#F8FAFC" }}>
             <th style={thS}>Institucion</th><th style={thR}>OCs</th><th style={thR}>Monto</th>

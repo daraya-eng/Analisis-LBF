@@ -1,9 +1,11 @@
 """
 Database connection management.
 Credentials loaded from environment or fallback to defaults.
+Uses a simple Queue-based pool for SQL Server connection reuse.
 """
 import os
 import datetime
+import queue
 import pyodbc
 
 CONN_STR = os.getenv("DB_CONN_STR", (
@@ -12,9 +14,47 @@ CONN_STR = os.getenv("DB_CONN_STR", (
     "TrustServerCertificate=yes;Encrypt=yes;MARS_Connection=yes;"
 ))
 
+# ── Connection pool ──────────────────────────────────────────────────
+
+_sql_pool = queue.Queue(maxsize=5)
+
+
+class _PooledSqlConn:
+    """Wraps pyodbc connection so .close() returns it to the pool."""
+    __slots__ = ("_conn", "_pool")
+
+    def __init__(self, conn, pool):
+        object.__setattr__(self, "_conn", conn)
+        object.__setattr__(self, "_pool", pool)
+
+    def close(self):
+        conn = object.__getattribute__(self, "_conn")
+        pool = object.__getattribute__(self, "_pool")
+        try:
+            pool.put_nowait(conn)
+        except queue.Full:
+            conn.close()
+
+    def __getattr__(self, name):
+        return getattr(object.__getattribute__(self, "_conn"), name)
+
 
 def get_conn():
-    return pyodbc.connect(CONN_STR, timeout=30)
+    # Try to reuse a pooled connection
+    while True:
+        try:
+            conn = _sql_pool.get_nowait()
+            try:
+                conn.cursor().execute("SELECT 1").fetchone()
+                return _PooledSqlConn(conn, _sql_pool)
+            except Exception:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+        except queue.Empty:
+            break
+    return _PooledSqlConn(pyodbc.connect(CONN_STR, timeout=30), _sql_pool)
 
 
 # Vendedores y códigos a excluir (filtro canónico Power BI)

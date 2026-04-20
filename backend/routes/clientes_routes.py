@@ -8,7 +8,7 @@ import datetime
 from fastapi import APIRouter, Depends, Query
 from typing import Optional
 from auth import get_current_user
-from db import get_conn, hoy, MESES_NOMBRE
+from db import get_conn, hoy, MESES_NOMBRE, filtro_guias
 from cache import mem_get, mem_set
 
 router = APIRouter()
@@ -49,6 +49,7 @@ def _parse_periodo(periodo: str, mes: int | None) -> tuple[list[int], str]:
 
 def _load_clientes_data(meses: list[int]) -> dict:
     _ANO = hoy()["ano"]
+    _FG = filtro_guias()
     conn = get_conn()
     cur = conn.cursor()
     mes_list = ",".join(str(m) for m in meses)
@@ -64,6 +65,7 @@ def _load_clientes_data(meses: list[int]) -> dict:
         FROM BI_TOTAL_FACTURA
         WHERE ANO = {_ANO} AND MES IN ({mes_list}) AND {_EXCL_DW}
           AND {_CAT_CASE} IN ({_CATS_IN})
+          AND {_FG}
         GROUP BY RUT
     """)
     cli_26 = {}
@@ -89,6 +91,7 @@ def _load_clientes_data(meses: list[int]) -> dict:
                SUM(CAST(CONTRIBUCION AS float)) AS contrib_25
         FROM BI_TOTAL_FACTURA
         WHERE ANO = {_ANO - 1} AND MES IN ({mes_list}) AND {_EXCL_DW}
+          AND {_FG}
         GROUP BY RUT
     """)
     cli_25 = {}
@@ -108,6 +111,7 @@ def _load_clientes_data(meses: list[int]) -> dict:
         FROM BI_TOTAL_FACTURA
         WHERE ANO = {_ANO} AND MES IN ({mes_list}) AND {_EXCL_DW}
           AND {_CAT_CASE} IN ({_CATS_IN})
+          AND {_FG}
         GROUP BY {_CAT_CASE}
     """)
     cat_data = []
@@ -202,6 +206,7 @@ def _load_cliente_detalle(rut: str, meses: list[int]) -> dict:
     """Price/Volume effect + gained/lost products for a single client.
     2026: filtered by active categories. 2025: all products (no cat filter)."""
     _ANO = hoy()["ano"]
+    _FG = filtro_guias()
     conn = get_conn()
     cur = conn.cursor()
     mes_list = ",".join(str(m) for m in meses)
@@ -214,6 +219,7 @@ def _load_cliente_detalle(rut: str, meses: list[int]) -> dict:
             FROM BI_TOTAL_FACTURA
             WHERE ANO = {_ANO} AND MES IN ({mes_list}) AND {_EXCL_DW}
               AND {_CAT_CASE} IN ({_CATS_IN})
+              AND {_FG}
               AND RUT = ?
             GROUP BY CODIGO, DESCRIPCION
         ),
@@ -223,6 +229,7 @@ def _load_cliente_detalle(rut: str, meses: list[int]) -> dict:
                    SUM(CAST(CANT AS float)) AS cant_25
             FROM BI_TOTAL_FACTURA
             WHERE ANO = {_ANO - 1} AND MES IN ({mes_list}) AND {_EXCL_DW}
+              AND {_FG}
               AND RUT = ?
             GROUP BY CODIGO, DESCRIPCION
         )

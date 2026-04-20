@@ -4,7 +4,7 @@ Category analysis routes — extracted from ppto_analisis_app.py _load_categoria
 import pandas as pd
 from fastapi import APIRouter, Depends
 from auth import get_current_user
-from db import get_conn, hoy, DW_FILTRO
+from db import get_conn, hoy, DW_FILTRO, filtro_guias
 from cache import mem_get, mem_set
 
 router = APIRouter()
@@ -24,6 +24,7 @@ def _load_categoria() -> list:
     try:
         h = hoy()
         ANO_ACT, MES_ACT = h["ano"], h["mes"]
+        _FG = filtro_guias()
         conn = get_conn()
 
         # PPTO + venta 2026 por categoría
@@ -40,6 +41,7 @@ def _load_categoria() -> list:
             FROM BI_TOTAL_FACTURA
             WHERE ANO = {ANO_ACT} AND MES <= {MES_ACT}
               AND {DW_FILTRO}
+              AND {_FG}
             GROUP BY {_SQL_CAT_BI}
         )
         SELECT COALESCE(p.categoria, v.categoria) AS categoria,
@@ -57,6 +59,7 @@ def _load_categoria() -> list:
         FROM BI_TOTAL_FACTURA
         WHERE ANO = {ANO_ACT - 1} AND MES <= {MES_ACT}
           AND {DW_FILTRO}
+          AND {_FG}
         """
         df_25 = pd.read_sql(sql_25, conn)
         venta_2025_total = float(df_25.iloc[0]["venta_2025_ytd"] or 0) if len(df_25) > 0 else 0

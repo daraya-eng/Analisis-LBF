@@ -93,6 +93,8 @@ interface TVData {
   top10_clientes: ClienteRow[];
   ventas_mensuales: VentaMensual[];
   avance_semanal: AvanceSemanal[];
+  label?: string;
+  periodo?: string;
   error?: string;
 }
 
@@ -375,6 +377,10 @@ export default function TeleventasPage() {
     return <div style={{ padding: 40, color: "#EF4444" }}>Error al cargar datos de Televentas{data?.error ? `: ${data.error}` : ""}</div>;
   }
 
+  const isMes = period.startsWith("mes-");
+  const isYtd = period === "ytd";
+  const periodoLabel = isMes ? k.mes_nombre : (data?.label ?? "YTD");
+
   return (
     <div>
       {/* Header */}
@@ -420,32 +426,35 @@ export default function TeleventasPage() {
         ))}
       </div>
 
-      {/* ═══ KPIs ROW 1 — YTD ═══ */}
-      <div style={{ display: "flex", gap: 12, marginBottom: 16, flexWrap: "wrap" }}>
-        <StatCard label="PPTO Anual 2026" value={fmtAbs(k.ppto_anual)} color="#6366F1" />
-        <StatCard label="Meta YTD" value={fmtAbs(k.ppto_ytd)} sub={`Ene - ${k.mes_nombre}`} color="#6366F1" />
-        <StatCard
-          label="Venta YTD"
-          value={fmtAbs(k.venta_ytd)}
-          sub={`Fact: ${fmtAbs(k.venta_ytd_facturas)} | Guias: ${fmtAbs(k.venta_ytd_guias)}`}
-          color="#3B82F6"
-        />
-        <StatCard
-          label="Cumpl. YTD"
-          value={`${semaforo(k.cumpl_ytd)} ${fmtPct(k.cumpl_ytd)}`}
-          sub={`Gap: ${fmtAbs(k.gap_ytd)}`}
-          color={k.cumpl_ytd >= 100 ? "#10B981" : k.cumpl_ytd >= 80 ? "#F59E0B" : "#EF4444"}
-        />
-        <StatCard
-          label="Crec. vs 2025 YTD"
-          value={`${k.crec_ytd >= 0 ? "+" : ""}${fmtPct(k.crec_ytd)}`}
-          sub={`2025 YTD: ${fmtAbs(k.venta_ytd_25)}`}
-          color={k.crec_ytd >= 0 ? "#10B981" : "#EF4444"}
-        />
-      </div>
+      {/* ═══ KPIs ROW 1 — Período (YTD / Trimestre) ═══ */}
+      {!isMes && (
+        <div style={{ display: "flex", gap: 12, marginBottom: 16, flexWrap: "wrap" }}>
+          <StatCard label="PPTO Anual 2026" value={fmtAbs(k.ppto_anual)} color="#6366F1" />
+          <StatCard label={`Meta ${periodoLabel}`} value={fmtAbs(k.ppto_ytd)} sub={isYtd ? `Ene - ${k.mes_nombre}` : undefined} color="#6366F1" />
+          <StatCard
+            label={`Venta ${periodoLabel}`}
+            value={fmtAbs(k.venta_ytd)}
+            sub={`Fact: ${fmtAbs(k.venta_ytd_facturas)} | Guias: ${fmtAbs(k.venta_ytd_guias)}`}
+            color="#3B82F6"
+          />
+          <StatCard
+            label={`Cumpl. ${periodoLabel}`}
+            value={`${semaforo(k.cumpl_ytd)} ${fmtPct(k.cumpl_ytd)}`}
+            sub={`Gap: ${fmtAbs(k.gap_ytd)}`}
+            color={k.cumpl_ytd >= 100 ? "#10B981" : k.cumpl_ytd >= 80 ? "#F59E0B" : "#EF4444"}
+          />
+          <StatCard
+            label={`Crec. vs 2025 ${periodoLabel}`}
+            value={`${k.crec_ytd >= 0 ? "+" : ""}${fmtPct(k.crec_ytd)}`}
+            sub={`2025 ${periodoLabel}: ${fmtAbs(k.venta_ytd_25)}`}
+            color={k.crec_ytd >= 0 ? "#10B981" : "#EF4444"}
+          />
+        </div>
+      )}
 
-      {/* ═══ KPIs ROW 2 — Mes Actual ═══ */}
+      {/* ═══ KPIs ROW 2 — Mes ═══ */}
       <div style={{ display: "flex", gap: 12, marginBottom: 24, flexWrap: "wrap" }}>
+        {isMes && <StatCard label="PPTO Anual 2026" value={fmtAbs(k.ppto_anual)} color="#6366F1" />}
         <StatCard label={`Meta ${k.mes_nombre}`} value={fmtAbs(k.ppto_mes)} color="#8B5CF6" />
         <StatCard
           label={`Venta ${k.mes_nombre}`}

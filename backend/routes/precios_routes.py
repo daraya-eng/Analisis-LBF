@@ -5,7 +5,7 @@ Uses BI_TOTAL_FACTURA (includes guías).
 from fastapi import APIRouter, Depends, Query
 from typing import Optional
 from auth import get_current_user
-from db import get_conn, hoy, MESES_NOMBRE
+from db import get_conn, hoy, MESES_NOMBRE, filtro_guias
 from cache import mem_get, mem_set
 
 router = APIRouter()
@@ -45,6 +45,7 @@ def _parse_periodo(periodo: str, mes: int | None) -> tuple[list[int], str]:
 
 def _load_precios_data(meses: list[int], categoria: str | None) -> dict:
     _ANO = hoy()["ano"]
+    _FG = filtro_guias()
     conn = get_conn()
     cur = conn.cursor()
     mes_list = ",".join(str(m) for m in meses)
@@ -56,6 +57,7 @@ def _load_precios_data(meses: list[int], categoria: str | None) -> dict:
                SUM(CAST(VENTA AS float)) AS venta
         FROM BI_TOTAL_FACTURA
         WHERE {_EXCL_DW}
+          AND {_FG}
           AND ANO IN ({_ANO - 1}, {_ANO}) AND MES IN ({mes_list})
         GROUP BY {_CAT_CASE}, ANO
     """)
@@ -110,6 +112,7 @@ def _load_precios_data(meses: list[int], categoria: str | None) -> dict:
                    SUM(CAST(CANT AS float)) AS cant_26
             FROM BI_TOTAL_FACTURA
             WHERE ANO = {_ANO} AND MES IN ({mes_list}) AND {_EXCL_DW}
+              AND {_FG}
               {cat_filter}
             GROUP BY RUT, NOMBRE
         ),
@@ -119,6 +122,7 @@ def _load_precios_data(meses: list[int], categoria: str | None) -> dict:
                    SUM(CAST(CANT AS float)) AS cant_25
             FROM BI_TOTAL_FACTURA
             WHERE ANO = {_ANO - 1} AND MES IN ({mes_list}) AND {_EXCL_DW}
+              AND {_FG}
               {cat_filter}
             GROUP BY RUT
         )
@@ -170,6 +174,7 @@ def _load_precios_data(meses: list[int], categoria: str | None) -> dict:
 def _load_precios_productos(rut: str, meses: list[int], categoria: str | None) -> dict:
     """Product-level price/volume decomposition for a single client."""
     _ANO = hoy()["ano"]
+    _FG = filtro_guias()
     conn = get_conn()
     cur = conn.cursor()
     mes_list = ",".join(str(m) for m in meses)
@@ -182,6 +187,7 @@ def _load_precios_productos(rut: str, meses: list[int], categoria: str | None) -
                    SUM(CAST(CANT AS float)) AS cant_26
             FROM BI_TOTAL_FACTURA
             WHERE ANO = {_ANO} AND MES IN ({mes_list}) AND {_EXCL_DW}
+              AND {_FG}
               AND RUT = ? {cat_filter}
             GROUP BY CODIGO, DESCRIPCION
         ),
@@ -191,6 +197,7 @@ def _load_precios_productos(rut: str, meses: list[int], categoria: str | None) -
                    SUM(CAST(CANT AS float)) AS cant_25
             FROM BI_TOTAL_FACTURA
             WHERE ANO = {_ANO - 1} AND MES IN ({mes_list}) AND {_EXCL_DW}
+              AND {_FG}
               AND RUT = ? {cat_filter}
             GROUP BY CODIGO, DESCRIPCION
         )

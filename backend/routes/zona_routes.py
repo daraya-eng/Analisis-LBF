@@ -6,7 +6,7 @@ Excluye zonas sin facturación.
 from fastapi import APIRouter, Depends, Query
 from typing import Optional
 from auth import get_current_user
-from db import get_conn, hoy, MESES_NOMBRE
+from db import get_conn, hoy, MESES_NOMBRE, filtro_guias
 from cache import mem_get, mem_set
 
 router = APIRouter()
@@ -67,6 +67,7 @@ def _parse_periodo(periodo: str, mes: int | None) -> tuple[list[int], str]:
 def _load_zona_data(meses: list[int]) -> dict:
     """Load all zona/KAM data for a given set of months."""
     _ANO = hoy()["ano"]
+    _FG = filtro_guias()
     conn = get_conn()
     cur = conn.cursor()
 
@@ -151,6 +152,7 @@ def _load_zona_data(meses: list[int]) -> dict:
                SUM(CAST(CONTRIBUCION AS float)) AS contrib
         FROM BI_TOTAL_FACTURA
         WHERE ANO = {_ANO} AND MES IN ({mes_list}) AND {_EXCL_DW}
+              AND {_FG}
         GROUP BY VENDEDOR, {_CAT_CASE}
     """)
     venta_zona_cat_raw: dict = {}  # zona_raw -> cat -> {venta, contrib}
@@ -172,6 +174,7 @@ def _load_zona_data(meses: list[int]) -> dict:
                SUM(CAST(VENTA AS float)) AS venta_25
         FROM BI_TOTAL_FACTURA
         WHERE ANO = {_ANO - 1} AND MES IN ({mes_list}) AND {_EXCL_DW}
+              AND {_FG}
         GROUP BY VENDEDOR
     """)
     venta25_raw: dict = {}       # zona_raw -> total
@@ -336,6 +339,7 @@ def _zona_raw_filters(zona_label: str) -> str:
 def _load_clientes_zona(zona_label: str, categoria: str, meses: list[int]) -> list:
     """Load client detail for a zona + category in a period."""
     _ANO = hoy()["ano"]
+    _FG = filtro_guias()
     conn = get_conn()
     cur = conn.cursor()
     mes_list = ",".join(str(m) for m in meses)
@@ -353,6 +357,7 @@ def _load_clientes_zona(zona_label: str, categoria: str, meses: list[int]) -> li
             WHERE ANO = {_ANO} AND MES IN ({mes_list})
               AND {_EXCL_DW} AND {zona_filter}
               AND LTRIM(RTRIM(CATEGORIA)) {cat_filter}
+              AND {_FG}
             GROUP BY RUT, NOMBRE
         ),
         v25 AS (
@@ -361,6 +366,7 @@ def _load_clientes_zona(zona_label: str, categoria: str, meses: list[int]) -> li
             FROM BI_TOTAL_FACTURA
             WHERE ANO = {_ANO - 1} AND MES IN ({mes_list})
               AND {_EXCL_DW} AND {zona_filter}
+              AND {_FG}
             GROUP BY RUT
         )
         SELECT COALESCE(v26.RUT, v25.RUT) AS rut,

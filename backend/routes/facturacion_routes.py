@@ -11,7 +11,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import Optional, List
 from auth import get_current_user
-from db import get_conn, hoy
+from db import get_conn, hoy, filtro_guias
 from cache import mem_get, mem_set, _mem_cache
 
 _NOTAS_PATH = os.path.join(os.path.dirname(__file__), "..", "data", "notas_licitaciones.json")
@@ -48,15 +48,17 @@ def _load_facturacion() -> dict:
     h = hoy()
     _ANO, _MES, _HOY = h["ano"], h["mes"], h["hoy"]
     _MES_NOMBRE, _MES_PREFIX = h["mes_nombre"], h["mes_prefix"]
+    _FG = filtro_guias()
 
     conn = get_conn()
     cur = conn.cursor()
 
     # ── KAM por RUT (último KAM registrado en BI_TOTAL_FACTURA) ──
-    cur.execute("""
+    cur.execute(f"""
         SELECT RUT, MAX(KAM) AS KAM
         FROM BI_TOTAL_FACTURA
         WHERE KAM IS NOT NULL AND KAM != ''
+          AND {_FG}
         GROUP BY RUT
     """)
     kam_map = {}
@@ -94,6 +96,7 @@ def _load_facturacion() -> dict:
             SELECT LICITACION, SUM(CAST(VENTA AS float)) AS facturado
             FROM BI_TOTAL_FACTURA
             WHERE TIPO_OC = 'LICITACION'
+              AND {_FG}
             GROUP BY LICITACION
         )
         SELECT adj.licitacion, adj.rut, adj.nombre, adj.monto_adjudicado,
@@ -175,6 +178,7 @@ def _load_facturacion() -> dict:
             SELECT RUT, SUM(CAST(VENTA AS float)) AS facturado
             FROM BI_TOTAL_FACTURA
             WHERE TIPO_OC = 'LICITACION'
+              AND {_FG}
             GROUP BY RUT
         )
         SELECT adj.rut_cliente, adj.nombre, adj.monto_adjudicado, adj.n_lic,
@@ -209,6 +213,7 @@ def _load_facturacion() -> dict:
             COUNT(DISTINCT RUT) AS n_clientes
         FROM BI_TOTAL_FACTURA
         WHERE ANO = {_ANO}
+          AND {_FG}
           AND TIPO_OC IS NOT NULL AND TIPO_OC != ''
         GROUP BY ISNULL(TIPO_OC, 'Otro')
         ORDER BY venta DESC
@@ -244,6 +249,7 @@ def _load_facturacion() -> dict:
 
 def _load_detalle_licitacion(licitacion: str) -> dict:
     """Detalle de una licitación: productos adjudicados + facturados."""
+    _FG = filtro_guias()
     conn = get_conn()
     cur = conn.cursor()
 
@@ -268,13 +274,14 @@ def _load_detalle_licitacion(licitacion: str) -> dict:
         })
 
     # Facturación real por producto (desde BI_TOTAL_FACTURA), separado por DOC_CODE
-    cur.execute("""
+    cur.execute(f"""
         SELECT CODIGO, DESCRIPCION, DOC_CODE,
                SUM(CAST(VENTA AS float)) AS venta,
                COUNT(*) AS n_docs,
                MAX(DIA) AS ultima_fecha
         FROM BI_TOTAL_FACTURA
         WHERE LICITACION = ? AND TIPO_OC = 'LICITACION'
+          AND {_FG}
         GROUP BY CODIGO, DESCRIPCION, DOC_CODE
         ORDER BY CODIGO, DOC_CODE
     """, (licitacion,))
@@ -343,6 +350,7 @@ async def get_detalle_batch(
     try:
         if not body.licitaciones:
             return {}
+        _FG = filtro_guias()
         conn = get_conn()
         cur = conn.cursor()
         placeholders = ",".join(["?" for _ in body.licitaciones])
@@ -372,6 +380,7 @@ async def get_detalle_batch(
                    SUM(CAST(VENTA AS float)) AS venta
             FROM BI_TOTAL_FACTURA
             WHERE LICITACION IN ({placeholders}) AND TIPO_OC = 'LICITACION'
+              AND {_FG}
             GROUP BY LICITACION, CODIGO, DESCRIPCION
             ORDER BY LICITACION, SUM(CAST(VENTA AS float)) DESC
         """, body.licitaciones)
@@ -413,6 +422,7 @@ async def get_excel_detalle(
     from openpyxl import Workbook
     from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 
+    _FG = filtro_guias()
     conn = get_conn()
     cur = conn.cursor()
     placeholders = ",".join(["?" for _ in body.licitaciones])
@@ -468,6 +478,7 @@ async def get_excel_detalle(
                MAX(DIA) AS ultima_fecha
         FROM BI_TOTAL_FACTURA
         WHERE LICITACION IN ({placeholders}) AND TIPO_OC = 'LICITACION'
+          AND {_FG}
         GROUP BY LICITACION, CODIGO, DESCRIPCION, DOC_CODE
         ORDER BY LICITACION, CODIGO
     """, body.licitaciones)

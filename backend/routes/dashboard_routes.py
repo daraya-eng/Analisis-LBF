@@ -10,7 +10,7 @@ Fuentes:
 from fastapi import APIRouter, Depends, Query
 from typing import Optional
 from auth import get_current_user
-from db import get_conn, hoy, MESES_NOMBRE
+from db import get_conn, hoy, MESES_NOMBRE, filtro_guias
 from cache import mem_get, mem_set
 
 router = APIRouter()
@@ -38,6 +38,7 @@ def _load_dashboard_raw() -> dict:
     """Load all raw data from DB, organized by month for flexible filtering."""
     h = hoy()
     _ANO, _MES = h["ano"], h["mes"]
+    _FG = filtro_guias()
     conn = get_conn()
     cur = conn.cursor()
 
@@ -90,6 +91,7 @@ def _load_dashboard_raw() -> dict:
                SUM(CAST(CONTRIBUCION AS float)) AS contrib
         FROM BI_TOTAL_FACTURA
         WHERE {_EXCL_DW} AND ANO = {_ANO}
+          AND {_FG}
         GROUP BY {_CAT_CASE}, MES
     """)
     venta_cat_mes: dict = {}
@@ -115,6 +117,7 @@ def _load_dashboard_raw() -> dict:
         WHERE f25.ANO = {_ANO-1} AND f25.MES <= {_MES}
           AND f25.VENDEDOR NOT IN ({_VEND_EXCLUIR})
           AND f25.CODIGO NOT IN ('FLETE','NINV','SIN','')
+          AND {_FG}
         GROUP BY f25.MES
     """)
     venta25_mes: dict = {}  # mes -> venta_25 total
@@ -131,6 +134,7 @@ def _load_dashboard_raw() -> dict:
             SUM(CAST(VENTA AS float)) AS venta
         FROM BI_TOTAL_FACTURA
         WHERE ANO = {_ANO} AND {_EXCL_DW}
+          AND {_FG}
         GROUP BY LTRIM(RTRIM(ISNULL(SEGMENTO, ''))), {_CAT_CASE}, MES
     """)
     seg_mes_data: dict = {}
@@ -372,6 +376,7 @@ async def get_categoria_detail(
         if categoria == "EQM":
             cat_filter = "IN ('EQM','SERVICIOS')"
 
+        _FG = filtro_guias()
         conn = get_conn()
         cur = conn.cursor()
 
@@ -384,6 +389,7 @@ async def get_categoria_detail(
             WHERE ANO = {_ANO} AND MES IN ({mes_list})
               AND {_EXCL_DW}
               AND LTRIM(RTRIM(CATEGORIA)) {cat_filter}
+              AND {_FG}
             GROUP BY VENDEDOR
             ORDER BY SUM(CAST(VENTA AS float)) DESC
         """)
@@ -425,6 +431,7 @@ async def get_categoria_detail(
             WHERE ANO = {_ANO} AND MES IN ({mes_list})
               AND {_EXCL_DW}
               AND LTRIM(RTRIM(CATEGORIA)) {cat_filter}
+              AND {_FG}
             GROUP BY RUT
             ORDER BY SUM(CAST(VENTA AS float)) DESC
         """)

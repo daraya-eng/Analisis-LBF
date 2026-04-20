@@ -80,6 +80,13 @@ MESES_NOMBRE = {1:'Enero',2:'Febrero',3:'Marzo',4:'Abril',5:'Mayo',6:'Junio',
                 7:'Julio',8:'Agosto',9:'Septiembre',10:'Octubre',11:'Noviembre',12:'Diciembre'}
 
 
+def filtro_guias() -> str:
+    """Excluir guías pendientes (DOC_CODE='GF') de meses cerrados.
+    Solo el mes actual puede incluir guías; meses anteriores solo facturas."""
+    t = datetime.date.today()
+    return f"(DOC_CODE <> 'GF' OR (ANO = {t.year} AND MES = {t.month}))"
+
+
 def hoy():
     """Return today's date info — always fresh, never stale."""
     t = datetime.date.today()

@@ -9,7 +9,7 @@ import pandas as pd
 from fastapi import APIRouter, Depends, Query
 from typing import Optional
 from auth import get_current_user
-from db import get_conn, DW_FILTRO, hoy, MESES_NOMBRE
+from db import get_conn, DW_FILTRO, hoy, MESES_NOMBRE, filtro_guias
 from cache import mem_get, mem_set
 
 router = APIRouter()
@@ -75,6 +75,7 @@ def _week_boundaries(year: int, month: int) -> list[dict]:
 def _load_televentas_all(meses: list[int]) -> dict:
     """Load all Televentas data in a single DB connection."""
     _ANO = hoy()["ano"]
+    _FG = filtro_guias()
     conn = get_conn()
     cur = conn.cursor()
     mes_list = ",".join(str(m) for m in meses)
@@ -143,6 +144,7 @@ def _load_televentas_all(meses: list[int]) -> dict:
         FROM BI_TOTAL_FACTURA
         WHERE {_TV_FILTRO}
           AND {DW_FILTRO}
+          AND {_FG}
           AND ANO IN ({_ANO}, {_ANO - 1})
     """)
     vr = cur.fetchone()
@@ -164,11 +166,13 @@ def _load_televentas_all(meses: list[int]) -> dict:
         WHERE f26.ANO = {_ANO} AND f26.MES IN ({mes_list})
           AND f26.VENDEDOR = '16-TELEVENTAS'
           AND f26.CODIGO NOT IN ('FLETE','NINV','SIN','')
+          AND {_FG}
           AND NOT EXISTS (
               SELECT 1 FROM BI_TOTAL_FACTURA f25
               WHERE f25.ANO = {_ANO - 1}
                 AND f25.RUT = f26.RUT
                 AND f25.VENDEDOR = '16-TELEVENTAS'
+                AND {_FG}
           )
         GROUP BY f26.RUT, f26.NOMBRE
         HAVING SUM(CAST(f26.VENTA AS float)) > 0
@@ -191,6 +195,7 @@ def _load_televentas_all(meses: list[int]) -> dict:
               AND MES IN (10, 11, 12)
               AND {_TV_FILTRO}
               AND {DW_FILTRO}
+              AND {_FG}
             GROUP BY RUT, NOMBRE
             HAVING SUM(CAST(VENTA AS float)) > 0
         ) q4
@@ -199,6 +204,7 @@ def _load_televentas_all(meses: list[int]) -> dict:
             WHERE f26.ANO = {_ANO}
               AND f26.RUT = q4.RUT
               AND f26.VENDEDOR = '16-TELEVENTAS'
+              AND {_FG}
         )
         GROUP BY q4.RUT, q4.NOMBRE
         ORDER BY venta_q4_2025 DESC
@@ -213,6 +219,7 @@ def _load_televentas_all(meses: list[int]) -> dict:
         FROM BI_TOTAL_FACTURA
         WHERE {_TV_FILTRO}
           AND {DW_FILTRO}
+          AND {_FG}
           AND ANO = {_ANO} AND MES IN ({mes_list})
         GROUP BY MES
         ORDER BY MES
@@ -230,6 +237,7 @@ def _load_televentas_all(meses: list[int]) -> dict:
             FROM BI_TOTAL_FACTURA
             WHERE {_TV_FILTRO}
               AND {DW_FILTRO}
+              AND {_FG}
               AND ANO = {_ANO} AND MES IN ({mes_list})
             GROUP BY RUT, NOMBRE
             HAVING SUM(CAST(VENTA AS float)) > 0
@@ -244,6 +252,7 @@ def _load_televentas_all(meses: list[int]) -> dict:
            AND f25.MES IN ({mes_list})
            AND f25.VENDEDOR = '16-TELEVENTAS'
            AND f25.CODIGO NOT IN ('FLETE','NINV','SIN','')
+           AND {_FG}
         GROUP BY t.RUT, t.NOMBRE, t.venta_2026, t.contribucion_2026
         ORDER BY t.venta_2026 DESC
     """)
@@ -257,6 +266,7 @@ def _load_televentas_all(meses: list[int]) -> dict:
         FROM BI_TOTAL_FACTURA
         WHERE {_TV_FILTRO}
           AND {DW_FILTRO}
+          AND {_FG}
           AND ANO = {_ANO} AND MES = {max_mes}
         GROUP BY DAY(DIA)
     """)
@@ -399,6 +409,7 @@ async def get_cliente_productos(
     """Product drill-down for a client: venta 2025, 2026, growth, margin."""
     try:
         _ANO = hoy()["ano"]
+        _FG = filtro_guias()
         meses_list, _ = _parse_periodo(periodo, mes)
         mes_sql = ",".join(str(m) for m in meses_list)
         cache_key = f"tv_cli_prod:{rut}:{periodo}:{mes}"
@@ -415,6 +426,7 @@ async def get_cliente_productos(
                 FROM BI_TOTAL_FACTURA
                 WHERE VENDEDOR = '16-TELEVENTAS'
                   AND CODIGO NOT IN ('FLETE','NINV','SIN','')
+                  AND {_FG}
                   AND ANO = {_ANO} AND MES IN ({mes_sql})
                   AND RUT = ?
                 GROUP BY CODIGO, DESCRIPCION
@@ -426,6 +438,7 @@ async def get_cliente_productos(
                 FROM BI_TOTAL_FACTURA
                 WHERE VENDEDOR = '16-TELEVENTAS'
                   AND CODIGO NOT IN ('FLETE','NINV','SIN','')
+                  AND {_FG}
                   AND ANO = {_ANO - 1} AND MES IN ({mes_sql})
                   AND RUT = ?
                 GROUP BY CODIGO

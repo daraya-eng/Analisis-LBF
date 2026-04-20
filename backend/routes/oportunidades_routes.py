@@ -10,7 +10,7 @@ from datetime import date
 from fastapi import APIRouter, Depends, Query
 from typing import Optional
 from auth import get_current_user
-from db import get_conn, hoy, MESES_NOMBRE
+from db import get_conn, hoy, MESES_NOMBRE, filtro_guias
 from cache import mem_get, mem_set
 import traceback
 
@@ -126,6 +126,7 @@ async def get_kams(
                 kam_map[label] += " / " + kam
 
         # Quick venta summary per zona YTD
+        _FG = filtro_guias()
         meses_list = ",".join(str(m) for m in range(1, _MES + 1))
         cur.execute(f"""
             SELECT VENDEDOR AS zona,
@@ -133,6 +134,7 @@ async def get_kams(
                    COUNT(DISTINCT RUT) AS n_clientes
             FROM BI_TOTAL_FACTURA
             WHERE ANO = {_ANO} AND MES IN ({meses_list}) AND {_EXCL_DW}
+              AND {_FG}
             GROUP BY VENDEDOR
         """)
         zona_venta = {}
@@ -197,11 +199,13 @@ def _load_oportunidades(zona_label: str, meses: list[int]) -> dict:
     meta_mes_actual = meta_por_mes.get(_MES, 0)
 
     # Venta del mes actual (para ritmo diario y proyeccion)
+    _FG = filtro_guias()
     cur.execute(f"""
         SELECT SUM(CAST(VENTA AS float))
         FROM BI_TOTAL_FACTURA
         WHERE ANO = {_ANO} AND MES = {_MES}
           AND ({zona_filter}) AND {_EXCL_DW}
+          AND {_FG}
     """)
     venta_mes_actual = float((cur.fetchone()[0]) or 0)
 
@@ -239,6 +243,7 @@ def _load_oportunidades(zona_label: str, meses: list[int]) -> dict:
             FROM BI_TOTAL_FACTURA
             WHERE ANO = {_ANO} AND MES IN ({mes_list})
               AND ({zona_filter}) AND {_EXCL_DW}
+              AND {_FG}
             GROUP BY RUT
         ),
         v25 AS (
@@ -247,6 +252,7 @@ def _load_oportunidades(zona_label: str, meses: list[int]) -> dict:
             FROM BI_TOTAL_FACTURA
             WHERE ANO = {_ANO - 1} AND MES IN ({mes_list})
               AND ({zona_filter}) AND {_EXCL_DW}
+              AND {_FG}
             GROUP BY RUT
         ),
         perdidos AS (
@@ -258,11 +264,13 @@ def _load_oportunidades(zona_label: str, meses: list[int]) -> dict:
             WHERE f25.ANO = {_ANO - 1} AND f25.MES IN ({mes_list})
               AND ({zona_filter.replace('VENDEDOR', 'f25.VENDEDOR')}) AND
               {_EXCL_DW.replace('VENDEDOR', 'f25.VENDEDOR').replace('CODIGO', 'f25.CODIGO')}
+              AND {_FG}
               AND NOT EXISTS (
                   SELECT 1 FROM BI_TOTAL_FACTURA f26
                   WHERE f26.ANO = {_ANO} AND f26.MES IN ({mes_list})
                     AND f26.RUT = f25.RUT AND f26.CODIGO = f25.CODIGO
                     AND {_EXCL_DW.replace('VENDEDOR', 'f26.VENDEDOR').replace('CODIGO', 'f26.CODIGO')}
+                    AND {_FG}
               )
             GROUP BY f25.RUT
         )
@@ -374,6 +382,7 @@ def _load_oportunidades(zona_label: str, meses: list[int]) -> dict:
             FROM BI_TOTAL_FACTURA
             WHERE TIPO_OC = 'LICITACION' AND {_EXCL_DW}
               AND ANO = {hoy()['ano']}
+              AND {_FG}
             GROUP BY RUT
         """)
         fac_por_rut = {}
@@ -565,6 +574,7 @@ async def get_cliente_detalle(
         mes_list = ",".join(str(m) for m in meses)
 
         # ═══ Products: current + lost + new ═══
+        _FG = filtro_guias()
         cur.execute(f"""
             WITH p26 AS (
                 SELECT CODIGO, MAX(DESCRIPCION) AS desc26,
@@ -573,6 +583,7 @@ async def get_cliente_detalle(
                        SUM(CAST(CANT AS float)) AS cant_26
                 FROM BI_TOTAL_FACTURA
                 WHERE ANO = {_ANO} AND MES IN ({mes_list}) AND {_EXCL_DW}
+                  AND {_FG}
                   AND RUT = ?
                 GROUP BY CODIGO, {_CAT_CASE}
             ),
@@ -582,6 +593,7 @@ async def get_cliente_detalle(
                        SUM(CAST(CANT AS float)) AS cant_25
                 FROM BI_TOTAL_FACTURA
                 WHERE ANO = {_ANO - 1} AND MES IN ({mes_list}) AND {_EXCL_DW}
+                  AND {_FG}
                   AND RUT = ?
                 GROUP BY CODIGO
             )
@@ -622,7 +634,7 @@ async def get_cliente_detalle(
         cur.execute(f"""
             SELECT MES, SUM(CAST(VENTA AS float)) AS venta
             FROM BI_TOTAL_FACTURA
-            WHERE ANO = {_ANO} AND {_EXCL_DW} AND RUT = ?
+            WHERE ANO = {_ANO} AND {_EXCL_DW} AND {_FG} AND RUT = ?
             GROUP BY MES
             ORDER BY MES
         """, (rut,))
@@ -631,7 +643,7 @@ async def get_cliente_detalle(
         cur.execute(f"""
             SELECT MES, SUM(CAST(VENTA AS float)) AS venta
             FROM BI_TOTAL_FACTURA
-            WHERE ANO = {_ANO - 1} AND {_EXCL_DW} AND RUT = ?
+            WHERE ANO = {_ANO - 1} AND {_EXCL_DW} AND {_FG} AND RUT = ?
             GROUP BY MES
             ORDER BY MES
         """, (rut,))
@@ -660,6 +672,7 @@ async def get_cliente_detalle(
                     SELECT LICITACION, SUM(CAST(VENTA AS float)) AS facturado
                     FROM BI_TOTAL_FACTURA
                     WHERE TIPO_OC = 'LICITACION' AND {_EXCL_DW}
+                      AND {_FG}
                     GROUP BY LICITACION
                 ) fac ON fac.LICITACION = l.licitacion
                 WHERE l.EsLBF = 1 AND l.rut_cliente = ?

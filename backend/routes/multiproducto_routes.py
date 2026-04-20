@@ -8,7 +8,7 @@ import calendar
 from fastapi import APIRouter, Depends, Query
 from typing import Optional
 from auth import get_current_user
-from db import get_conn, hoy, MESES_NOMBRE
+from db import get_conn, hoy, MESES_NOMBRE, filtro_guias
 from cache import mem_get, mem_set
 
 router = APIRouter()
@@ -27,6 +27,7 @@ _CAT_CASE = """
 def _load_multiproducto_all() -> dict:
     h = hoy()
     _ANO, _MES = h["ano"], h["mes"]
+    _FG = filtro_guias()
     conn = get_conn()
     cur = conn.cursor()
 
@@ -38,6 +39,7 @@ def _load_multiproducto_all() -> dict:
                COUNT(DISTINCT CODIGO) AS productos
         FROM BI_TOTAL_FACTURA
         WHERE {_MP_FILTER} AND {_EXCL_COD}
+          AND {_FG}
           AND ANO IN ({_ANO - 1}, {_ANO}) AND MES <= {_MES}
         GROUP BY ANO
     """)
@@ -58,6 +60,7 @@ def _load_multiproducto_all() -> dict:
                SUM(CAST(CONTRIBUCION AS float)) AS contribucion
         FROM BI_TOTAL_FACTURA
         WHERE {_MP_FILTER} AND {_EXCL_COD}
+          AND {_FG}
           AND ANO IN ({_ANO - 1}, {_ANO}) AND MES = {_MES}
         GROUP BY ANO
     """)
@@ -76,6 +79,7 @@ def _load_multiproducto_all() -> dict:
                SUM(CAST(CONTRIBUCION AS float)) AS contribucion
         FROM BI_TOTAL_FACTURA
         WHERE {_MP_FILTER} AND {_EXCL_COD}
+          AND {_FG}
           AND ANO IN ({_ANO - 1}, {_ANO}) AND MES <= {_MES}
         GROUP BY ANO, MES
         ORDER BY ANO, MES
@@ -110,6 +114,7 @@ def _load_multiproducto_all() -> dict:
                SUM(CAST(VENTA AS float)) AS venta
         FROM BI_TOTAL_FACTURA
         WHERE {_MP_FILTER} AND {_EXCL_COD}
+          AND {_FG}
           AND ((ANO = {_ANO} AND MES = {_MES})
             OR (ANO = {ano_ant} AND MES = {mes_ant}))
         GROUP BY MES, DAY(DIA)
@@ -160,6 +165,7 @@ def _load_multiproducto_all() -> dict:
                SUM(CAST(CONTRIBUCION AS float)) AS contribucion
         FROM BI_TOTAL_FACTURA
         WHERE {_MP_FILTER} AND {_EXCL_COD}
+          AND {_FG}
           AND ANO = {_ANO} AND MES <= {_MES}
         GROUP BY {_CAT_CASE}
     """)
@@ -196,6 +202,7 @@ def _load_multiproducto_all() -> dict:
                    SUM(CAST(CANT AS float)) AS cant_26
             FROM BI_TOTAL_FACTURA
             WHERE {_MP_FILTER} AND {_EXCL_COD}
+              AND {_FG}
               AND ANO = {_ANO} AND MES = {_MES}
             GROUP BY CODIGO, DESCRIPCION
         ),
@@ -204,6 +211,7 @@ def _load_multiproducto_all() -> dict:
                    SUM(CAST(VENTA AS float)) AS venta_25
             FROM BI_TOTAL_FACTURA
             WHERE {_MP_FILTER} AND {_EXCL_COD}
+              AND {_FG}
               AND ANO = {_ANO - 1} AND MES = {_MES}
             GROUP BY CODIGO
         )

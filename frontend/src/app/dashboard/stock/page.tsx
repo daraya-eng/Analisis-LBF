@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback, Fragment } from "react";
 import { api } from "@/lib/api";
 import { fmt, fmtAbs } from "@/lib/format";
-import { ChevronDown, ChevronRight, ArrowUpDown, ArrowDown, ArrowUp } from "lucide-react";
+import { ChevronDown, ChevronRight, ArrowUpDown, ArrowDown, ArrowUp, Search as SearchIcon, Plus, Trash2, FileSpreadsheet } from "lucide-react";
 import { SearchInput, ExportButton, TableToolbar } from "@/components/table-tools";
 import HelpButton from "@/components/help-button";
 import {
@@ -57,6 +57,36 @@ interface StockProducto {
   categoria: string;
   stock_unidades: number;
   n_ubicaciones: number;
+}
+interface StockBusqueda extends StockProducto {
+  fecha_snapshot: string;
+  venta_ytd: number;
+  cant_ytd: number;
+  n_clientes: number;
+}
+interface ClienteResult {
+  RUT: string;
+  NOMBRE: string;
+  VENDEDOR: string;
+  venta_total: number;
+}
+interface CotizacionItem {
+  codigo: string;
+  descripcion: string;
+  categoria: string;
+  stock: number;
+  ultimo_precio: number;
+  fecha_ultimo_precio: string | null;
+  precio_convenio: number;
+  convenio_vigente_hasta: string | null;
+  precio_lista: number;
+  precio_promedio_mercado: number;
+  precio_sugerido: number;
+  costo_promedio: number;
+  margen_sugerido: number;
+  // Editables
+  cantidad: number;
+  precio_unitario: number;
 }
 
 interface QuiebreMesCat {
@@ -157,8 +187,25 @@ export default function StockPage() {
 
   const [sortKey, setSortKey] = useState<string>("total_perdido");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
-  const [tab, setTab] = useState<"stock" | "quiebres">("stock");
+  const [tab, setTab] = useState<"stock" | "quiebres" | "consulta" | "cotizacion">("stock");
   const [qSearch, setQSearch] = useState("");
+
+  // Consulta stock
+  const [busqInput, setBusqInput] = useState("");
+  const [busqResults, setBusqResults] = useState<StockBusqueda[]>([]);
+  const [busqLoading, setBusqLoading] = useState(false);
+  const [busqDone, setBusqDone] = useState(false);
+
+  // Cotización
+  const [cotCatalog, setCotCatalog] = useState<StockProducto[]>([]);
+  const [cotCatalogLoading, setCotCatalogLoading] = useState(false);
+  const [cotCatalogFilter, setCotCatalogFilter] = useState("");
+  const [cotItems, setCotItems] = useState<CotizacionItem[]>([]);
+  const [cotAddingCode, setCotAddingCode] = useState<string | null>(null);
+  const [cotClienteRut, setCotClienteRut] = useState("");
+  const [cotClienteNombre, setCotClienteNombre] = useState("");
+  const [cotClienteApplied, setCotClienteApplied] = useState(false);
+  const [cotPricingLoading, setCotPricingLoading] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -237,6 +284,130 @@ export default function StockPage() {
     }
   };
 
+  const buscarStock = useCallback(async (query: string) => {
+    const q = query.trim();
+    if (q.length < 2) { setBusqResults([]); setBusqDone(false); return; }
+    setBusqLoading(true);
+    setBusqDone(false);
+    try {
+      const data = await api.get<{ productos: StockBusqueda[] }>(
+        `/api/stock/buscar?q=${encodeURIComponent(q)}`, { noCache: true }
+      );
+      setBusqResults(data.productos);
+      setBusqDone(true);
+    } catch (e) { console.error(e); }
+    finally { setBusqLoading(false); }
+  }, []);
+
+  // Cotización: cargar catálogo completo
+  const loadCotCatalog = useCallback(async () => {
+    if (cotCatalog.length > 0) return;
+    setCotCatalogLoading(true);
+    try {
+      const data = await api.get<{ productos: StockProducto[] }>("/api/stock/detalle");
+      setCotCatalog(data.productos);
+    } catch (e) { console.error(e); }
+    finally { setCotCatalogLoading(false); }
+  }, [cotCatalog.length]);
+
+  useEffect(() => { if (tab === "cotizacion") loadCotCatalog(); }, [tab, loadCotCatalog]);
+
+  // Catálogo filtrado
+  const cotCatalogFiltered = cotCatalogFilter.trim().length >= 2
+    ? cotCatalog.filter(p => {
+        const q = cotCatalogFilter.toLowerCase();
+        return p.codigo_producto.toLowerCase().includes(q) || p.descripcion.toLowerCase().includes(q);
+      })
+    : cotCatalog;
+
+  // Cotización: agregar producto con pricing
+  const agregarProducto = useCallback(async (prod: StockProducto) => {
+    if (cotItems.some(i => i.codigo === prod.codigo_producto)) return;
+    setCotAddingCode(prod.codigo_producto);
+    try {
+      const params = new URLSearchParams({ codigo: prod.codigo_producto });
+      if (cotClienteRut.trim()) params.set("rut", cotClienteRut.trim());
+      const data = await api.get<{
+        ultimo_precio: number; precio_convenio: number; precio_lista: number;
+        precio_tv: number; precio_promedio_mercado: number; precio_sugerido: number;
+        costo_promedio: number; margen_sugerido: number;
+        fecha_ultimo_precio: string | null; convenio_vigente_hasta: string | null;
+        lista_vigente_hasta: string | null;
+      }>(`/api/stock/cotizar?${params.toString()}`, { noCache: true });
+      setCotItems(prev => [...prev, {
+        codigo: prod.codigo_producto,
+        descripcion: prod.descripcion,
+        categoria: prod.categoria,
+        stock: prod.stock_unidades,
+        ...data,
+        cantidad: 1,
+        precio_unitario: data.precio_sugerido,
+      }]);
+    } catch (e) { console.error(e); }
+    finally { setCotAddingCode(null); }
+  }, [cotItems, cotClienteRut]);
+
+  // Cotización: aplicar RUT de cliente a todos los items
+  const aplicarCliente = useCallback(async () => {
+    const rut = cotClienteRut.trim();
+    if (!rut || cotItems.length === 0) { setCotClienteApplied(!!rut); return; }
+    setCotPricingLoading(true);
+    try {
+      const updated = await Promise.all(cotItems.map(async (item) => {
+        const params = new URLSearchParams({ codigo: item.codigo, rut });
+        const data = await api.get<{
+          ultimo_precio: number; precio_convenio: number; precio_lista: number;
+          precio_tv: number; precio_promedio_mercado: number; precio_sugerido: number;
+          costo_promedio: number; margen_sugerido: number;
+          fecha_ultimo_precio: string | null; convenio_vigente_hasta: string | null;
+          lista_vigente_hasta: string | null;
+        }>(`/api/stock/cotizar?${params.toString()}`, { noCache: true });
+        return { ...item, ...data, precio_unitario: data.precio_sugerido };
+      }));
+      setCotItems(updated);
+      setCotClienteApplied(true);
+    } catch (e) { console.error(e); }
+    finally { setCotPricingLoading(false); }
+  }, [cotClienteRut, cotItems]);
+
+  // Cotización: actualizar campo editable
+  const updateCotItem = useCallback((codigo: string, field: "cantidad" | "precio_unitario", value: number) => {
+    setCotItems(prev => prev.map(i =>
+      i.codigo === codigo ? { ...i, [field]: value } : i
+    ));
+  }, []);
+
+  // Cotización: eliminar producto
+  const removeCotItem = useCallback((codigo: string) => {
+    setCotItems(prev => prev.filter(i => i.codigo !== codigo));
+  }, []);
+
+  // Cotización: exportar Excel
+  const exportarCotizacion = useCallback(() => {
+    if (cotItems.length === 0) return;
+    const clienteInfo = cotClienteNombre ? `Cliente:\t${cotClienteNombre}\nRUT:\t${cotClienteRut}\n` : "Cliente:\tNuevo / Sin especificar\n";
+    const header = `COTIZACIÓN LBF\n${clienteInfo}Fecha:\t${new Date().toLocaleDateString("es-CL")}\n\n`;
+    const cols = ["Código", "Producto", "Stock", "Cantidad", "Precio Unit.", "Total", "Costo", "Margen %"];
+    const rows = cotItems.map(i => {
+      const total = i.cantidad * i.precio_unitario;
+      const margen = i.precio_unitario > 0 && i.costo_promedio > 0
+        ? ((i.precio_unitario - i.costo_promedio) / i.precio_unitario * 100).toFixed(1) : "0";
+      return [i.codigo, i.descripcion, i.stock, i.cantidad, i.precio_unitario, total, i.costo_promedio, margen].join("\t");
+    });
+    const totalGeneral = cotItems.reduce((s, i) => s + i.cantidad * i.precio_unitario, 0);
+    rows.push(["", "", "", "", "TOTAL", totalGeneral, "", ""].join("\t"));
+    const content = header + cols.join("\t") + "\n" + rows.join("\n");
+    const blob = new Blob(["\uFEFF" + content], { type: "text/tab-separated-values;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `cotizacion_${cotClienteRut || "nuevo"}_${new Date().toISOString().slice(0, 10)}.xls`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }, [cotItems, cotClienteRut, cotClienteNombre]);
+
   const filteredQuiebres = qSearch.trim()
     ? quiebres.filter(q => {
         const lower = qSearch.toLowerCase().trim();
@@ -296,7 +467,7 @@ export default function StockPage() {
 
       {/* Tabs */}
       <div style={{ display: "flex", gap: 0, marginBottom: 20, borderBottom: "2px solid #E2E8F0" }}>
-        {(["stock", "quiebres"] as const).map(t => (
+        {([["stock", "Stock Actual"], ["consulta", "Consulta Stock"], ["cotizacion", "Cotización"], ["quiebres", "Quiebres de Stock"]] as const).map(([t, label]) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -307,7 +478,7 @@ export default function StockPage() {
               cursor: "pointer", marginBottom: -2,
             }}
           >
-            {t === "stock" ? "Stock Actual" : "Quiebres de Stock"}
+            {label}
           </button>
         ))}
       </div>
@@ -472,6 +643,349 @@ export default function StockPage() {
               </div>
             );
           })()}
+        </>
+      )}
+
+      {/* ═══ TAB: COTIZACIÓN ═══ */}
+      {tab === "cotizacion" && (
+        <>
+          <div style={{ display: "flex", gap: 16, marginBottom: 16, flexWrap: "wrap" }}>
+            {/* Catálogo de productos */}
+            <div style={{ ...card, flex: 1, minWidth: 350, padding: 0, overflow: "hidden", maxHeight: 480, display: "flex", flexDirection: "column" }}>
+              <div style={{ padding: "12px 16px", borderBottom: "1px solid #E2E8F0" }}>
+                <div style={{ fontSize: 14, fontWeight: 700, color: "#0F172A", marginBottom: 8 }}>
+                  Productos disponibles
+                </div>
+                <div style={{ position: "relative" }}>
+                  <SearchIcon size={14} style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: "#94A3B8", pointerEvents: "none" }} />
+                  <input
+                    type="text"
+                    value={cotCatalogFilter}
+                    onChange={(e) => setCotCatalogFilter(e.target.value)}
+                    placeholder="Filtrar por código o nombre..."
+                    style={{ width: "100%", padding: "8px 12px 8px 32px", borderRadius: 8, border: "1px solid #E2E8F0", fontSize: 13, outline: "none", boxSizing: "border-box" }}
+                    onFocus={(e) => { e.currentTarget.style.borderColor = "#93C5FD"; }}
+                    onBlur={(e) => { e.currentTarget.style.borderColor = "#E2E8F0"; }}
+                    autoFocus
+                  />
+                </div>
+                <div style={{ fontSize: 11, color: "#94A3B8", marginTop: 4 }}>
+                  {cotCatalogLoading ? "Cargando..." : `${cotCatalogFiltered.length} productos`}
+                </div>
+              </div>
+              <div style={{ flex: 1, overflowY: "auto" }}>
+                {cotCatalogFiltered.slice(0, 100).map((p, i) => {
+                  const yaAgregado = cotItems.some(it => it.codigo === p.codigo_producto);
+                  const adding = cotAddingCode === p.codigo_producto;
+                  return (
+                    <div
+                      key={p.codigo_producto}
+                      style={{ padding: "5px 14px", background: yaAgregado ? "#F0FDF4" : rowBg(i), borderBottom: "1px solid #F1F5F9", display: "flex", alignItems: "center", gap: 8 }}
+                    >
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 12, color: "#0F172A", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                          <span style={{ fontFamily: "monospace", fontSize: 11, color: "#64748B", marginRight: 6 }}>{p.codigo_producto}</span>
+                          {p.descripcion}
+                        </div>
+                      </div>
+                      <span style={{ fontSize: 11, color: p.stock_unidades > 0 ? "#10B981" : "#EF4444", fontWeight: 600, whiteSpace: "nowrap" }}>
+                        {fmtN(p.stock_unidades)}
+                      </span>
+                      <button
+                        onClick={() => agregarProducto(p)}
+                        disabled={yaAgregado || adding}
+                        style={{
+                          width: 28, height: 28, borderRadius: 6, border: "none", fontSize: 14, cursor: yaAgregado ? "default" : "pointer", display: "flex", alignItems: "center", justifyContent: "center",
+                          background: yaAgregado ? "#D1FAE5" : adding ? "#DBEAFE" : "#3B82F6",
+                          color: yaAgregado ? "#10B981" : "white", flexShrink: 0,
+                        }}
+                        title={yaAgregado ? "Ya agregado" : "Agregar"}
+                      >
+                        {adding ? "..." : <Plus size={14} />}
+                      </button>
+                    </div>
+                  );
+                })}
+                {cotCatalogFiltered.length > 100 && (
+                  <div style={{ padding: "8px 14px", fontSize: 11, color: "#94A3B8", textAlign: "center" }}>
+                    Mostrando 100 de {cotCatalogFiltered.length} — usa el filtro para encontrar más
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Panel derecho: cliente + info */}
+            <div style={{ width: 320, flexShrink: 0, display: "flex", flexDirection: "column", gap: 12 }}>
+              {/* Cliente (opcional) */}
+              <div style={{ ...card, padding: "14px 16px" }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: "#0F172A", marginBottom: 8 }}>
+                  Cliente (opcional)
+                </div>
+                <input
+                  type="text"
+                  value={cotClienteRut}
+                  onChange={(e) => { setCotClienteRut(e.target.value); setCotClienteApplied(false); }}
+                  placeholder="RUT del cliente..."
+                  style={{ width: "100%", padding: "7px 10px", borderRadius: 6, border: "1px solid #E2E8F0", fontSize: 13, outline: "none", marginBottom: 6, boxSizing: "border-box" }}
+                  onFocus={(e) => { e.currentTarget.style.borderColor = "#93C5FD"; }}
+                  onBlur={(e) => { e.currentTarget.style.borderColor = "#E2E8F0"; }}
+                />
+                <input
+                  type="text"
+                  value={cotClienteNombre}
+                  onChange={(e) => setCotClienteNombre(e.target.value)}
+                  placeholder="Nombre (para el Excel)..."
+                  style={{ width: "100%", padding: "7px 10px", borderRadius: 6, border: "1px solid #E2E8F0", fontSize: 13, outline: "none", marginBottom: 8, boxSizing: "border-box" }}
+                  onFocus={(e) => { e.currentTarget.style.borderColor = "#93C5FD"; }}
+                  onBlur={(e) => { e.currentTarget.style.borderColor = "#E2E8F0"; }}
+                />
+                <button
+                  onClick={aplicarCliente}
+                  disabled={!cotClienteRut.trim() || cotPricingLoading || cotItems.length === 0}
+                  style={{
+                    width: "100%", padding: "8px 0", borderRadius: 8, border: "none", fontSize: 13, fontWeight: 600, cursor: cotClienteRut.trim() && cotItems.length > 0 ? "pointer" : "not-allowed",
+                    background: cotClienteApplied ? "#D1FAE5" : cotClienteRut.trim() && cotItems.length > 0 ? "#3B82F6" : "#E2E8F0",
+                    color: cotClienteApplied ? "#065F46" : cotClienteRut.trim() && cotItems.length > 0 ? "white" : "#94A3B8",
+                  }}
+                >
+                  {cotPricingLoading ? "Aplicando..." : cotClienteApplied ? "Precios aplicados" : "Aplicar precios del cliente"}
+                </button>
+                <div style={{ fontSize: 11, color: "#94A3B8", marginTop: 6 }}>
+                  Sin cliente → precio lista Televentas
+                </div>
+              </div>
+
+              {/* Resumen */}
+              {cotItems.length > 0 && (
+                <div style={{ ...card, padding: "14px 16px" }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: "#0F172A", marginBottom: 8 }}>Resumen</div>
+                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                    <span style={{ fontSize: 12, color: "#64748B" }}>Productos</span>
+                    <span style={{ fontSize: 13, fontWeight: 700 }}>{cotItems.length}</span>
+                  </div>
+                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                    <span style={{ fontSize: 12, color: "#64748B" }}>Unidades</span>
+                    <span style={{ fontSize: 13, fontWeight: 700 }}>{fmtN(cotItems.reduce((s, i) => s + i.cantidad, 0))}</span>
+                  </div>
+                  <div style={{ borderTop: "1px solid #E2E8F0", paddingTop: 8, marginTop: 4, display: "flex", justifyContent: "space-between" }}>
+                    <span style={{ fontSize: 14, fontWeight: 800, color: "#0F172A" }}>Total</span>
+                    <span style={{ fontSize: 16, fontWeight: 800, color: "#0F172A" }}>{fmt(cotItems.reduce((s, i) => s + i.cantidad * i.precio_unitario, 0))}</span>
+                  </div>
+                  <button
+                    onClick={exportarCotizacion}
+                    style={{ width: "100%", marginTop: 12, padding: "9px 0", borderRadius: 8, border: "none", background: "#0F172A", color: "white", fontSize: 13, fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}
+                  >
+                    <FileSpreadsheet size={14} /> Exportar Excel
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Tabla de cotización */}
+          {cotItems.length > 0 && (
+            <div style={{ ...card, padding: 0, overflow: "hidden" }}>
+              <div style={{ padding: "10px 20px", borderBottom: "1px solid #E2E8F0", fontSize: 14, fontWeight: 700, color: "#0F172A" }}>
+                Detalle Cotización
+              </div>
+              <div style={{ overflowX: "auto" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 900 }}>
+                  <thead>
+                    <tr>
+                      <th style={{ ...thS, width: 30 }} />
+                      <th style={thS}>Código</th>
+                      <th style={thS}>Producto</th>
+                      <th style={thR}>Stock</th>
+                      <th style={{ ...thC, background: "#EFF6FF" }}>Cant.</th>
+                      <th style={{ ...thR, background: "#EFF6FF" }}>Precio Unit.</th>
+                      <th style={thR}>Total</th>
+                      <th style={{ ...thR, fontSize: 11, color: "#6B7280" }}>Costo</th>
+                      <th style={thC}>Margen</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {cotItems.map((item, i) => {
+                      const total = item.cantidad * item.precio_unitario;
+                      const margen = item.precio_unitario > 0 && item.costo_promedio > 0
+                        ? (item.precio_unitario - item.costo_promedio) / item.precio_unitario * 100 : 0;
+                      const margenColor = margen >= 40 ? "#10B981" : margen >= 25 ? "#F59E0B" : "#EF4444";
+                      return (
+                        <tr key={item.codigo} style={{ borderBottom: "1px solid #F1F5F9", background: rowBg(i) }}>
+                          <td style={{ ...td, textAlign: "center", padding: "7px 4px" }}>
+                            <button onClick={() => removeCotItem(item.codigo)} style={{ background: "none", border: "none", cursor: "pointer", color: "#CBD5E1", padding: 2 }} title="Eliminar">
+                              <Trash2 size={14} />
+                            </button>
+                          </td>
+                          <td style={{ ...td, fontFamily: "monospace", fontSize: 11 }}>{item.codigo}</td>
+                          <td style={{ ...td, fontSize: 12, maxWidth: 250, overflow: "hidden", textOverflow: "ellipsis" }}>{item.descripcion}</td>
+                          <td style={{ ...tdR, fontWeight: 600, color: item.stock > 0 ? "#10B981" : "#EF4444" }}>{fmtN(item.stock)}</td>
+                          <td style={{ ...tdC, background: "#FAFBFF", padding: "4px 6px" }}>
+                            <input type="number" min={1} value={item.cantidad}
+                              onChange={(e) => updateCotItem(item.codigo, "cantidad", Math.max(1, parseInt(e.target.value) || 1))}
+                              style={{ width: 60, padding: "4px 6px", borderRadius: 6, border: "1px solid #E2E8F0", fontSize: 13, textAlign: "center", outline: "none" }}
+                              onFocus={(e) => { e.currentTarget.style.borderColor = "#93C5FD"; }}
+                              onBlur={(e) => { e.currentTarget.style.borderColor = "#E2E8F0"; }}
+                            />
+                          </td>
+                          <td style={{ ...tdR, background: "#FAFBFF", padding: "4px 6px" }}>
+                            <input type="number" min={0} value={item.precio_unitario}
+                              onChange={(e) => updateCotItem(item.codigo, "precio_unitario", Math.max(0, parseInt(e.target.value) || 0))}
+                              style={{ width: 100, padding: "4px 6px", borderRadius: 6, border: "1px solid #E2E8F0", fontSize: 13, textAlign: "right", outline: "none" }}
+                              onFocus={(e) => { e.currentTarget.style.borderColor = "#93C5FD"; }}
+                              onBlur={(e) => { e.currentTarget.style.borderColor = "#E2E8F0"; }}
+                            />
+                          </td>
+                          <td style={{ ...tdR, fontWeight: 800, fontSize: 13 }}>{fmt(total)}</td>
+                          <td style={{ ...tdR, color: "#6B7280", fontSize: 12 }}>{item.costo_promedio > 0 ? `$${fmtN(item.costo_promedio)}` : "—"}</td>
+                          <td style={tdC}>
+                            <span style={{ padding: "2px 8px", borderRadius: 10, fontSize: 11, fontWeight: 700, color: margenColor, background: margen >= 40 ? "#F0FDF4" : margen >= 25 ? "#FFFBEB" : "#FEF2F2" }}>
+                              {margen.toFixed(1)}%
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                  <tfoot>
+                    <tr style={{ background: "#F1F5F9", borderTop: "2px solid #E2E8F0" }}>
+                      <td colSpan={6} style={{ ...td, textAlign: "right", fontWeight: 800, fontSize: 14, paddingRight: 12 }}>TOTAL</td>
+                      <td style={{ ...tdR, fontWeight: 800, fontSize: 14 }}>{fmt(cotItems.reduce((s, i) => s + i.cantidad * i.precio_unitario, 0))}</td>
+                      <td colSpan={2} />
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+
+      {/* ═══ TAB: CONSULTA STOCK ═══ */}
+      {tab === "consulta" && (
+        <>
+          {/* Search bar */}
+          <div style={{ ...card, marginBottom: 20, padding: "20px 24px" }}>
+            <div style={{ fontSize: 14, fontWeight: 700, color: "#0F172A", marginBottom: 12 }}>
+              Buscar producto por código o nombre
+            </div>
+            <form
+              onSubmit={(e) => { e.preventDefault(); buscarStock(busqInput); }}
+              style={{ display: "flex", gap: 10, alignItems: "center" }}
+            >
+              <div style={{ position: "relative", flex: 1, maxWidth: 500 }}>
+                <SearchIcon size={16} style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", color: "#94A3B8", pointerEvents: "none" }} />
+                <input
+                  type="text"
+                  value={busqInput}
+                  onChange={(e) => setBusqInput(e.target.value)}
+                  placeholder="Ej: 037-04181, GUANTE, JERINGA..."
+                  style={{
+                    width: "100%", padding: "10px 14px 10px 38px", borderRadius: 10,
+                    border: "1px solid #E2E8F0", fontSize: 14, color: "#1F2937",
+                    outline: "none", background: "white", transition: "border-color 0.15s",
+                  }}
+                  onFocus={(e) => { e.currentTarget.style.borderColor = "#93C5FD"; }}
+                  onBlur={(e) => { e.currentTarget.style.borderColor = "#E2E8F0"; }}
+                  autoFocus
+                />
+              </div>
+              <button
+                type="submit"
+                disabled={busqInput.trim().length < 2 || busqLoading}
+                style={{
+                  padding: "10px 24px", borderRadius: 10, border: "none",
+                  background: busqInput.trim().length >= 2 ? "#3B82F6" : "#E2E8F0",
+                  color: busqInput.trim().length >= 2 ? "white" : "#94A3B8",
+                  fontSize: 14, fontWeight: 600, cursor: busqInput.trim().length >= 2 ? "pointer" : "not-allowed",
+                  transition: "all 0.15s",
+                }}
+              >
+                {busqLoading ? "Buscando..." : "Buscar"}
+              </button>
+            </form>
+            <div style={{ fontSize: 11, color: "#94A3B8", marginTop: 8 }}>
+              Ingresa al menos 2 caracteres. Busca en código de producto y descripción.
+            </div>
+          </div>
+
+          {/* Results */}
+          {busqDone && (
+            <div style={{ ...card, padding: 0, overflow: "hidden" }}>
+              <div style={{ padding: "12px 20px", borderBottom: "1px solid #E2E8F0", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span style={{ fontSize: 13, fontWeight: 600, color: "#0F172A" }}>
+                  {busqResults.length > 0
+                    ? `${busqResults.length} producto${busqResults.length > 1 ? "s" : ""} encontrado${busqResults.length > 1 ? "s" : ""}`
+                    : "Sin resultados"}
+                </span>
+                {busqResults.length > 0 && (
+                  <ExportButton
+                    data={busqResults}
+                    columns={[
+                      { key: "codigo_producto", label: "Codigo" },
+                      { key: "descripcion", label: "Producto" },
+                      { key: "categoria", label: "Categoria" },
+                      { key: "stock_unidades", label: "Stock" },
+                      { key: "n_ubicaciones", label: "Ubicaciones" },
+                      { key: "venta_ytd", label: "Venta YTD" },
+                      { key: "cant_ytd", label: "Cant YTD" },
+                      { key: "n_clientes", label: "Clientes" },
+                    ]}
+                    filename="consulta_stock"
+                  />
+                )}
+              </div>
+              {busqResults.length === 0 ? (
+                <div style={{ padding: "40px 20px", textAlign: "center" }}>
+                  <div style={{ fontSize: 32, marginBottom: 8 }}>
+                    <SearchIcon size={40} style={{ color: "#E2E8F0" }} />
+                  </div>
+                  <div style={{ fontSize: 14, color: "#94A3B8" }}>
+                    No se encontraron productos para &quot;{busqInput}&quot;
+                  </div>
+                </div>
+              ) : (
+                <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                  <thead>
+                    <tr>
+                      <th style={thS}>Código</th>
+                      <th style={thS}>Producto</th>
+                      <th style={thS}>Categoría</th>
+                      <th style={thR}>Stock</th>
+                      <th style={thR}>Ubic.</th>
+                      <th style={thR}>Venta YTD</th>
+                      <th style={thR}>Cant YTD</th>
+                      <th style={thR}>Clientes</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {busqResults.map((p, i) => {
+                      const semColor = p.stock_unidades === 0
+                        ? "#EF4444"
+                        : p.stock_unidades < 50
+                          ? "#F59E0B"
+                          : "#10B981";
+                      return (
+                        <tr key={p.codigo_producto} style={{ background: rowBg(i), borderBottom: "1px solid #F1F5F9" }}>
+                          <td style={{ ...td, fontFamily: "monospace", fontSize: 12, fontWeight: 600 }}>{p.codigo_producto}</td>
+                          <td style={{ ...td, maxWidth: 350, overflow: "hidden", textOverflow: "ellipsis" }}>{p.descripcion}</td>
+                          <td style={td}>
+                            <span style={{ padding: "2px 8px", borderRadius: 4, fontSize: 11, fontWeight: 600, background: "#F1F5F9", color: "#475569" }}>
+                              {p.categoria}
+                            </span>
+                          </td>
+                          <td style={{ ...tdR, fontWeight: 800, color: semColor }}>{fmtN(p.stock_unidades)}</td>
+                          <td style={tdR}>{p.n_ubicaciones}</td>
+                          <td style={tdR}>{p.venta_ytd > 0 ? fmt(p.venta_ytd) : "—"}</td>
+                          <td style={tdR}>{p.cant_ytd > 0 ? fmtN(p.cant_ytd) : "—"}</td>
+                          <td style={tdR}>{p.n_clientes > 0 ? fmtN(p.n_clientes) : "—"}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          )}
         </>
       )}
 

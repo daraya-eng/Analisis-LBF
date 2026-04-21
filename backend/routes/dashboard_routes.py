@@ -161,38 +161,47 @@ def _load_dashboard_raw() -> dict:
         mes = int(r[0])
         venta25_mes[mes] = float(r[1] or 0)
 
+    # ═══ 5. seg_lookup: resolver segmento real por RUT (una sola vez) ═══
+    # Guías (DOC_CODE='GF') en BI_TOTAL_FACTURA no traen SEGMENTO.
+    # Se pre-carga el mapa RUT→SEGMENTO desde DW para reutilizarlo en 5 y 5b.
+    cur.execute("""
+        SELECT RUT, MAX(LTRIM(RTRIM(SEGMENTO))) AS SEGMENTO
+        FROM DW_TOTAL_FACTURA
+        WHERE SEGMENTO IS NOT NULL AND SEGMENTO <> ''
+        GROUP BY RUT
+    """)
+    _seg_map: dict = {str(r[0]).strip(): str(r[1]).strip() for r in cur.fetchall()}
+
+    def _resolver_seg(rut: str, seg_raw: str) -> str:
+        """Devuelve PUBLICO o PRIVADO. Si seg_raw está vacío, busca en _seg_map."""
+        seg = seg_raw.strip() if seg_raw else ""
+        if not seg:
+            seg = _seg_map.get(rut.strip(), "PRIVADO")
+        return "PUBLICO" if "PUBLICO" in seg else "PRIVADO"
+
     # ═══ 5. VENTA por segmento x categoría x mes ═══
-    # Guías (DOC_CODE='GF') no traen SEGMENTO → resolver por RUT desde DW
     cur.execute(f"""
-        WITH seg_lookup AS (
-            SELECT RUT, MAX(LTRIM(RTRIM(SEGMENTO))) AS SEGMENTO
-            FROM DW_TOTAL_FACTURA
-            WHERE SEGMENTO IS NOT NULL AND SEGMENTO <> ''
-            GROUP BY RUT
-        )
         SELECT
-            ISNULL(NULLIF(LTRIM(RTRIM(f.SEGMENTO)), ''), sl.SEGMENTO) AS seg,
+            LTRIM(RTRIM(ISNULL(f.SEGMENTO, ''))) AS seg_raw,
+            f.RUT,
             {_CAT_CASE} AS cat,
             f.MES,
             SUM(CAST(f.VENTA AS float)) AS venta
         FROM BI_TOTAL_FACTURA f
-        LEFT JOIN seg_lookup sl ON sl.RUT = f.RUT
         WHERE f.ANO = {_ANO} AND {_EXCL_DW}
           AND {_FG}
         GROUP BY
-            ISNULL(NULLIF(LTRIM(RTRIM(f.SEGMENTO)), ''), sl.SEGMENTO),
-            {_CAT_CASE}, f.MES
+            LTRIM(RTRIM(ISNULL(f.SEGMENTO, ''))),
+            f.RUT, {_CAT_CASE}, f.MES
     """)
     seg_mes_data: dict = {}
     for r in cur.fetchall():
-        seg = str(r[0]).strip()
-        cat = str(r[1]).strip()
-        mes = int(r[2])
-        venta = float(r[3] or 0)
+        seg = _resolver_seg(str(r[1] or ""), str(r[0] or ""))
+        cat = str(r[2]).strip()
+        mes = int(r[3])
+        venta = float(r[4] or 0)
         if cat not in _CATS_VALIDAS:
             continue
-        # Normalizar: todo lo que contenga PUBLICO → PUBLICO, resto → PRIVADO
-        seg = "PUBLICO" if "PUBLICO" in seg else "PRIVADO"
         if seg not in seg_mes_data:
             seg_mes_data[seg] = {}
         if mes not in seg_mes_data[seg]:
@@ -201,35 +210,28 @@ def _load_dashboard_raw() -> dict:
 
     # ═══ 5b. GUÍAS por segmento x categoría x mes (DOC_CODE='GF') ═══
     cur.execute(f"""
-        WITH seg_lookup AS (
-            SELECT RUT, MAX(LTRIM(RTRIM(SEGMENTO))) AS SEGMENTO
-            FROM DW_TOTAL_FACTURA
-            WHERE SEGMENTO IS NOT NULL AND SEGMENTO <> ''
-            GROUP BY RUT
-        )
         SELECT
-            ISNULL(NULLIF(LTRIM(RTRIM(f.SEGMENTO)), ''), sl.SEGMENTO) AS seg,
+            LTRIM(RTRIM(ISNULL(f.SEGMENTO, ''))) AS seg_raw,
+            f.RUT,
             {_CAT_CASE} AS cat,
             f.MES,
             SUM(CAST(f.VENTA AS float)) AS venta
         FROM BI_TOTAL_FACTURA f
-        LEFT JOIN seg_lookup sl ON sl.RUT = f.RUT
         WHERE f.ANO = {_ANO} AND {_EXCL_DW}
           AND {_FG}
           AND ISNULL(f.DOC_CODE, '') = 'GF'
         GROUP BY
-            ISNULL(NULLIF(LTRIM(RTRIM(f.SEGMENTO)), ''), sl.SEGMENTO),
-            {_CAT_CASE}, f.MES
+            LTRIM(RTRIM(ISNULL(f.SEGMENTO, ''))),
+            f.RUT, {_CAT_CASE}, f.MES
     """)
     guias_seg_mes: dict = {}
     for r in cur.fetchall():
-        seg = str(r[0]).strip()
-        cat = str(r[1]).strip()
-        mes = int(r[2])
-        venta = float(r[3] or 0)
+        seg = _resolver_seg(str(r[1] or ""), str(r[0] or ""))
+        cat = str(r[2]).strip()
+        mes = int(r[3])
+        venta = float(r[4] or 0)
         if cat not in _CATS_VALIDAS:
             continue
-        seg = "PUBLICO" if "PUBLICO" in seg else "PRIVADO"
         if seg not in guias_seg_mes:
             guias_seg_mes[seg] = {}
         if mes not in guias_seg_mes[seg]:

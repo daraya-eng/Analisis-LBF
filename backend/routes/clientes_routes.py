@@ -54,8 +54,22 @@ def _load_clientes_data(meses: list[int]) -> dict:
     cur = conn.cursor()
     mes_list = ",".join(str(m) for m in meses)
 
+    # ═══ 0. seg_map: resolver segmento real por RUT (una sola vez) ═══
+    cur.execute("""
+        SELECT RUT, MAX(LTRIM(RTRIM(SEGMENTO))) AS SEGMENTO
+        FROM DW_TOTAL_FACTURA
+        WHERE SEGMENTO IS NOT NULL AND SEGMENTO <> ''
+        GROUP BY RUT
+    """)
+    _seg_map: dict = {str(r[0]).strip(): str(r[1]).strip() for r in cur.fetchall()}
+
+    def _resolver_seg(rut: str, seg_raw: str) -> str:
+        seg = seg_raw.strip() if seg_raw else ""
+        if not seg:
+            seg = _seg_map.get(rut.strip(), "PRIVADO")
+        return "PUBLICO" if "PUBLICO" in seg else "PRIVADO"
+
     # ═══ 1. Venta 2026 por cliente — FILTRADO por categorías activas ═══
-    # MAX(SEGMENTO) to avoid grouping issues when a client has mixed empty/filled segments
     cur.execute(f"""
         SELECT RUT, MAX(NOMBRE) AS NOMBRE,
                MAX(LTRIM(RTRIM(ISNULL(SEGMENTO, '')))) AS segmento,
@@ -71,9 +85,7 @@ def _load_clientes_data(meses: list[int]) -> dict:
     cli_26 = {}
     for r in cur.fetchall():
         rut = str(r[0] or "").strip()
-        seg = str(r[2] or "").strip()
-        if seg not in ("PUBLICO", "PRIVADO"):
-            seg = "Sin Segmento"
+        seg = _resolver_seg(rut, str(r[2] or ""))
         cli_26[rut] = {
             "rut": rut,
             "nombre": str(r[1] or "").strip(),
@@ -173,7 +185,7 @@ def _load_clientes_data(meses: list[int]) -> dict:
         seg_cli = [c for c in clientes if c["segmento"] == seg]
         v26 = sum(c["venta_26"] for c in seg_cli)
         v25 = sum(c["venta_25"] for c in seg_cli)
-        crec = ((v26 / v25) - 1) * 100 if v25 > 0 else 0
+        crec = ((v26 / v25) - 1) * 100 if v25 > 0 else (100.0 if v26 > 0 else 0.0)
         # Efecto precio/volumen calculado por cliente y luego sumado
         ef_precio = 0
         ef_volumen = 0

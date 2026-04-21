@@ -18,6 +18,13 @@ router = APIRouter()
 _TV_FILTRO = "VENDEDOR = '16-TELEVENTAS'"
 
 
+def _calc_crec(v26: float, v25: float) -> float:
+    """Crecimiento porcentual consistente: 100 si v25=0 y v26>0, -100 si perdido, 0 si ambos 0."""
+    if v25 > 0:
+        return round(((v26 / v25) - 1) * 100, 1)
+    return 100.0 if v26 > 0 else 0.0
+
+
 def _calc_dias_habiles(meses: list[int], ano: int) -> tuple[int, int, int]:
     """Returns (habiles_transcurridos, habiles_restantes, habiles_totales)."""
     today = datetime.date.today()
@@ -353,8 +360,8 @@ def _load_televentas_all(meses: list[int]) -> dict:
     # Cumplimiento
     cumpl_periodo = (venta_periodo_total / ppto_ytd * 100) if ppto_ytd > 0 else 0
     cumpl_mes = (venta_mes_total / ppto_mes * 100) if ppto_mes > 0 else 0
-    crec_periodo = ((venta_periodo_total / venta_periodo_25) - 1) * 100 if venta_periodo_25 > 0 else 0
-    crec_mes = ((venta_mes_total / venta_mes_25) - 1) * 100 if venta_mes_25 > 0 else 0
+    crec_periodo = _calc_crec(venta_periodo_total, venta_periodo_25)
+    crec_mes = _calc_crec(venta_mes_total, venta_mes_25)
 
     # Ritmo diario / Proyección (días hábiles)
     hab_trans, hab_rest, hab_total = _calc_dias_habiles(meses, _ANO)
@@ -499,14 +506,14 @@ async def get_cliente_productos(
             v26 = float(d.get("venta_2026") or 0)
             v25 = float(d.get("venta_2025") or 0)
             c26 = float(d.get("contribucion_2026") or 0)
-            crec = ((v26 / v25) - 1) * 100 if v25 > 0 else None
+            crec = _calc_crec(v26, v25)
             margen = (c26 / v26 * 100) if v26 > 0 else 0
             productos.append({
                 "CODIGO": d.get("CODIGO", ""),
                 "DESCRIPCION": d.get("DESCRIPCION", ""),
                 "venta_2025": round(v25),
                 "venta_2026": round(v26),
-                "crecimiento": round(crec, 1) if crec is not None else None,
+                "crecimiento": crec,
                 "margen_pct": round(margen, 1),
             })
         result = {"productos": productos}

@@ -180,10 +180,12 @@ function SectionTitle({ title, subtitle }: { title: string; subtitle?: string })
 /* ─── Mini margin gauge ────────────────────────────────────────────── */
 
 function MarginGauge({ real, meta }: { real: number; meta: number }) {
-  const maxVal = Math.max(real, meta, 1) * 1.3;
-  const realPct = (real / maxVal) * 100;
-  const metaPct = (meta / maxVal) * 100;
-  const above = real >= meta;
+  const r = real ?? 0;
+  const m = meta ?? 0;
+  const maxVal = Math.max(r, m, 1) * 1.3;
+  const realPct = (r / maxVal) * 100;
+  const metaPct = (m / maxVal) * 100;
+  const above = r >= m;
   const color = above ? "#10B981" : "#EF4444";
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 6, justifyContent: "flex-end" }}>
@@ -198,7 +200,7 @@ function MarginGauge({ real, meta }: { real: number; meta: number }) {
         }} />
       </div>
       <span style={{ fontSize: 12, fontWeight: 700, color, minWidth: 42, textAlign: "right" }}>
-        {real.toFixed(1)}%
+        {r.toFixed(1)}%
       </span>
     </div>
   );
@@ -224,6 +226,8 @@ const CAT_COLORS: Record<string, string> = {
   EQM: "#F59E0B",
   EVA: "#8B5CF6",
 };
+
+const SEG_COLORS = ["#3B82F6", "#10B981"];
 
 /* ─── Period filter options ─────────────────────────────────────────── */
 
@@ -367,7 +371,6 @@ export default function DashboardPage() {
     name: s.segmento === "PUBLICO" ? "Publico" : "Privado",
     value: s.total,
   }));
-  const SEG_COLORS = ["#3B82F6", "#10B981"];
 
   // Cumplimiento for progress bar
   const cumplPct = k.cumpl;

@@ -373,7 +373,7 @@ def _load_oportunidades(zona_label: str, meses: list[int], categoria: str | None
     try:
         cur.execute(f"""
             SELECT l.rut_cliente, l.licitacion,
-                   SUM(CASE WHEN l.EsLBF = 1 THEN CAST(ISNULL(l.monto_licitacion, '0') AS float) ELSE 0 END) AS adjudicado,
+                   SUM(CASE WHEN l.EsLBF = 1 THEN ISNULL(TRY_CAST(NULLIF(LTRIM(RTRIM(l.monto_licitacion)), '') AS float), 0) ELSE 0 END) AS adjudicado,
                    l.fecha_termino
             FROM vw_LICITACIONES_CATEGORIZADAS l
             WHERE l.EsLBF = 1 AND l.estado = 'Adjudicado'
@@ -692,7 +692,7 @@ async def get_cliente_detalle(
                 SELECT l.licitacion,
                        MIN(l.fecha_inicio) AS inicio,
                        MAX(l.fecha_termino) AS termino,
-                       SUM(CAST(ISNULL(l.monto_licitacion, '0') AS float)) AS adjudicado,
+                       SUM(ISNULL(TRY_CAST(NULLIF(LTRIM(RTRIM(l.monto_licitacion)), '') AS float), 0)) AS adjudicado,
                        COALESCE(fac.facturado, 0) AS facturado
                 FROM vw_LICITACIONES_CATEGORIZADAS l
                 LEFT JOIN (

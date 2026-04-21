@@ -312,12 +312,19 @@ def _load_cliente_detalle(rut: str, meses: list[int]) -> dict:
 
     conn.close()
 
+    vol_perdidos = -sum(p["venta_25"] for p in productos_perdidos)
+    vol_nuevos   =  sum(p["venta_26"] for p in productos_nuevos)
+    vol_ambos    = round(total_efecto_volumen - vol_perdidos - vol_nuevos)
+
     return {
-        "efecto_precio": round(total_efecto_precio),
-        "efecto_volumen": round(total_efecto_volumen),
-        "productos": sorted(productos, key=lambda p: abs(p["efecto_precio"]), reverse=True)[:30],
+        "efecto_precio":    round(total_efecto_precio),
+        "efecto_volumen":   round(total_efecto_volumen),
+        "vol_ambos":        vol_ambos,
+        "vol_perdidos":     round(vol_perdidos),
+        "vol_nuevos":       round(vol_nuevos),
+        "productos":         sorted(productos, key=lambda p: abs(p["efecto_precio"]), reverse=True)[:30],
         "productos_perdidos": sorted(productos_perdidos, key=lambda p: -p["venta_25"])[:20],
-        "productos_nuevos": sorted(productos_nuevos, key=lambda p: -p["venta_26"])[:20],
+        "productos_nuevos":   sorted(productos_nuevos, key=lambda p: -p["venta_26"])[:20],
     }
 
 

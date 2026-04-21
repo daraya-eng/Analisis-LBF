@@ -170,12 +170,15 @@ function SegCard({ title, data, color, icon }: { title: string; data: SegKpi; co
 
 /* ─── Bar label ──────────────────────────────────────── */
 
-function ValLabel(props: { x?: number; y?: number; width?: number; value?: number }) {
-  const { x = 0, y = 0, width = 0, value } = props;
-  if (!value || value === 0) return null;
+function ValLabel(props: { x?: number; y?: number; width?: number; height?: number; value?: number }) {
+  const { x = 0, y = 0, width = 0, height = 0, value } = props;
+  if (value == null || value === 0) return null;
+  const isNeg = value < 0;
+  // Positive bars: label above top (y - 4); negative bars: label below bottom (y + height + 12)
+  const labelY = isNeg ? y + height + 12 : y - 4;
   return (
-    <text x={x + width / 2} y={y - 4} fill="#374151" textAnchor="middle" fontSize={10} fontWeight={700}>
-      {fmt(value)}
+    <text x={x + width / 2} y={labelY} fill={isNeg ? "#DC2626" : "#374151"} textAnchor="middle" fontSize={10} fontWeight={700}>
+      {isNeg ? "" : "+"}{fmt(value)}
     </text>
   );
 }
@@ -600,19 +603,20 @@ export default function ClientesPage() {
   const pub = data.kpis_segmento?.PUBLICO ?? { venta_26: 0, venta_25: 0, crec: 0, n_clientes: 0, efecto_precio: 0, efecto_volumen: 0, diff: 0 };
   const priv = data.kpis_segmento?.PRIVADO ?? { venta_26: 0, venta_25: 0, crec: 0, n_clientes: 0, efecto_precio: 0, efecto_volumen: 0, diff: 0 };
 
-  // Chart data: efecto precio vs volumen by segment
+  // Chart data: 3 additive components that sum to diff
+  // cartera = net effect of clients that entered or left (not in P/V decomposition)
   const chartData = [
     {
       segmento: "Publico",
       efecto_precio: pub.efecto_precio,
       efecto_volumen: pub.efecto_volumen,
-      diferencia: pub.diff,
+      cartera: pub.diff - pub.efecto_precio - pub.efecto_volumen,
     },
     {
       segmento: "Privado",
       efecto_precio: priv.efecto_precio,
       efecto_volumen: priv.efecto_volumen,
-      diferencia: priv.diff,
+      cartera: priv.diff - priv.efecto_precio - priv.efecto_volumen,
     },
   ];
 
@@ -710,9 +714,27 @@ export default function ClientesPage() {
 
       {/* ═══ Chart: Efecto Precio vs Volumen by Segment ═══ */}
       <div style={{ background: "white", borderRadius: 10, border: "1px solid #E2E8F0", padding: 24, marginBottom: 24 }}>
-        <h3 style={{ fontSize: 16, fontWeight: 700, color: "#0F172A", margin: "0 0 16px" }}>
-          Perdida/Ganancia de Venta — Efecto Precio vs Volumen
-        </h3>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 4 }}>
+          <h3 style={{ fontSize: 16, fontWeight: 700, color: "#0F172A", margin: 0 }}>
+            Variación de Venta — Descomposición por Segmento
+          </h3>
+          <div style={{ display: "flex", gap: 16 }}>
+            {(["PUBLICO", "PRIVADO"] as const).map(seg => {
+              const d = seg === "PUBLICO" ? pub : priv;
+              return (
+                <div key={seg} style={{ textAlign: "right" }}>
+                  <span style={{ fontSize: 11, color: "#64748B" }}>{seg === "PUBLICO" ? "Público" : "Privado"} total: </span>
+                  <span style={{ fontSize: 12, fontWeight: 800, color: d.diff >= 0 ? "#059669" : "#DC2626" }}>
+                    {d.diff >= 0 ? "+" : ""}{fmt(d.diff)}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+        <p style={{ fontSize: 11, color: "#94A3B8", margin: "0 0 16px" }}>
+          Ef. Precio + Ef. Volumen + Cartera = Variación total · Cartera = clientes sin historial comparado
+        </p>
         <ResponsiveContainer width="100%" height={280}>
           <BarChart data={chartData} barCategoryGap="30%">
             <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" />
@@ -729,27 +751,30 @@ export default function ClientesPage() {
             />
             <Tooltip
               // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              formatter={(v: any, name: any) => [fmtAbs(Number(v)), name]}
+              formatter={(v: any, name: any) => {
+                const n = Number(v);
+                return [`${n >= 0 ? "+" : ""}${fmtAbs(n)}`, name];
+              }}
               contentStyle={{ borderRadius: 8, fontSize: 13 }}
             />
             <Legend wrapperStyle={{ fontSize: 13 }} />
-            <Bar dataKey="efecto_precio" name="Efecto Precio" radius={[4, 4, 0, 0]}>
+            <Bar dataKey="efecto_precio" name="Ef. Precio" radius={[4, 4, 0, 0]}>
               {chartData.map((d, i) => (
                 <Cell key={i} fill={d.efecto_precio >= 0 ? "#10B981" : "#EF4444"} />
               ))}
               <LabelList dataKey="efecto_precio" content={<ValLabel />} />
             </Bar>
-            <Bar dataKey="efecto_volumen" name="Efecto Volumen" radius={[4, 4, 0, 0]}>
+            <Bar dataKey="efecto_volumen" name="Ef. Volumen" radius={[4, 4, 0, 0]}>
               {chartData.map((d, i) => (
                 <Cell key={i} fill={d.efecto_volumen >= 0 ? "#3B82F6" : "#F97316"} />
               ))}
               <LabelList dataKey="efecto_volumen" content={<ValLabel />} />
             </Bar>
-            <Bar dataKey="diferencia" name="Diferencia Total" radius={[4, 4, 0, 0]}>
+            <Bar dataKey="cartera" name="Cartera" radius={[4, 4, 0, 0]}>
               {chartData.map((d, i) => (
-                <Cell key={i} fill={d.diferencia >= 0 ? "#059669" : "#DC2626"} />
+                <Cell key={i} fill={d.cartera >= 0 ? "#8B5CF6" : "#6366F1"} />
               ))}
-              <LabelList dataKey="diferencia" content={<ValLabel />} />
+              <LabelList dataKey="cartera" content={<ValLabel />} />
             </Bar>
           </BarChart>
         </ResponsiveContainer>

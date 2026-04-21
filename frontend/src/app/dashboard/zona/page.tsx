@@ -17,6 +17,7 @@ import {
   Cell,
   LabelList,
   Legend,
+  ReferenceLine,
 } from "recharts";
 
 /* ─── Types ─────────────────────────────────────────────────────────── */
@@ -41,6 +42,11 @@ interface ZonaRow {
   cumpl: number;
   venta_25: number;
   crec_vs_25: number;
+  ritmo_meta: number;
+  ritmo_25: number;
+  ritmo_diario: number;
+  necesario_diario: number;
+  proyeccion: number;
   categorias: Record<string, CatDetail>;
 }
 
@@ -52,10 +58,19 @@ interface ClienteRow {
   crec: number;
 }
 
+interface RitmoGlobal {
+  time_pct: number;
+  dias_transcurridos: number;
+  dias_totales: number;
+  periodo_completo: boolean;
+  hab_restantes: number;
+}
+
 interface ZonaData {
   zonas: ZonaRow[];
   total: ZonaRow;
   margen_meta_cat: Record<string, number>;
+  ritmo: RitmoGlobal;
   periodo: string;
   label: string;
   error?: string;
@@ -246,6 +261,9 @@ export default function ZonaPage() {
   const pctBar = Math.min(cumplPct, 100);
   const barColor = cumplPct >= 100 ? "#10B981" : cumplPct >= 80 ? "#F59E0B" : "#EF4444";
 
+  const showRitmo = data.ritmo && !data.ritmo.periodo_completo && data.ritmo.time_pct > 0;
+  const colSpanTotal = showRitmo ? 13 : 9;
+
   return (
     <div>
       {/* Header */}
@@ -316,11 +334,47 @@ export default function ZonaPage() {
           sub={`Gap: ${fmtAbs(t.gap)}`}
           color={t.cumpl >= 100 ? "#10B981" : t.cumpl >= 80 ? "#F59E0B" : "#EF4444"}
         />
-        <StatCard
-          label="Crec. vs 2025"
-          value={`${t.crec_vs_25 >= 0 ? "+" : ""}${fmtPct(t.crec_vs_25)}`}
-          color={t.crec_vs_25 >= 0 ? "#10B981" : "#EF4444"}
-        />
+        {data.ritmo && !data.ritmo.periodo_completo && data.ritmo.time_pct > 0 ? (
+          <StatCard
+            label="Cumpl. vs Proyectado"
+            value={`${(t.cumpl - data.ritmo.time_pct) >= 0 ? "+" : ""}${fmtPct(t.cumpl - data.ritmo.time_pct)}`}
+            sub={`Cumpl: ${fmtPct(t.cumpl)} vs Esperado: ${fmtPct(data.ritmo.time_pct)}`}
+            color={(t.cumpl - data.ritmo.time_pct) >= 0 ? "#10B981" : "#EF4444"}
+          />
+        ) : (
+          <StatCard
+            label="Crec. vs 2025"
+            value={`${t.crec_vs_25 >= 0 ? "+" : ""}${fmtPct(t.crec_vs_25)}`}
+            color={t.crec_vs_25 >= 0 ? "#10B981" : "#EF4444"}
+          />
+        )}
+        {data.ritmo && !data.ritmo.periodo_completo && data.ritmo.time_pct > 0 && (
+          <>
+            <StatCard
+              label="Ritmo vs Meta"
+              value={`${t.ritmo_meta >= 0 ? "+" : ""}${fmtPct(t.ritmo_meta)}`}
+              sub={`Dia ${data.ritmo.dias_transcurridos} de ${data.ritmo.dias_totales}`}
+              color={t.ritmo_meta >= 0 ? "#10B981" : "#EF4444"}
+            />
+            <StatCard
+              label="Ritmo vs 2025"
+              value={`${t.ritmo_25 >= 0 ? "+" : ""}${fmtPct(t.ritmo_25)}`}
+              color={t.ritmo_25 >= 0 ? "#10B981" : "#EF4444"}
+            />
+            <StatCard
+              label="Ritmo diario"
+              value={fmt(t.ritmo_diario)}
+              sub={`Necesario: ${fmt(t.necesario_diario)}`}
+              color={t.ritmo_diario >= t.necesario_diario ? "#10B981" : "#EF4444"}
+            />
+            <StatCard
+              label="Proyeccion mes"
+              value={fmt(t.proyeccion)}
+              sub={`${data.ritmo.hab_restantes}d habiles restantes`}
+              color={t.proyeccion >= t.meta_periodo ? "#10B981" : "#EF4444"}
+            />
+          </>
+        )}
       </div>
 
       {/* ═══ TWO CHARTS SIDE BY SIDE ═══ */}
@@ -337,10 +391,24 @@ export default function ZonaPage() {
               <XAxis type="number" domain={[0, "dataMax"]} tickFormatter={(v) => `${v}%`} tick={{ fontSize: 11 }} />
               <YAxis type="category" dataKey="zona" width={120} tick={{ fontSize: 11, fill: "#374151" }} />
               <Tooltip formatter={(v) => `${Number(v).toFixed(1)}%`} />
+              {data.ritmo && !data.ritmo.periodo_completo && data.ritmo.time_pct > 0 && (
+                <ReferenceLine
+                  x={data.ritmo.time_pct}
+                  stroke="#6366F1"
+                  strokeWidth={2}
+                  strokeDasharray="6 3"
+                  label={{ value: `${fmtPct(data.ritmo.time_pct)} esperado`, position: "top", fontSize: 10, fill: "#6366F1" }}
+                />
+              )}
               <Bar dataKey="cumpl" radius={[0, 6, 6, 0]} barSize={16}>
-                {chartCumpl.map((entry, i) => (
-                  <Cell key={i} fill={entry.cumpl >= 100 ? "#10B981" : entry.cumpl >= 80 ? "#F59E0B" : "#EF4444"} />
-                ))}
+                {chartCumpl.map((entry, i) => {
+                  const tp = data.ritmo?.time_pct ?? 80;
+                  const useTimePct = data.ritmo && !data.ritmo.periodo_completo && data.ritmo.time_pct > 0;
+                  const fill = useTimePct
+                    ? entry.cumpl >= tp ? "#10B981" : entry.cumpl >= tp - 5 ? "#F59E0B" : "#EF4444"
+                    : entry.cumpl >= 100 ? "#10B981" : entry.cumpl >= 80 ? "#F59E0B" : "#EF4444";
+                  return <Cell key={i} fill={fill} />;
+                })}
                 <LabelList dataKey="cumpl" content={<CumplLabel />} />
               </Bar>
             </BarChart>
@@ -434,6 +502,7 @@ export default function ZonaPage() {
             data={zonas.map(z => ({
               zona: z.zona, kam: z.kam, meta_periodo: z.meta_periodo, venta: z.venta,
               gap: z.gap, cumpl: z.cumpl, venta_25: z.venta_25, crec_vs_25: z.crec_vs_25,
+              ritmo_meta: z.ritmo_meta, ritmo_25: z.ritmo_25,
               margen: z.margen, contrib: z.contrib,
             }))}
             columns={[
@@ -441,6 +510,7 @@ export default function ZonaPage() {
               { key: "meta_periodo", label: "Meta" }, { key: "venta", label: "Venta" },
               { key: "gap", label: "Gap" }, { key: "cumpl", label: "Cumpl %" },
               { key: "venta_25", label: "Venta 2025" }, { key: "crec_vs_25", label: "Crec %" },
+              { key: "ritmo_meta", label: "Ritmo Meta" }, { key: "ritmo_25", label: "Ritmo 25" },
               { key: "contrib", label: "Contribucion" }, { key: "margen", label: "Margen %" },
             ]}
             filename="zonas_kam"
@@ -458,6 +528,10 @@ export default function ZonaPage() {
               <th style={thR} title="Venta / Meta x 100">Cumpl.</th>
               <th style={thR} title="Venta del mismo periodo en 2025">Venta 25</th>
               <th style={thR} title="Crecimiento vs 2025">Crec.</th>
+              {showRitmo && <th style={thR} title="Cumpl. venta vs % tiempo transcurrido">Ritmo</th>}
+              {showRitmo && <th style={thR} title="Crecimiento vs 2025 al mismo dia">vs 25</th>}
+              {showRitmo && <th style={thR} title="Venta diaria promedio (dias habiles)">$/dia</th>}
+              {showRitmo && <th style={thR} title="Proyeccion lineal al cierre del periodo">Proy.</th>}
             </tr>
           </thead>
           <tbody>
@@ -492,12 +566,32 @@ export default function ZonaPage() {
                   <td style={{ ...tdR, fontWeight: 600, color: crecColor }}>
                     {row.crec_vs_25 >= 0 ? "+" : ""}{fmtPct(row.crec_vs_25)}
                   </td>
+                  {showRitmo && (
+                    <td style={{ ...tdR, fontWeight: 600, color: row.ritmo_meta >= 0 ? "#10B981" : "#EF4444" }}>
+                      {row.ritmo_meta >= 0 ? "+" : ""}{fmtPct(row.ritmo_meta)}
+                    </td>
+                  )}
+                  {showRitmo && (
+                    <td style={{ ...tdR, fontWeight: 600, color: row.ritmo_25 >= 0 ? "#10B981" : "#EF4444" }}>
+                      {row.ritmo_25 >= 0 ? "+" : ""}{fmtPct(row.ritmo_25)}
+                    </td>
+                  )}
+                  {showRitmo && (
+                    <td style={{ ...tdR, fontSize: 11, color: row.ritmo_diario >= row.necesario_diario ? "#10B981" : "#EF4444" }}>
+                      {fmt(row.ritmo_diario)}
+                    </td>
+                  )}
+                  {showRitmo && (
+                    <td style={{ ...tdR, fontSize: 11, color: row.proyeccion >= row.meta_periodo ? "#10B981" : "#EF4444" }}>
+                      {fmt(row.proyeccion)}
+                    </td>
+                  )}
                 </tr>
               );
               if (isExpanded) {
                 rows.push(
                   <tr key={`${row.zona}-detail`}>
-                    <td colSpan={9} style={{ padding: 0 }}>
+                    <td colSpan={colSpanTotal} style={{ padding: 0 }}>
                       <div style={{ background: "#F8FAFC", padding: "8px 20px 8px 48px", borderBottom: "2px solid #E2E8F0" }}>
                         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
                           <thead>
@@ -580,6 +674,16 @@ export default function ZonaPage() {
               <td style={{ ...tdR, fontWeight: 800, color: t.crec_vs_25 >= 0 ? "#10B981" : "#EF4444" }}>
                 {t.crec_vs_25 >= 0 ? "+" : ""}{fmtPct(t.crec_vs_25)}
               </td>
+              {showRitmo && (
+                <td style={{ ...tdR, fontWeight: 800, color: t.ritmo_meta >= 0 ? "#10B981" : "#EF4444" }}>
+                  {t.ritmo_meta >= 0 ? "+" : ""}{fmtPct(t.ritmo_meta)}
+                </td>
+              )}
+              {showRitmo && (
+                <td style={{ ...tdR, fontWeight: 800, color: t.ritmo_25 >= 0 ? "#10B981" : "#EF4444" }}>
+                  {t.ritmo_25 >= 0 ? "+" : ""}{fmtPct(t.ritmo_25)}
+                </td>
+              )}
             </tr>
           </tbody>
         </table>

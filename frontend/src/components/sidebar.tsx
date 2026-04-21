@@ -19,6 +19,7 @@ import {
   Warehouse,
   TrendingUp,
   Target,
+  ShieldAlert,
 } from "lucide-react";
 import { useState } from "react";
 
@@ -33,6 +34,7 @@ const NAV_ITEMS = [
   { href: "/dashboard/mercado-publico", label: "Mercado Publico", icon: TrendingUp, module: "mercado_publico" },
   { href: "/dashboard/stock", label: "Inventario", icon: Warehouse, module: "stock" },
   { href: "/dashboard/ma", label: "M&A Targets", icon: Target, module: "ma" },
+  { href: "/dashboard/guantes", label: "Monitor Guantes", icon: ShieldAlert, module: "guantes" },
   { href: "/dashboard/glosario", label: "Glosario", icon: BookOpen, module: "dashboard" },
 ];
 

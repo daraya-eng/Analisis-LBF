@@ -18,6 +18,23 @@ router = APIRouter()
 _TV_FILTRO = "VENDEDOR = '16-TELEVENTAS'"
 
 
+def _calc_dias_habiles(meses: list[int], ano: int) -> tuple[int, int, int]:
+    """Returns (habiles_transcurridos, habiles_restantes, habiles_totales)."""
+    today = datetime.date.today()
+    habiles_transcurridos = 0
+    habiles_totales = 0
+    for m in meses:
+        days_in_m = calendar.monthrange(ano, m)[1]
+        for d in range(1, days_in_m + 1):
+            dt = datetime.date(ano, m, d)
+            if dt.weekday() < 5:
+                habiles_totales += 1
+                if dt <= today:
+                    habiles_transcurridos += 1
+    habiles_restantes = habiles_totales - habiles_transcurridos
+    return habiles_transcurridos, habiles_restantes, habiles_totales
+
+
 def _parse_periodo(periodo: str, mes: int | None) -> tuple[list[int], str]:
     _MES = hoy()["mes"]
     if periodo == "ytd":
@@ -168,10 +185,10 @@ def _load_televentas_all(meses: list[int]) -> dict:
           AND f26.CODIGO NOT IN ('FLETE','NINV','SIN','')
           AND {_FG}
           AND NOT EXISTS (
-              SELECT 1 FROM BI_TOTAL_FACTURA f25
-              WHERE f25.ANO = {_ANO - 1}
-                AND f25.RUT = f26.RUT
-                AND f25.VENDEDOR = '16-TELEVENTAS'
+              SELECT 1 FROM BI_TOTAL_FACTURA f_hist
+              WHERE f_hist.ANO < {_ANO}
+                AND f_hist.RUT = f26.RUT
+                AND f_hist.VENDEDOR = '16-TELEVENTAS'
                 AND {_FG}
           )
         GROUP BY f26.RUT, f26.NOMBRE
@@ -212,7 +229,7 @@ def _load_televentas_all(meses: list[int]) -> dict:
     cols_q4 = [d[0].strip() for d in cur.description]
     rows_q4 = cur.fetchall()
 
-    # ═══ 6. VENTA MENSUAL 2026 (para gráfico PPTO vs Venta) ═══
+    # ═══ 6. VENTA MENSUAL 2026 — siempre todos los meses (gráfico fijo YTD) ═══
     cur.execute(f"""
         SELECT MES,
                SUM(CAST(VENTA AS float)) AS venta
@@ -220,7 +237,7 @@ def _load_televentas_all(meses: list[int]) -> dict:
         WHERE {_TV_FILTRO}
           AND {DW_FILTRO}
           AND {_FG}
-          AND ANO = {_ANO} AND MES IN ({mes_list})
+          AND ANO = {_ANO}
         GROUP BY MES
         ORDER BY MES
     """)
@@ -339,6 +356,17 @@ def _load_televentas_all(meses: list[int]) -> dict:
     crec_periodo = ((venta_periodo_total / venta_periodo_25) - 1) * 100 if venta_periodo_25 > 0 else 0
     crec_mes = ((venta_mes_total / venta_mes_25) - 1) * 100 if venta_mes_25 > 0 else 0
 
+    # Ritmo diario / Proyección (días hábiles)
+    hab_trans, hab_rest, hab_total = _calc_dias_habiles(meses, _ANO)
+    ritmo_diario_ytd = (venta_periodo_total / hab_trans) if hab_trans > 0 else 0
+    necesario_ytd = ((ppto_ytd - venta_periodo_total) / hab_rest) if hab_rest > 0 else 0
+    proyeccion_ytd = venta_periodo_total + (ritmo_diario_ytd * hab_rest) if hab_trans > 0 else 0
+    # Mensual
+    hab_trans_m, hab_rest_m, _ = _calc_dias_habiles([max_mes], _ANO)
+    ritmo_diario_mes = (venta_mes_total / hab_trans_m) if hab_trans_m > 0 else 0
+    necesario_mes = ((ppto_mes - venta_mes_total) / hab_rest_m) if hab_rest_m > 0 else 0
+    proyeccion_mes = venta_mes_total + (ritmo_diario_mes * hab_rest_m) if hab_trans_m > 0 else 0
+
     result = {
         "kpis": {
             "ppto_anual": ppto_anual,
@@ -366,6 +394,14 @@ def _load_televentas_all(meses: list[int]) -> dict:
             "total_venta_nuevos": round(total_venta_nuevos),
             "total_venta_q4": round(total_venta_q4),
             "mes_nombre": MESES_NOMBRE.get(max_mes, str(max_mes)),
+            "ritmo_diario_ytd": round(ritmo_diario_ytd),
+            "necesario_ytd": round(necesario_ytd),
+            "proyeccion_ytd": round(proyeccion_ytd),
+            "hab_rest_ytd": hab_rest,
+            "ritmo_diario_mes": round(ritmo_diario_mes),
+            "necesario_mes": round(necesario_mes),
+            "proyeccion_mes": round(proyeccion_mes),
+            "hab_rest_mes": hab_rest_m,
         },
         "clientes_nuevos": nuevos_records,
         "clientes_q4_sin_compra": q4_records,

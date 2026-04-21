@@ -22,6 +22,24 @@ const td: React.CSSProperties = { padding: "7px 12px", color: "#1F2937", whiteSp
 const tdR: React.CSSProperties = { ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" };
 const rowBg = (i: number) => i % 2 === 0 ? "white" : "#FAFBFC";
 
+function useTableSort(defaultField: string, defaultAsc = false) {
+  const [sortField, setSortField] = useState(defaultField);
+  const [sortAsc, setSortAsc] = useState(defaultAsc);
+  const handleSort = (field: string) => {
+    if (sortField === field) setSortAsc(!sortAsc);
+    else { setSortField(field); setSortAsc(false); }
+  };
+  const sortIcon = (field: string) => sortField === field ? (sortAsc ? " ▲" : " ▼") : "";
+  const sortFn = (a: any, b: any) => {
+    let va = a[sortField], vb = b[sortField];
+    if (va === null || va === undefined) va = -Infinity;
+    if (vb === null || vb === undefined) vb = -Infinity;
+    if (typeof va === "string") return sortAsc ? va.localeCompare(vb) : vb.localeCompare(va);
+    return sortAsc ? va - vb : vb - va;
+  };
+  return { sortField, handleSort, sortIcon, sortFn };
+}
+
 const CHANNEL_COLORS: Record<string, string> = {
   SE: "#3B82F6", CM: "#10B981", AG: "#F59E0B", TD: "#8B5CF6",
 };
@@ -106,6 +124,8 @@ function PeriodSelector({ selected, onChange }: { selected: string; onChange: (p
    ═══════════════════════════════════════════════════════════ */
 
 function OverviewSection({ data }: { data: any }) {
+  const subSort = useTableSort("total");
+
   if (!data || data.error) return <div style={{ padding: 40, color: "#EF4444" }}>Error: {data?.error || "Sin datos"}</div>;
 
   const pinfo = data.periodo_info || {};
@@ -210,14 +230,14 @@ function OverviewSection({ data }: { data: any }) {
             <thead>
               <tr>
                 <th style={{ ...thS, width: 35 }}>#</th>
-                <th style={thS}>Subcategoria</th>
-                <th style={thR}>Venta Total</th>
-                <th style={thR}>Proveedores</th>
+                <th style={{ ...thS, cursor: "pointer" }} onClick={() => subSort.handleSort("subcategoria")}>Subcategoria{subSort.sortIcon("subcategoria")}</th>
+                <th style={{ ...thR, cursor: "pointer" }} onClick={() => subSort.handleSort("total")}>Venta Total{subSort.sortIcon("total")}</th>
+                <th style={{ ...thR, cursor: "pointer" }} onClick={() => subSort.handleSort("n_providers")}>Proveedores{subSort.sortIcon("n_providers")}</th>
                 <th style={thR}>% del Total</th>
               </tr>
             </thead>
             <tbody>
-              {(data.subcategorias || []).map((s: any, i: number) => {
+              {[...(data.subcategorias || [])].sort(subSort.sortFn).map((s: any, i: number) => {
                 const grandTotal = (data.subcategorias || []).reduce((acc: number, x: any) => acc + x.total, 0);
                 return (
                   <tr key={i} style={{ background: rowBg(i) }}>
@@ -246,8 +266,9 @@ function TargetsSection({ data, onSelect }: { data: any; onSelect: (rut: string)
   const [searchText, setSearchText] = useState("");
   const [montoFilter, setMontoFilter] = useState(0);
   const [minOverlap, setMinOverlap] = useState(0);
-  const [sortField, setSortField] = useState<string>("rev_total");
-  const [sortAsc, setSortAsc] = useState(false);
+  const [minOcs, setMinOcs] = useState(0);
+  const [minRegions, setMinRegions] = useState(0);
+  const { handleSort, sortIcon, sortFn } = useTableSort("rev_total");
 
   const targets = data?.targets || [];
   const pinfo = data?.periodo_info || {};
@@ -256,6 +277,8 @@ function TargetsSection({ data, onSelect }: { data: any; onSelect: (rut: string)
   const filtered = targets.filter((t: any) => {
     if (t.rev_total < mf.min || t.rev_total > mf.max) return false;
     if (t.overlap_pct < minOverlap) return false;
+    if (minOcs > 0 && t.n_ocs < minOcs) return false;
+    if (minRegions > 0 && t.n_regions < minRegions) return false;
     if (searchText) {
       const q = searchText.toLowerCase();
       if (!t.nombre.toLowerCase().includes(q) && !t.rut.includes(q) && !(t.actividad || "").toLowerCase().includes(q)) return false;
@@ -263,18 +286,7 @@ function TargetsSection({ data, onSelect }: { data: any; onSelect: (rut: string)
     return true;
   });
 
-  const sorted = [...filtered].sort((a: any, b: any) => {
-    let va = a[sortField], vb = b[sortField];
-    if (va === null || va === undefined) va = -Infinity;
-    if (vb === null || vb === undefined) vb = -Infinity;
-    return sortAsc ? va - vb : vb - va;
-  });
-
-  const handleSort = (field: string) => {
-    if (sortField === field) setSortAsc(!sortAsc);
-    else { setSortField(field); setSortAsc(false); }
-  };
-  const sortIcon = (field: string) => sortField === field ? (sortAsc ? " ▲" : " ▼") : "";
+  const sorted = [...filtered].sort(sortFn);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
@@ -323,6 +335,30 @@ function TargetsSection({ data, onSelect }: { data: any; onSelect: (rut: string)
               }}>{v === 0 ? "Todos" : `${v}%+`}</button>
           ))}
         </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+          <span style={{ fontSize: 11, color: "#64748B", fontWeight: 600 }}>OCs min:</span>
+          {[0, 10, 50, 100].map(v => (
+            <button key={v} onClick={() => setMinOcs(v)}
+              style={{
+                padding: "4px 8px", borderRadius: 4, border: "none", cursor: "pointer", fontSize: 11,
+                fontWeight: minOcs === v ? 700 : 400,
+                background: minOcs === v ? "#E0E7FF" : "#F1F5F9",
+                color: minOcs === v ? "#3730A3" : "#64748B",
+              }}>{v === 0 ? "Todas" : `${v}+`}</button>
+          ))}
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+          <span style={{ fontSize: 11, color: "#64748B", fontWeight: 600 }}>Regiones min:</span>
+          {[0, 3, 5, 8].map(v => (
+            <button key={v} onClick={() => setMinRegions(v)}
+              style={{
+                padding: "4px 8px", borderRadius: 4, border: "none", cursor: "pointer", fontSize: 11,
+                fontWeight: minRegions === v ? 700 : 400,
+                background: minRegions === v ? "#FEF3C7" : "#F1F5F9",
+                color: minRegions === v ? "#92400E" : "#64748B",
+              }}>{v === 0 ? "Todas" : `${v}+`}</button>
+          ))}
+        </div>
         <div style={{ fontSize: 11, color: "#94A3B8", marginLeft: "auto" }}>
           {sorted.length} de {targets.length} empresas
         </div>
@@ -360,6 +396,7 @@ function TargetsSection({ data, onSelect }: { data: any; onSelect: (rut: string)
                 <th style={{ ...thR, cursor: "pointer" }} onClick={() => handleSort("rev_prev")}>2025{sortIcon("rev_prev")}</th>
                 <th style={{ ...thR, cursor: "pointer" }} onClick={() => handleSort("yoy")}>YoY{sortIcon("yoy")}</th>
                 <th style={{ ...thR, cursor: "pointer" }} onClick={() => handleSort("n_clients")}>Clientes{sortIcon("n_clients")}</th>
+                <th style={{ ...thR, cursor: "pointer" }} onClick={() => handleSort("n_ocs")}>OCs{sortIcon("n_ocs")}</th>
                 <th style={{ ...thR, cursor: "pointer" }} onClick={() => handleSort("overlap_pct")}>Overlap{sortIcon("overlap_pct")}</th>
                 <th style={{ ...thR, cursor: "pointer" }} onClick={() => handleSort("n_regions")}>Regiones{sortIcon("n_regions")}</th>
                 <th style={{ ...thS, width: 90 }}>Canales</th>
@@ -392,6 +429,7 @@ function TargetsSection({ data, onSelect }: { data: any; onSelect: (rut: string)
                     <td style={{ ...tdR, fontSize: 12, color: "#64748B" }}>{fmt(t.rev_prev)}</td>
                     <td style={{ ...tdR, fontSize: 12 }}><GrowthBadge value={t.yoy} /></td>
                     <td style={{ ...tdR, fontSize: 12 }}>{t.n_clients}</td>
+                    <td style={{ ...tdR, fontSize: 12 }}>{t.n_ocs.toLocaleString()}</td>
                     <td style={{ ...tdR, fontSize: 12 }}>
                       <span style={{
                         padding: "2px 8px", borderRadius: 4, fontSize: 11, fontWeight: 700,
@@ -416,7 +454,7 @@ function TargetsSection({ data, onSelect }: { data: any; onSelect: (rut: string)
                 );
               })}
               {sorted.length === 0 && (
-                <tr><td colSpan={10} style={{ padding: 40, textAlign: "center", color: "#94A3B8" }}>Sin resultados con estos filtros</td></tr>
+                <tr><td colSpan={11} style={{ padding: 40, textAlign: "center", color: "#94A3B8" }}>Sin resultados con estos filtros</td></tr>
               )}
             </tbody>
           </table>
@@ -441,16 +479,20 @@ function TargetsSection({ data, onSelect }: { data: any; onSelect: (rut: string)
    SECTION 3: Company Profile
    ═══════════════════════════════════════════════════════════ */
 
-function EmpresaProfile({ rut, periodo, onBack }: { rut: string; periodo: string; onBack: () => void }) {
+function EmpresaProfile({ rut, periodo: initialPeriodo, onBack }: { rut: string; periodo: string; onBack: () => void }) {
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [localPeriodo, setLocalPeriodo] = useState(initialPeriodo);
+  const subcatSort = useTableSort("rev_current");
+  const prodSort = useTableSort("total");
+  const cliSort = useTableSort("total");
 
   useEffect(() => {
     setLoading(true);
-    api.get<any>(`/api/ma/empresa/${encodeURIComponent(rut)}?ano=2026&periodo=${periodo}`, { noCache: true })
+    api.get<any>(`/api/ma/empresa/${encodeURIComponent(rut)}?ano=2026&periodo=${localPeriodo}`, { noCache: true })
       .then(r => { setData(r); setLoading(false); })
       .catch(() => setLoading(false));
-  }, [rut, periodo]);
+  }, [rut, localPeriodo]);
 
   if (loading) return <div style={{ padding: 60, textAlign: "center", color: "#94A3B8" }}>Cargando perfil...</div>;
   if (!data || data.error) return <div style={{ padding: 40, color: "#EF4444" }}>Error: {data?.error || "Sin datos"}</div>;
@@ -461,7 +503,7 @@ function EmpresaProfile({ rut, periodo, onBack }: { rut: string; periodo: string
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-      {/* Back + period info */}
+      {/* Back + period selector */}
       <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
         <button onClick={onBack} style={{
           padding: "6px 16px", borderRadius: 6, border: "1px solid #E2E8F0",
@@ -469,7 +511,7 @@ function EmpresaProfile({ rut, periodo, onBack }: { rut: string; periodo: string
         }}>
           ← Volver a lista
         </button>
-        <div style={{ fontSize: 12, color: "#64748B" }}>Periodo: <strong>{pinfo.label}</strong></div>
+        <PeriodSelector selected={localPeriodo} onChange={setLocalPeriodo} />
       </div>
 
       {/* Header */}
@@ -514,15 +556,15 @@ function EmpresaProfile({ rut, periodo, onBack }: { rut: string; periodo: string
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
               <tr>
-                <th style={thS}>Subcategoria</th>
-                <th style={thR}>2026</th>
-                <th style={thR}>2025</th>
-                <th style={thR}>OCs</th>
+                <th style={{ ...thS, cursor: "pointer" }} onClick={() => subcatSort.handleSort("subcategoria")}>Subcategoria{subcatSort.sortIcon("subcategoria")}</th>
+                <th style={{ ...thR, cursor: "pointer" }} onClick={() => subcatSort.handleSort("rev_current")}>2026{subcatSort.sortIcon("rev_current")}</th>
+                <th style={{ ...thR, cursor: "pointer" }} onClick={() => subcatSort.handleSort("rev_prev")}>2025{subcatSort.sortIcon("rev_prev")}</th>
+                <th style={{ ...thR, cursor: "pointer" }} onClick={() => subcatSort.handleSort("n_ocs")}>OCs{subcatSort.sortIcon("n_ocs")}</th>
                 <th style={{ ...thS, width: 50 }}>LBF</th>
               </tr>
             </thead>
             <tbody>
-              {(data.subcategorias || []).map((s: any, i: number) => (
+              {[...(data.subcategorias || [])].sort(subcatSort.sortFn).map((s: any, i: number) => (
                 <tr key={i} style={{ background: s.overlap ? "#F0FDF4" : rowBg(i) }}>
                   <td style={{ ...td, fontSize: 12 }}>{s.subcategoria}</td>
                   <td style={{ ...tdR, fontSize: 12, fontWeight: 600 }}>{fmt(s.rev_current)}</td>
@@ -583,27 +625,35 @@ function EmpresaProfile({ rut, periodo, onBack }: { rut: string; periodo: string
 
       {/* Products + Clients */}
       <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
-        <div style={{ ...card, flex: "1 1 400px" }}>
+        <div style={{ ...card, flex: "1 1 100%" }}>
           <div style={{ fontSize: 13, fontWeight: 700, color: "#0F172A", marginBottom: 4 }}>Top Productos</div>
           <div style={{ fontSize: 11, color: "#64748B", marginBottom: 8 }}>Periodo: {pinfo.label}</div>
-          <div style={{ maxHeight: 400, overflowY: "auto" }}>
+          <div style={{ maxHeight: 450, overflowY: "auto" }}>
             <table style={{ width: "100%", borderCollapse: "collapse" }}>
               <thead style={{ position: "sticky", top: 0, background: "white" }}>
                 <tr>
-                  <th style={{ ...thS, width: 35 }}>#</th>
-                  <th style={thS}>Producto</th>
-                  <th style={thR}>Total</th>
-                  <th style={thR}>Cant.</th>
-                  <th style={thR}>OCs</th>
+                  <th style={{ ...thS, width: 30 }}>#</th>
+                  <th style={{ ...thS, cursor: "pointer" }} onClick={() => prodSort.handleSort("producto")}>Producto{prodSort.sortIcon("producto")}</th>
+                  <th style={thS}>Codigo</th>
+                  <th style={{ ...thS, cursor: "pointer" }} onClick={() => prodSort.handleSort("subcategoria")}>Subcategoria{prodSort.sortIcon("subcategoria")}</th>
+                  <th style={{ ...thR, cursor: "pointer" }} onClick={() => prodSort.handleSort("total")}>Total{prodSort.sortIcon("total")}</th>
+                  <th style={{ ...thR, cursor: "pointer" }} onClick={() => prodSort.handleSort("cantidad")}>Cant.{prodSort.sortIcon("cantidad")}</th>
+                  <th style={thS}>Unidad</th>
+                  <th style={{ ...thR, cursor: "pointer" }} onClick={() => prodSort.handleSort("precio_prom")}>Precio Prom.{prodSort.sortIcon("precio_prom")}</th>
+                  <th style={{ ...thR, cursor: "pointer" }} onClick={() => prodSort.handleSort("n_ocs")}>OCs{prodSort.sortIcon("n_ocs")}</th>
                 </tr>
               </thead>
               <tbody>
-                {(data.productos || []).map((p: any, i: number) => (
+                {[...(data.productos || [])].sort(prodSort.sortFn).map((p: any, i: number) => (
                   <tr key={i} style={{ background: rowBg(i) }}>
                     <td style={{ ...td, fontWeight: 700, color: "#64748B", fontSize: 11 }}>{i + 1}</td>
-                    <td style={{ ...td, fontSize: 11, maxWidth: 250, overflow: "hidden", textOverflow: "ellipsis" }}>{p.producto}</td>
+                    <td style={{ ...td, fontSize: 11, maxWidth: 280, overflow: "hidden", textOverflow: "ellipsis" }} title={p.producto}>{p.producto}</td>
+                    <td style={{ ...td, fontSize: 10, fontFamily: "monospace", color: "#64748B" }}>{p.codigo}</td>
+                    <td style={{ ...td, fontSize: 11, color: "#64748B" }}>{p.subcategoria}</td>
                     <td style={{ ...tdR, fontSize: 12, fontWeight: 600, color: "#3B82F6" }}>{fmt(p.total)}</td>
-                    <td style={{ ...tdR, fontSize: 12 }}>{p.cantidad.toLocaleString()}</td>
+                    <td style={{ ...tdR, fontSize: 12 }}>{p.cantidad?.toLocaleString()}</td>
+                    <td style={{ ...td, fontSize: 10, color: "#94A3B8" }}>{p.unidad}</td>
+                    <td style={{ ...tdR, fontSize: 12, fontWeight: 500 }}>{p.precio_prom > 0 ? `$${p.precio_prom.toLocaleString()}` : "--"}</td>
                     <td style={{ ...tdR, fontSize: 12 }}>{p.n_ocs}</td>
                   </tr>
                 ))}
@@ -620,14 +670,14 @@ function EmpresaProfile({ rut, periodo, onBack }: { rut: string; periodo: string
               <thead style={{ position: "sticky", top: 0, background: "white" }}>
                 <tr>
                   <th style={{ ...thS, width: 35 }}>#</th>
-                  <th style={thS}>Institucion</th>
-                  <th style={thR}>Total</th>
-                  <th style={thR}>OCs</th>
-                  <th style={thS}>Region</th>
+                  <th style={{ ...thS, cursor: "pointer" }} onClick={() => cliSort.handleSort("nombre")}>Institucion{cliSort.sortIcon("nombre")}</th>
+                  <th style={{ ...thR, cursor: "pointer" }} onClick={() => cliSort.handleSort("total")}>Total{cliSort.sortIcon("total")}</th>
+                  <th style={{ ...thR, cursor: "pointer" }} onClick={() => cliSort.handleSort("n_ocs")}>OCs{cliSort.sortIcon("n_ocs")}</th>
+                  <th style={{ ...thS, cursor: "pointer" }} onClick={() => cliSort.handleSort("region")}>Region{cliSort.sortIcon("region")}</th>
                 </tr>
               </thead>
               <tbody>
-                {(data.clientes || []).map((c: any, i: number) => (
+                {[...(data.clientes || [])].sort(cliSort.sortFn).map((c: any, i: number) => (
                   <tr key={i} style={{ background: rowBg(i) }}>
                     <td style={{ ...td, fontWeight: 700, color: "#64748B", fontSize: 11 }}>{i + 1}</td>
                     <td style={{ ...td, fontSize: 11, maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis" }}>{c.nombre}</td>

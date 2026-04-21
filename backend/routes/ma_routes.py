@@ -53,15 +53,22 @@ def _blacklist_sql() -> str:
 # ─── Helpers ─────────────────────────────────────────────────────────────────
 
 def _get_lbf_subcats(cur, ano: int) -> list[str]:
-    """Get LBF's active subcategories (level 2)."""
+    """Get LBF's significant subcategories (>1% of total LBF revenue)."""
     cur.execute(f"""
-        SELECT DISTINCT SPLIT_PART(oi.categoria, ' / ', 2) AS subcat
-        FROM ordenes_compra oc
-        JOIN ordenes_compra_items oi ON oi.orden_compra_id = oc.id
-        WHERE oi.categoria ILIKE '{MEDICAL_CAT}%%'
-          AND oc.proveedor_nombre_empresa ILIKE '%%lbf%%'
-          AND EXTRACT(YEAR FROM oc.fecha_envio) IN ({ano}, {ano - 1})
-          AND SPLIT_PART(oi.categoria, ' / ', 2) != ''
+        WITH lbf_rev AS (
+            SELECT SPLIT_PART(oi.categoria, ' / ', 2) AS subcat,
+                   SUM(COALESCE(oi.monto_total, oi.cantidad * oi.precio_unitario, 0)) AS rev
+            FROM ordenes_compra oc
+            JOIN ordenes_compra_items oi ON oi.orden_compra_id = oc.id
+            WHERE oi.categoria ILIKE '{MEDICAL_CAT}%%'
+              AND oc.proveedor_nombre_empresa ILIKE '%%lbf%%'
+              AND EXTRACT(YEAR FROM oc.fecha_envio) IN ({ano}, {ano - 1})
+              AND SPLIT_PART(oi.categoria, ' / ', 2) != ''
+            GROUP BY SPLIT_PART(oi.categoria, ' / ', 2)
+        )
+        SELECT subcat FROM lbf_rev
+        WHERE rev >= (SELECT SUM(rev) * 0.01 FROM lbf_rev)
+        ORDER BY rev DESC
     """)
     return [r[0] for r in cur.fetchall()]
 
@@ -462,26 +469,36 @@ def _load_ma_empresa(rut: str, ano: int, periodo: str) -> dict:
 
     # Top products — filtered by period
     cur.execute(f"""
-        SELECT COALESCE(NULLIF(oi.nombre, ''), oi.codigo_producto),
-               SUM({_MONTO})::bigint,
-               SUM(oi.cantidad)::bigint,
-               COUNT(DISTINCT oc.id)
+        SELECT COALESCE(NULLIF(oi.nombre, ''), oi.codigo_producto) AS producto,
+               oi.codigo_producto,
+               SPLIT_PART(oi.categoria, ' / ', 2) AS subcat,
+               SUM({_MONTO})::bigint AS total,
+               SUM(oi.cantidad)::bigint AS cantidad,
+               COUNT(DISTINCT oc.id) AS n_ocs,
+               CASE WHEN SUM(oi.cantidad) > 0
+                    THEN (SUM({_MONTO}) / SUM(oi.cantidad))::bigint
+                    ELSE 0 END AS precio_prom,
+               MAX(oi.unidad) AS unidad
         FROM ordenes_compra oc
         JOIN ordenes_compra_items oi ON oi.orden_compra_id = oc.id
         WHERE oi.categoria ILIKE '{MEDICAL_CAT}%%'
           AND oc.proveedor_rut = '{safe_rut}'
           AND {yf}
-        GROUP BY 1
-        ORDER BY 2 DESC
-        LIMIT 25
+        GROUP BY 1, 2, 3
+        ORDER BY 4 DESC
+        LIMIT 30
     """)
     productos = []
     for r in cur.fetchall():
         productos.append({
             "producto": str(r[0] or "").strip(),
-            "total": int(r[1]),
-            "cantidad": int(r[2]),
-            "n_ocs": int(r[3]),
+            "codigo": str(r[1] or "").strip(),
+            "subcategoria": str(r[2] or "").strip(),
+            "total": int(r[3]),
+            "cantidad": int(r[4]),
+            "n_ocs": int(r[5]),
+            "precio_prom": int(r[6]),
+            "unidad": str(r[7] or "").strip(),
         })
 
     # Institutional clients — filtered by period

@@ -3,6 +3,8 @@ Zona / KAM analysis — Meta 2026 vs Venta, contribución por categoría.
 Unifica V REGION + V REGION II.
 Excluye zonas sin facturación.
 """
+import calendar
+import datetime
 from fastapi import APIRouter, Depends, Query
 from typing import Optional
 from auth import get_current_user
@@ -27,6 +29,39 @@ _CAT_CASE = """
          THEN 'EQM' ELSE LTRIM(RTRIM(CATEGORIA)) END
 """
 _CATS_VALIDAS = ('SQ', 'EVA', 'MAH', 'EQM')
+
+
+def _calc_ritmo_days(meses: list[int], ano: int) -> tuple[int, int, bool]:
+    """Returns (elapsed_days, total_days, periodo_completo)."""
+    today = datetime.date.today()
+    mes_actual = today.month if today.year == ano else (13 if today.year > ano else 0)
+    total_days = 0
+    elapsed_days = 0
+    for m in meses:
+        days_in_m = calendar.monthrange(ano, m)[1]
+        total_days += days_in_m
+        if m < mes_actual:
+            elapsed_days += days_in_m
+        elif m == mes_actual:
+            elapsed_days += today.day
+    return elapsed_days, total_days, elapsed_days >= total_days
+
+
+def _calc_dias_habiles(meses: list[int], ano: int) -> tuple[int, int, int]:
+    """Returns (habiles_transcurridos, habiles_restantes, habiles_totales)."""
+    today = datetime.date.today()
+    habiles_transcurridos = 0
+    habiles_totales = 0
+    for m in meses:
+        days_in_m = calendar.monthrange(ano, m)[1]
+        for d in range(1, days_in_m + 1):
+            dt = datetime.date(ano, m, d)
+            if dt.weekday() < 5:
+                habiles_totales += 1
+                if dt <= today:
+                    habiles_transcurridos += 1
+    habiles_restantes = habiles_totales - habiles_transcurridos
+    return habiles_transcurridos, habiles_restantes, habiles_totales
 
 # V REGION unification: both zones map to a single display name
 _ZONA_MERGE = {
@@ -168,20 +203,43 @@ def _load_zona_data(meses: list[int]) -> dict:
         venta_zona_cat_raw[zona_raw][cat]["venta"] += float(r[2] or 0)
         venta_zona_cat_raw[zona_raw][cat]["contrib"] += float(r[3] or 0)
 
-    # ═══ 4. VENTA 2025 por zona (sin categoría — la categorización cambió) ═══
+    # ═══ 4. VENTA 2025 por zona × mes (sin categoría — la categorización cambió) ═══
     cur.execute(f"""
-        SELECT VENDEDOR AS zona,
+        SELECT VENDEDOR AS zona, MES,
                SUM(CAST(VENTA AS float)) AS venta_25
         FROM BI_TOTAL_FACTURA
         WHERE ANO = {_ANO - 1} AND MES IN ({mes_list}) AND {_EXCL_DW}
               AND {_FG}
-        GROUP BY VENDEDOR
+        GROUP BY VENDEDOR, MES
     """)
-    venta25_raw: dict = {}       # zona_raw -> total
+    venta25_raw: dict = {}       # zona_raw -> total (sum of all months)
+    venta25_zona_mes_raw: dict = {}  # zona_raw -> {mes -> venta}
     for r in cur.fetchall():
         zona_raw = str(r[0]).strip()
-        v25 = float(r[1] or 0)
+        mes = int(r[1])
+        v25 = float(r[2] or 0)
         venta25_raw[zona_raw] = venta25_raw.get(zona_raw, 0) + v25
+        if zona_raw not in venta25_zona_mes_raw:
+            venta25_zona_mes_raw[zona_raw] = {}
+        venta25_zona_mes_raw[zona_raw][mes] = venta25_zona_mes_raw[zona_raw].get(mes, 0) + v25
+
+    # ═══ 4b. VENTA 2025 parcial por zona: hasta día X del mes actual ═══
+    today = datetime.date.today()
+    _MES_ACTUAL = hoy()["mes"]
+    cur.execute(f"""
+        SELECT VENDEDOR AS zona,
+               SUM(CAST(VENTA AS float)) AS venta_25p
+        FROM BI_TOTAL_FACTURA
+        WHERE ANO = {_ANO - 1} AND MES = {_MES_ACTUAL}
+          AND DAY(DIA) <= {today.day}
+          AND {_EXCL_DW}
+          AND {_FG}
+        GROUP BY VENDEDOR
+    """)
+    venta25_parcial_raw: dict = {}
+    for r in cur.fetchall():
+        zona_raw = str(r[0]).strip()
+        venta25_parcial_raw[zona_raw] = venta25_parcial_raw.get(zona_raw, 0) + float(r[1] or 0)
 
     conn.close()
 
@@ -201,6 +259,8 @@ def _load_zona_data(meses: list[int]) -> dict:
                 "cats": {},
                 "ppto_cats": {},
                 "v25": 0,
+                "v25_mes": {},
+                "v25_parcial": 0,
             }
         z = zona_merged[label]
         # Meta
@@ -225,8 +285,18 @@ def _load_zona_data(meses: list[int]) -> dict:
                 z["ppto_cats"][cat] = z["ppto_cats"].get(cat, 0) + ppto_val
         # Venta 2025 (total, sin categoría)
         z["v25"] += venta25_raw.get(zona_raw, 0)
+        # Venta 2025 por mes (para ritmo)
+        for m_v25, val_v25 in venta25_zona_mes_raw.get(zona_raw, {}).items():
+            z["v25_mes"][m_v25] = z["v25_mes"].get(m_v25, 0) + val_v25
+        # Venta 2025 parcial (mes actual hasta día X)
+        z["v25_parcial"] += venta25_parcial_raw.get(zona_raw, 0)
 
     # ═══ 6. Build response rows ═══
+    # Ritmo: calcular días una vez (compartido para todas las zonas)
+    elapsed, total_d, periodo_completo = _calc_ritmo_days(meses, _ANO)
+    time_pct = (elapsed / total_d * 100) if total_d > 0 else 100
+    hab_trans, hab_rest, hab_total = _calc_dias_habiles(meses, _ANO)
+
     rows = []
     for label, z in zona_merged.items():
         venta_total = sum(c["venta"] for c in z["cats"].values())
@@ -242,6 +312,14 @@ def _load_zona_data(meses: list[int]) -> dict:
         gap = venta_total - meta_p
         margen = (contrib_total / venta_total * 100) if venta_total > 0 else 0
         crec = ((venta_total / z["v25"]) - 1) * 100 if z["v25"] > 0 else 0
+
+        # Ritmo por zona
+        z_actual_pct = (venta_total / meta_p * 100) if meta_p > 0 else 0
+        z_ritmo_meta = z_actual_pct - time_pct
+        # v25 al mismo día: meses completos previos + parcial mes actual
+        v25_completed = sum(z["v25_mes"].get(m, 0) for m in meses if m < _MES_ACTUAL)
+        v25_al_dia = v25_completed + z["v25_parcial"]
+        z_ritmo_25 = ((venta_total / v25_al_dia) - 1) * 100 if v25_al_dia > 0 else 0
 
         # Category breakdown (sin venta_25 por categoría)
         cat_detail = {}
@@ -262,6 +340,11 @@ def _load_zona_data(meses: list[int]) -> dict:
                 "ppto_pct": round(cat_ppto_pct, 1),
             }
 
+        # Ritmo diario / proyección por zona
+        z_ritmo_diario = (venta_total / hab_trans) if hab_trans > 0 else 0
+        z_necesario = ((meta_p - venta_total) / hab_rest) if hab_rest > 0 else 0
+        z_proyeccion = venta_total + (z_ritmo_diario * hab_rest) if hab_trans > 0 else 0
+
         rows.append({
             "zona": label,
             "kam": z["kam"],
@@ -274,6 +357,11 @@ def _load_zona_data(meses: list[int]) -> dict:
             "cumpl": round(cumpl, 1),
             "venta_25": round(z["v25"]),
             "crec_vs_25": round(crec, 1),
+            "ritmo_meta": round(z_ritmo_meta, 1),
+            "ritmo_25": round(z_ritmo_25, 1),
+            "ritmo_diario": round(z_ritmo_diario),
+            "necesario_diario": round(z_necesario),
+            "proyeccion": round(z_proyeccion),
             "categorias": cat_detail,
         })
 
@@ -303,6 +391,23 @@ def _load_zona_data(meses: list[int]) -> dict:
             "ppto_pct": round((cp / t_ppto_total * 100) if t_ppto_total > 0 else 0, 1),
         }
 
+    # Total ritmo
+    t_actual_pct = (t_venta / t_meta_p * 100) if t_meta_p > 0 else 0
+    t_ritmo_meta = t_actual_pct - time_pct
+    # v25 al día total: sumar parciales de cada zona merged
+    t_v25_completed = sum(
+        sum(z["v25_mes"].get(m, 0) for m in meses if m < _MES_ACTUAL)
+        for z in zona_merged.values()
+    )
+    t_v25_parcial = sum(z["v25_parcial"] for z in zona_merged.values())
+    t_v25_al_dia = t_v25_completed + t_v25_parcial
+    t_ritmo_25 = ((t_venta / t_v25_al_dia) - 1) * 100 if t_v25_al_dia > 0 else 0
+
+    # Total ritmo diario / proyección
+    t_ritmo_diario = (t_venta / hab_trans) if hab_trans > 0 else 0
+    t_necesario = ((t_meta_p - t_venta) / hab_rest) if hab_rest > 0 else 0
+    t_proyeccion = t_venta + (t_ritmo_diario * hab_rest) if hab_trans > 0 else 0
+
     total_row = {
         "zona": "Total",
         "kam": "",
@@ -315,6 +420,11 @@ def _load_zona_data(meses: list[int]) -> dict:
         "cumpl": round(t_cumpl, 1),
         "venta_25": round(t_v25),
         "crec_vs_25": round(t_crec, 1),
+        "ritmo_meta": round(t_ritmo_meta, 1),
+        "ritmo_25": round(t_ritmo_25, 1),
+        "ritmo_diario": round(t_ritmo_diario),
+        "necesario_diario": round(t_necesario),
+        "proyeccion": round(t_proyeccion),
         "categorias": t_cats,
     }
 
@@ -322,6 +432,13 @@ def _load_zona_data(meses: list[int]) -> dict:
         "zonas": rows,
         "total": total_row,
         "margen_meta_cat": {cat: round(v, 1) for cat, v in margen_meta_cat.items()},
+        "ritmo": {
+            "time_pct": round(time_pct, 1),
+            "dias_transcurridos": elapsed,
+            "dias_totales": total_d,
+            "periodo_completo": periodo_completo,
+            "hab_restantes": hab_rest,
+        },
     }
 
 
@@ -362,6 +479,7 @@ def _load_clientes_zona(zona_label: str, categoria: str, meses: list[int]) -> li
         ),
         v25 AS (
             SELECT RUT,
+                   MAX(NOMBRE) AS NOMBRE,
                    SUM(CAST(VENTA AS float)) AS venta_25
             FROM BI_TOTAL_FACTURA
             WHERE ANO = {_ANO - 1} AND MES IN ({mes_list})
@@ -370,7 +488,7 @@ def _load_clientes_zona(zona_label: str, categoria: str, meses: list[int]) -> li
             GROUP BY RUT
         )
         SELECT COALESCE(v26.RUT, v25.RUT) AS rut,
-               COALESCE(v26.NOMBRE, '') AS nombre,
+               COALESCE(v26.NOMBRE, v25.NOMBRE, '') AS nombre,
                COALESCE(v26.venta_26, 0) AS venta_26,
                COALESCE(v25.venta_25, 0) AS venta_25
         FROM v26

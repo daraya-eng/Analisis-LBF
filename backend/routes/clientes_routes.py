@@ -86,6 +86,7 @@ def _load_clientes_data(meses: list[int]) -> dict:
     # ═══ 2. Venta 2025 por cliente — SIN filtro de categoría (total) ═══
     cur.execute(f"""
         SELECT RUT,
+               MAX(NOMBRE) AS nombre,
                SUM(CAST(VENTA AS float)) AS venta_25,
                SUM(CAST(CANT AS float)) AS cant_25,
                SUM(CAST(CONTRIBUCION AS float)) AS contrib_25
@@ -98,9 +99,10 @@ def _load_clientes_data(meses: list[int]) -> dict:
     for r in cur.fetchall():
         rut = str(r[0] or "").strip()
         cli_25[rut] = {
-            "venta_25": float(r[1] or 0),
-            "cant_25": float(r[2] or 0),
-            "contrib_25": float(r[3] or 0),
+            "nombre": str(r[1] or "").strip(),
+            "venta_25": float(r[2] or 0),
+            "cant_25": float(r[3] or 0),
+            "contrib_25": float(r[4] or 0),
         }
 
     # ═══ 3. Variación por Categoría 2026 ═══
@@ -151,7 +153,7 @@ def _load_clientes_data(meses: list[int]) -> dict:
 
         clientes.append({
             "rut": rut,
-            "nombre": d26.get("nombre", ""),
+            "nombre": d26.get("nombre", "") or d25.get("nombre", ""),
             "segmento": d26.get("segmento", "Sin Segmento"),
             "venta_26": round(v26),
             "venta_25": round(v25),
@@ -165,20 +167,22 @@ def _load_clientes_data(meses: list[int]) -> dict:
             "contrib_25": round(d25.get("contrib_25", 0)),
         })
 
-    # ═══ 5. KPIs por segmento + efecto precio/volumen agregado ═══
+    # ═══ 5. KPIs por segmento + efecto precio/volumen por cliente ═══
     kpis_seg = {}
     for seg in ("PUBLICO", "PRIVADO"):
         seg_cli = [c for c in clientes if c["segmento"] == seg]
         v26 = sum(c["venta_26"] for c in seg_cli)
         v25 = sum(c["venta_25"] for c in seg_cli)
-        c26_total = sum(c["cant_26"] for c in seg_cli)
-        c25_total = sum(c["cant_25"] for c in seg_cli)
         crec = ((v26 / v25) - 1) * 100 if v25 > 0 else 0
-        # Efecto precio/volumen agregado por segmento
-        p25 = v25 / c25_total if c25_total > 0 else 0
-        p26 = v26 / c26_total if c26_total > 0 else 0
-        ef_precio = (p26 - p25) * c26_total if c25_total > 0 and c26_total > 0 else 0
-        ef_volumen = (c26_total - c25_total) * p25 if c25_total > 0 else 0
+        # Efecto precio/volumen calculado por cliente y luego sumado
+        ef_precio = 0
+        ef_volumen = 0
+        for c in seg_cli:
+            if c["cant_25"] > 0 and c["cant_26"] > 0:
+                p25 = c["venta_25"] / c["cant_25"]
+                p26 = c["venta_26"] / c["cant_26"]
+                ef_precio += (p26 - p25) * c["cant_26"]
+                ef_volumen += (c["cant_26"] - c["cant_25"]) * p25
         kpis_seg[seg] = {
             "venta_26": round(v26),
             "venta_25": round(v25),

@@ -7,6 +7,8 @@ Fuentes:
   - PPTO_VS_VENTA: presupuesto trazable + incrementales + sin cliente
   - BI_TOTAL_FACTURA: ventas reales
 """
+import calendar
+import datetime
 from fastapi import APIRouter, Depends, Query
 from typing import Optional
 from auth import get_current_user
@@ -32,6 +34,40 @@ _CAT_CASE = """
          THEN 'EQM' ELSE LTRIM(RTRIM(CATEGORIA)) END
 """
 _CATS_VALIDAS = ('SQ', 'EVA', 'MAH', 'EQM')
+
+
+def _calc_ritmo_days(meses: list[int], ano: int) -> tuple[int, int, bool]:
+    """Returns (elapsed_days, total_days, periodo_completo)."""
+    today = datetime.date.today()
+    mes_actual = today.month if today.year == ano else (13 if today.year > ano else 0)
+    total_days = 0
+    elapsed_days = 0
+    for m in meses:
+        days_in_m = calendar.monthrange(ano, m)[1]
+        total_days += days_in_m
+        if m < mes_actual:
+            elapsed_days += days_in_m
+        elif m == mes_actual:
+            elapsed_days += today.day
+    return elapsed_days, total_days, elapsed_days >= total_days
+
+
+def _calc_dias_habiles(meses: list[int], ano: int) -> tuple[int, int, int]:
+    """Returns (habiles_transcurridos, habiles_restantes, habiles_totales).
+    Business days = Mon-Fri."""
+    today = datetime.date.today()
+    habiles_transcurridos = 0
+    habiles_totales = 0
+    for m in meses:
+        days_in_m = calendar.monthrange(ano, m)[1]
+        for d in range(1, days_in_m + 1):
+            dt = datetime.date(ano, m, d)
+            if dt.weekday() < 5:  # Mon-Fri
+                habiles_totales += 1
+                if dt <= today:
+                    habiles_transcurridos += 1
+    habiles_restantes = habiles_totales - habiles_transcurridos
+    return habiles_transcurridos, habiles_restantes, habiles_totales
 
 
 def _load_dashboard_raw() -> dict:
@@ -151,6 +187,47 @@ def _load_dashboard_raw() -> dict:
             seg_mes_data[seg][mes] = {}
         seg_mes_data[seg][mes][cat] = seg_mes_data[seg][mes].get(cat, 0) + venta
 
+    # ═══ 5b. GUÍAS por segmento x categoría x mes (DOC_CODE='GF') ═══
+    cur.execute(f"""
+        SELECT
+            LTRIM(RTRIM(ISNULL(SEGMENTO, ''))) AS seg,
+            {_CAT_CASE} AS cat,
+            MES,
+            SUM(CAST(VENTA AS float)) AS venta
+        FROM BI_TOTAL_FACTURA
+        WHERE ANO = {_ANO} AND {_EXCL_DW}
+          AND {_FG}
+          AND ISNULL(DOC_CODE, '') = 'GF'
+        GROUP BY LTRIM(RTRIM(ISNULL(SEGMENTO, ''))), {_CAT_CASE}, MES
+    """)
+    guias_seg_mes: dict = {}
+    for r in cur.fetchall():
+        seg = str(r[0]).strip()
+        cat = str(r[1]).strip()
+        mes = int(r[2])
+        venta = float(r[3] or 0)
+        if seg not in ('PUBLICO', 'PRIVADO') or cat not in _CATS_VALIDAS:
+            continue
+        if seg not in guias_seg_mes:
+            guias_seg_mes[seg] = {}
+        if mes not in guias_seg_mes[seg]:
+            guias_seg_mes[seg][mes] = {}
+        guias_seg_mes[seg][mes][cat] = guias_seg_mes[seg][mes].get(cat, 0) + venta
+
+    # ═══ 6. VENTA 2025 parcial: hasta día X del mes actual ═══
+    today = datetime.date.today()
+    cur.execute(f"""
+        SELECT SUM(CAST(VENTA AS float))
+        FROM BI_TOTAL_FACTURA
+        WHERE ANO = {_ANO-1} AND MES = {_MES}
+          AND DAY(DIA) <= {today.day}
+          AND VENDEDOR NOT IN ({_VEND_EXCLUIR})
+          AND CODIGO NOT IN ('FLETE','NINV','SIN','')
+          AND {_FG}
+    """)
+    row = cur.fetchone()
+    venta25_parcial = float(row[0] or 0) if row and row[0] else 0
+
     conn.close()
 
     return {
@@ -160,6 +237,8 @@ def _load_dashboard_raw() -> dict:
         "contrib_cat_mes": contrib_cat_mes,
         "venta25_mes": venta25_mes,
         "seg_mes_data": seg_mes_data,
+        "guias_seg_mes": guias_seg_mes,
+        "venta25_parcial": venta25_parcial,
     }
 
 
@@ -171,6 +250,7 @@ def _build_for_period(raw: dict, meses: list[int]) -> dict:
     contrib_cat_mes = raw["contrib_cat_mes"]
     venta25_mes = raw["venta25_mes"]
     seg_mes_data = raw["seg_mes_data"]
+    guias_seg_mes = raw["guias_seg_mes"]
 
     n_meses = len(meses)
 
@@ -180,6 +260,10 @@ def _build_for_period(raw: dict, meses: list[int]) -> dict:
 
     # Total venta 2025 (sin categoría — la categorización cambió entre años)
     total_v25 = sum(venta25_mes.get(m, 0) for m in meses)
+
+    # ═══ Días hábiles para ritmo por categoría ═══
+    h = hoy()
+    hab_trans, hab_rest, hab_total = _calc_dias_habiles(meses, h["ano"])
 
     # Category table
     cat_table = []
@@ -200,6 +284,10 @@ def _build_for_period(raw: dict, meses: list[int]) -> dict:
         cumpl_contrib = (contrib_real / meta_c * 100) if meta_c > 0 else 0
         cumpl_margen = (margen_real / margen_meta * 100) if margen_meta > 0 else 0
 
+        cat_ritmo = (venta / hab_trans) if hab_trans > 0 else 0
+        cat_necesario = ((meta_v - venta) / hab_rest) if hab_rest > 0 else 0
+        cat_proyeccion = venta + (cat_ritmo * hab_rest) if hab_trans > 0 else 0
+
         cat_table.append({
             "categoria": cat,
             "meta_anual": round(meta_anual_cat),
@@ -213,6 +301,9 @@ def _build_for_period(raw: dict, meses: list[int]) -> dict:
             "venta": round(venta),
             "cumpl": round(cumpl, 1),
             "gap": round(venta - meta_v),
+            "ritmo_diario": round(cat_ritmo),
+            "necesario_diario": round(cat_necesario),
+            "proyeccion": round(cat_proyeccion),
         })
         total_meta_cat += meta_v
         total_meta_contrib += meta_c
@@ -231,6 +322,9 @@ def _build_for_period(raw: dict, meses: list[int]) -> dict:
         sum(meta_cat_mes.get(c, {}).get(m, {}).get("venta", 0) for m in range(1, 13))
         for c in _CATS_VALIDAS
     )
+    total_ritmo = (total_venta / hab_trans) if hab_trans > 0 else 0
+    total_necesario = ((total_meta_cat - total_venta) / hab_rest) if hab_rest > 0 else 0
+    total_proyeccion = total_venta + (total_ritmo * hab_rest) if hab_trans > 0 else 0
     cat_table.append({
         "categoria": "Total",
         "meta_anual": round(meta_anual_total),
@@ -244,17 +338,24 @@ def _build_for_period(raw: dict, meses: list[int]) -> dict:
         "venta": round(total_venta),
         "cumpl": round(cumpl_t, 1),
         "gap": round(total_venta - total_meta_cat),
+        "ritmo_diario": round(total_ritmo),
+        "necesario_diario": round(total_necesario),
+        "proyeccion": round(total_proyeccion),
     })
 
-    # Segment table
+    # Segment table (with guías breakdown)
     seg_table = []
     for seg in ("PUBLICO", "PRIVADO"):
-        row: dict = {"segmento": seg, "total": 0}
+        row: dict = {"segmento": seg, "total": 0, "guias_total": 0}
         for cat in _CATS_VALIDAS:
             cat_total = sum(seg_mes_data.get(seg, {}).get(m, {}).get(cat, 0) for m in meses)
+            cat_guias = sum(guias_seg_mes.get(seg, {}).get(m, {}).get(cat, 0) for m in meses)
             row[cat] = round(cat_total)
+            row[f"guias_{cat}"] = round(cat_guias)
             row["total"] += row[cat]
+            row["guias_total"] += row[f"guias_{cat}"]
         row["total"] = round(row["total"])
+        row["guias_total"] = round(row["guias_total"])
         seg_table.append(row)
 
     # Monthly chart (always all 12 months)
@@ -281,6 +382,42 @@ def _build_for_period(raw: dict, meses: list[int]) -> dict:
     # Global KPIs
     cumpl_meta = (total_venta / meta_periodo * 100) if meta_periodo > 0 else 0
 
+    # ═══ RITMO / PACE ═══
+    h = hoy()
+    elapsed, total_d, periodo_completo = _calc_ritmo_days(meses, h["ano"])
+    time_pct = (elapsed / total_d * 100) if total_d > 0 else 100
+    actual_pct = (total_venta / meta_periodo * 100) if meta_periodo > 0 else 0
+    diff_pct = actual_pct - time_pct
+
+    mes_actual = h["mes"]
+    venta_25_completed = sum(venta25_mes.get(m, 0) for m in meses if m < mes_actual)
+    venta_25_al_dia = venta_25_completed + raw.get("venta25_parcial", 0)
+    diff_vs_25 = ((total_venta / venta_25_al_dia) - 1) * 100 if venta_25_al_dia > 0 else 0
+    status = "en_linea" if abs(diff_pct) < 2 else ("adelantado" if diff_pct > 0 else "atrasado")
+
+    # ═══ RITMO DIARIO / PROYECCIÓN (días hábiles) ═══
+    # hab_trans, hab_rest already computed above for cat_table
+    ritmo_diario = (total_venta / hab_trans) if hab_trans > 0 else 0
+    necesario_diario = ((meta_periodo - total_venta) / hab_rest) if hab_rest > 0 else 0
+    proyeccion = total_venta + (ritmo_diario * hab_rest) if hab_trans > 0 else 0
+
+    ritmo = {
+        "time_pct": round(time_pct, 1),
+        "actual_pct": round(actual_pct, 1),
+        "diff_pct": round(diff_pct, 1),
+        "status": status,
+        "venta_25_al_dia": round(venta_25_al_dia),
+        "diff_vs_25": round(diff_vs_25, 1),
+        "dias_transcurridos": elapsed,
+        "dias_totales": total_d,
+        "periodo_completo": periodo_completo,
+        "ritmo_diario": round(ritmo_diario),
+        "necesario_diario": round(necesario_diario),
+        "proyeccion": round(proyeccion),
+        "hab_transcurridos": hab_trans,
+        "hab_restantes": hab_rest,
+    }
+
     return {
         "kpis": {
             "meta_anual": round(meta_anual_total),
@@ -300,6 +437,7 @@ def _build_for_period(raw: dict, meses: list[int]) -> dict:
             "gap_meta_global": round(total_venta - meta_periodo),
             "mes_nombre": MESES_NOMBRE.get(hoy()["mes"], ""),
             "n_meses": n_meses,
+            "ritmo": ritmo,
         },
         "categoria": cat_table,
         "segmento": seg_table,

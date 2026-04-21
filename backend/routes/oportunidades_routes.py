@@ -168,7 +168,16 @@ async def get_kams(
 # Endpoint 2: Clientes de un KAM con señales de oportunidad
 # ═══════════════════════════════════════════════════════════════
 
-def _load_oportunidades(zona_label: str, meses: list[int]) -> dict:
+def _cat_filter_sql(categoria: str | None) -> str:
+    """Build SQL AND clause for category filter. Returns '' if no filter."""
+    if not categoria:
+        return ""
+    if categoria == "EQM":
+        return " AND LTRIM(RTRIM(CATEGORIA)) IN ('EQM','SERVICIOS')"
+    return f" AND LTRIM(RTRIM(CATEGORIA)) = '{categoria}'"
+
+
+def _load_oportunidades(zona_label: str, meses: list[int], categoria: str | None = None) -> dict:
     _ANO = hoy()["ano"]
     _MES = hoy()["mes"]
     _HOY = hoy()["hoy"]
@@ -176,6 +185,7 @@ def _load_oportunidades(zona_label: str, meses: list[int]) -> dict:
     cur = conn.cursor()
     mes_list = ",".join(str(m) for m in meses)
     zona_filter = _zona_raw_filters(zona_label)
+    _CF = _cat_filter_sql(categoria)
 
     # ═══ 0. META del KAM desde Metas_KAM ═══
     aniomes_list = ",".join(str(_ANO * 100 + m) for m in meses)
@@ -205,7 +215,7 @@ def _load_oportunidades(zona_label: str, meses: list[int]) -> dict:
         FROM BI_TOTAL_FACTURA
         WHERE ANO = {_ANO} AND MES = {_MES}
           AND ({zona_filter}) AND {_EXCL_DW}
-          AND {_FG}
+          AND {_FG}{_CF}
     """)
     venta_mes_actual = float((cur.fetchone()[0]) or 0)
 
@@ -231,6 +241,8 @@ def _load_oportunidades(zona_label: str, meses: list[int]) -> dict:
     }
 
     # ═══ 1. Clientes: venta 26/25, última compra, frecuencia, productos ═══
+    _CF25 = _CF.replace('CATEGORIA', 'f25.CATEGORIA') if _CF else ""
+    _CF26 = _CF.replace('CATEGORIA', 'f26.CATEGORIA') if _CF else ""
     cur.execute(f"""
         WITH v26 AS (
             SELECT RUT, MAX(NOMBRE) AS nombre,
@@ -243,7 +255,7 @@ def _load_oportunidades(zona_label: str, meses: list[int]) -> dict:
             FROM BI_TOTAL_FACTURA
             WHERE ANO = {_ANO} AND MES IN ({mes_list})
               AND ({zona_filter}) AND {_EXCL_DW}
-              AND {_FG}
+              AND {_FG}{_CF}
             GROUP BY RUT
         ),
         v25 AS (
@@ -252,7 +264,7 @@ def _load_oportunidades(zona_label: str, meses: list[int]) -> dict:
             FROM BI_TOTAL_FACTURA
             WHERE ANO = {_ANO - 1} AND MES IN ({mes_list})
               AND ({zona_filter}) AND {_EXCL_DW}
-              AND {_FG}
+              AND {_FG}{_CF}
             GROUP BY RUT
         ),
         perdidos AS (
@@ -264,13 +276,13 @@ def _load_oportunidades(zona_label: str, meses: list[int]) -> dict:
             WHERE f25.ANO = {_ANO - 1} AND f25.MES IN ({mes_list})
               AND ({zona_filter.replace('VENDEDOR', 'f25.VENDEDOR')}) AND
               {_EXCL_DW.replace('VENDEDOR', 'f25.VENDEDOR').replace('CODIGO', 'f25.CODIGO')}
-              AND {_FG}
+              AND {_FG}{_CF25}
               AND NOT EXISTS (
                   SELECT 1 FROM BI_TOTAL_FACTURA f26
                   WHERE f26.ANO = {_ANO} AND f26.MES IN ({mes_list})
                     AND f26.RUT = f25.RUT AND f26.CODIGO = f25.CODIGO
                     AND {_EXCL_DW.replace('VENDEDOR', 'f26.VENDEDOR').replace('CODIGO', 'f26.CODIGO')}
-                    AND {_FG}
+                    AND {_FG}{_CF26}
               )
             GROUP BY f25.RUT
         )
@@ -361,10 +373,10 @@ def _load_oportunidades(zona_label: str, meses: list[int]) -> dict:
     try:
         cur.execute(f"""
             SELECT l.rut_cliente, l.licitacion,
-                   SUM(CASE WHEN l.EsLBF = 1 THEN l.monto_licitacion ELSE 0 END) AS adjudicado,
+                   SUM(CASE WHEN l.EsLBF = 1 THEN CAST(ISNULL(l.monto_licitacion, '0') AS float) ELSE 0 END) AS adjudicado,
                    l.fecha_termino
             FROM vw_LICITACIONES_CATEGORIZADAS l
-            WHERE l.EsLBF = 1
+            WHERE l.EsLBF = 1 AND l.estado = 'Adjudicado'
               AND l.fecha_termino >= CAST(GETDATE() AS date)
             GROUP BY l.rut_cliente, l.licitacion, l.fecha_termino
         """)
@@ -531,18 +543,24 @@ async def get_clientes_kam(
     zona: str = Query(...),
     periodo: str = Query("ytd"),
     mes: Optional[int] = Query(None),
+    categoria: Optional[str] = Query(None),
     current_user: dict = Depends(get_current_user),
 ):
     try:
+        # Validate categoria
+        cat = categoria.upper() if categoria else None
+        if cat and cat not in _CATS_VALIDAS:
+            cat = None
         meses, label = _parse_periodo(periodo, mes)
-        ck = f"oport_cli:{zona}:{periodo}:{mes}"
+        ck = f"oport_cli:{zona}:{periodo}:{mes}:{cat}"
         cached = mem_get(ck)
         if cached:
             return cached
-        data = _load_oportunidades(zona, meses)
+        data = _load_oportunidades(zona, meses, cat)
         data["zona"] = zona
         data["periodo"] = periodo
         data["label"] = label
+        data["categoria"] = cat
         mem_set(ck, data)
         return data
     except Exception as e:
@@ -559,10 +577,18 @@ async def get_cliente_detalle(
     rut: str = Query(...),
     periodo: str = Query("ytd"),
     mes: Optional[int] = Query(None),
+    categoria: Optional[str] = Query(None),
+    zona: Optional[str] = Query(None),
     current_user: dict = Depends(get_current_user),
 ):
     try:
-        ck = f"oport_det:{rut}:{periodo}:{mes}"
+        cat = categoria.upper() if categoria else None
+        if cat and cat not in _CATS_VALIDAS:
+            cat = None
+        _CF = _cat_filter_sql(cat)
+        zona_filter = _zona_raw_filters(zona) if zona else "1=1"
+
+        ck = f"oport_det:{rut}:{periodo}:{mes}:{cat}:{zona}"
         cached = mem_get(ck)
         if cached:
             return cached
@@ -583,7 +609,7 @@ async def get_cliente_detalle(
                        SUM(CAST(CANT AS float)) AS cant_26
                 FROM BI_TOTAL_FACTURA
                 WHERE ANO = {_ANO} AND MES IN ({mes_list}) AND {_EXCL_DW}
-                  AND {_FG}
+                  AND {_FG}{_CF}
                   AND RUT = ?
                 GROUP BY CODIGO, {_CAT_CASE}
             ),
@@ -593,7 +619,8 @@ async def get_cliente_detalle(
                        SUM(CAST(CANT AS float)) AS cant_25
                 FROM BI_TOTAL_FACTURA
                 WHERE ANO = {_ANO - 1} AND MES IN ({mes_list}) AND {_EXCL_DW}
-                  AND {_FG}
+                  AND {_FG}{_CF}
+                  AND ({zona_filter})
                   AND RUT = ?
                 GROUP BY CODIGO
             )
@@ -634,7 +661,7 @@ async def get_cliente_detalle(
         cur.execute(f"""
             SELECT MES, SUM(CAST(VENTA AS float)) AS venta
             FROM BI_TOTAL_FACTURA
-            WHERE ANO = {_ANO} AND {_EXCL_DW} AND {_FG} AND RUT = ?
+            WHERE ANO = {_ANO} AND {_EXCL_DW} AND {_FG}{_CF} AND RUT = ?
             GROUP BY MES
             ORDER BY MES
         """, (rut,))
@@ -643,7 +670,7 @@ async def get_cliente_detalle(
         cur.execute(f"""
             SELECT MES, SUM(CAST(VENTA AS float)) AS venta
             FROM BI_TOTAL_FACTURA
-            WHERE ANO = {_ANO - 1} AND {_EXCL_DW} AND {_FG} AND RUT = ?
+            WHERE ANO = {_ANO - 1} AND {_EXCL_DW} AND {_FG}{_CF} AND RUT = ?
             GROUP BY MES
             ORDER BY MES
         """, (rut,))
@@ -665,7 +692,7 @@ async def get_cliente_detalle(
                 SELECT l.licitacion,
                        MIN(l.fecha_inicio) AS inicio,
                        MAX(l.fecha_termino) AS termino,
-                       SUM(l.monto_licitacion) AS adjudicado,
+                       SUM(CAST(ISNULL(l.monto_licitacion, '0') AS float)) AS adjudicado,
                        COALESCE(fac.facturado, 0) AS facturado
                 FROM vw_LICITACIONES_CATEGORIZADAS l
                 LEFT JOIN (
@@ -675,7 +702,9 @@ async def get_cliente_detalle(
                       AND {_FG}
                     GROUP BY LICITACION
                 ) fac ON fac.LICITACION = l.licitacion
-                WHERE l.EsLBF = 1 AND l.rut_cliente = ?
+                WHERE l.EsLBF = 1 AND l.estado = 'Adjudicado'
+                  AND l.rut_cliente = ?
+                  AND l.fecha_termino >= CAST(GETDATE() AS date)
                 GROUP BY l.licitacion, fac.facturado
                 ORDER BY MAX(l.fecha_termino) DESC
             """, (rut,))
@@ -686,9 +715,9 @@ async def get_cliente_detalle(
                 dias_rest = None
                 if termino:
                     try:
-                        from datetime import date
-                        t = termino if isinstance(termino, date) else date.fromisoformat(str(termino)[:10])
-                        dias_rest = (t - date.fromisoformat(hoy()["hoy"])).days
+                        from datetime import date as _date
+                        t = _date.fromisoformat(str(termino)[:10])
+                        dias_rest = (t - _date.fromisoformat(hoy()["hoy"])).days
                     except Exception:
                         pass
                 licitaciones.append({

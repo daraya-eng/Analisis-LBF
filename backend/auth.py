@@ -27,6 +27,7 @@ ALL_MODULES = [
     "stock",
     "mercado_publico",
     "ma",
+    "guantes",
 ]
 
 MODULE_LABELS = {
@@ -39,6 +40,7 @@ MODULE_LABELS = {
     "stock": "Inventario",
     "mercado_publico": "Mercado Publico",
     "ma": "M&A Targets",
+    "guantes": "Monitor Guantes EQM",
 }
 
 # ── User storage (JSON file) ─────────────────────────────────────────────────

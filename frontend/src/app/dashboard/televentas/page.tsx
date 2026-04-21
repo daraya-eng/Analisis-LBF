@@ -47,6 +47,14 @@ interface TVKpis {
   total_venta_nuevos: number;
   total_venta_q4: number;
   mes_nombre: string;
+  ritmo_diario_ytd: number;
+  necesario_ytd: number;
+  proyeccion_ytd: number;
+  hab_rest_ytd: number;
+  ritmo_diario_mes: number;
+  necesario_mes: number;
+  proyeccion_mes: number;
+  hab_rest_mes: number;
 }
 
 interface VentaMensual {
@@ -426,35 +434,48 @@ export default function TeleventasPage() {
         ))}
       </div>
 
-      {/* ═══ KPIs ROW 1 — Período (YTD / Trimestre) ═══ */}
-      {!isMes && (
-        <div style={{ display: "flex", gap: 12, marginBottom: 16, flexWrap: "wrap" }}>
-          <StatCard label="PPTO Anual 2026" value={fmtAbs(k.ppto_anual)} color="#6366F1" />
-          <StatCard label={`Meta ${periodoLabel}`} value={fmtAbs(k.ppto_ytd)} sub={isYtd ? `Ene - ${k.mes_nombre}` : undefined} color="#6366F1" />
-          <StatCard
-            label={`Venta ${periodoLabel}`}
-            value={fmtAbs(k.venta_ytd)}
-            sub={`Fact: ${fmtAbs(k.venta_ytd_facturas)} | Guias: ${fmtAbs(k.venta_ytd_guias)}`}
-            color="#3B82F6"
-          />
-          <StatCard
-            label={`Cumpl. ${periodoLabel}`}
-            value={`${semaforo(k.cumpl_ytd)} ${fmtPct(k.cumpl_ytd)}`}
-            sub={`Gap: ${fmtAbs(k.gap_ytd)}`}
-            color={k.cumpl_ytd >= 100 ? "#10B981" : k.cumpl_ytd >= 80 ? "#F59E0B" : "#EF4444"}
-          />
-          <StatCard
-            label={`Crec. vs 2025 ${periodoLabel}`}
-            value={`${k.crec_ytd >= 0 ? "+" : ""}${fmtPct(k.crec_ytd)}`}
-            sub={`2025 ${periodoLabel}: ${fmtAbs(k.venta_ytd_25)}`}
-            color={k.crec_ytd >= 0 ? "#10B981" : "#EF4444"}
-          />
-        </div>
-      )}
+      {/* ═══ KPIs ROW 1 — YTD (siempre visible) ═══ */}
+      <div style={{ display: "flex", gap: 12, marginBottom: 16, flexWrap: "wrap" }}>
+        <StatCard label="PPTO Anual 2026" value={fmtAbs(k.ppto_anual)} color="#6366F1" />
+        <StatCard label={`Meta ${periodoLabel}`} value={fmtAbs(k.ppto_ytd)} sub={isYtd ? `Ene - ${k.mes_nombre}` : undefined} color="#6366F1" />
+        <StatCard
+          label={`Venta ${periodoLabel}`}
+          value={fmtAbs(k.venta_ytd)}
+          sub={`Fact: ${fmtAbs(k.venta_ytd_facturas)} | Guias: ${fmtAbs(k.venta_ytd_guias)}`}
+          color="#3B82F6"
+        />
+        <StatCard
+          label={`Cumpl. ${periodoLabel}`}
+          value={`${semaforo(k.cumpl_ytd)} ${fmtPct(k.cumpl_ytd)}`}
+          sub={`Gap: ${fmtAbs(k.gap_ytd)}`}
+          color={k.cumpl_ytd >= 100 ? "#10B981" : k.cumpl_ytd >= 80 ? "#F59E0B" : "#EF4444"}
+        />
+        <StatCard
+          label={`Crec. vs 2025 ${periodoLabel}`}
+          value={`${k.crec_ytd >= 0 ? "+" : ""}${fmtPct(k.crec_ytd)}`}
+          sub={`2025 ${periodoLabel}: ${fmtAbs(k.venta_ytd_25)}`}
+          color={k.crec_ytd >= 0 ? "#10B981" : "#EF4444"}
+        />
+        {k.hab_rest_ytd > 0 && (
+          <>
+            <StatCard
+              label="Ritmo diario"
+              value={fmt(k.ritmo_diario_ytd)}
+              sub={`Necesario: ${fmt(k.necesario_ytd)}`}
+              color={k.ritmo_diario_ytd >= k.necesario_ytd ? "#10B981" : "#EF4444"}
+            />
+            <StatCard
+              label={`Proyeccion ${periodoLabel}`}
+              value={fmt(k.proyeccion_ytd)}
+              sub={`${k.hab_rest_ytd}d habiles restantes`}
+              color={k.proyeccion_ytd >= k.ppto_ytd ? "#10B981" : "#EF4444"}
+            />
+          </>
+        )}
+      </div>
 
       {/* ═══ KPIs ROW 2 — Mes ═══ */}
       <div style={{ display: "flex", gap: 12, marginBottom: 24, flexWrap: "wrap" }}>
-        {isMes && <StatCard label="PPTO Anual 2026" value={fmtAbs(k.ppto_anual)} color="#6366F1" />}
         <StatCard label={`Meta ${k.mes_nombre}`} value={fmtAbs(k.ppto_mes)} color="#8B5CF6" />
         <StatCard
           label={`Venta ${k.mes_nombre}`}
@@ -475,6 +496,22 @@ export default function TeleventasPage() {
           color={k.crec_mes >= 0 ? "#10B981" : "#EF4444"}
         />
         <StatCard label="Clientes PPTO" value={String(k.n_clientes_ppto)} sub={`${k.n_productos_ppto} productos`} color="#64748B" />
+        {k.hab_rest_mes > 0 && (
+          <>
+            <StatCard
+              label="Ritmo diario"
+              value={fmt(k.ritmo_diario_mes)}
+              sub={`Necesario: ${fmt(k.necesario_mes)}`}
+              color={k.ritmo_diario_mes >= k.necesario_mes ? "#10B981" : "#EF4444"}
+            />
+            <StatCard
+              label={`Proyeccion ${k.mes_nombre}`}
+              value={fmt(k.proyeccion_mes)}
+              sub={`${k.hab_rest_mes}d habiles restantes`}
+              color={k.proyeccion_mes >= k.ppto_mes ? "#10B981" : "#EF4444"}
+            />
+          </>
+        )}
       </div>
 
       {/* ═══ Mini KPI badges with totals ═══ */}

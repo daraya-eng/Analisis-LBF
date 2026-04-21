@@ -11,7 +11,7 @@ import HelpButton from "@/components/help-button";
 import { ExportButton, SearchInput, TableToolbar } from "@/components/table-tools";
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip,
-  CartesianGrid, Legend, ComposedChart,
+  CartesianGrid, Legend, ComposedChart, LabelList,
 } from "recharts";
 
 /* ─── Types ───────────────────────────────────────────── */
@@ -117,6 +117,13 @@ const PERIOD_OPTIONS = [
   { value: "q3", label: "Q3" }, { value: "q4", label: "Q4" },
 ];
 const MESES = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
+const CAT_OPTIONS = [
+  { value: "", label: "Todas" },
+  { value: "SQ", label: "SQ" },
+  { value: "EVA", label: "EVA" },
+  { value: "MAH", label: "MAH" },
+  { value: "EQM", label: "EQM" },
+];
 
 function KpiCard({ title, value, sub, color, icon: Icon }: {
   title: string; value: string; sub?: string; color: string; icon?: React.ElementType;
@@ -140,7 +147,7 @@ function KpiCard({ title, value, sub, color, icon: Icon }: {
    Client Detail Panel — expanded when clicking a client row
    ═══════════════════════════════════════════════════════════ */
 
-function ClientDetailPanel({ rut, periodo }: { rut: string; periodo: string }) {
+function ClientDetailPanel({ rut, periodo, categoria, zona }: { rut: string; periodo: string; categoria: string; zona?: string }) {
   const [det, setDet] = useState<ClienteDetalle | null>(null);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<"productos" | "perdidos" | "licitaciones" | "cm">("productos");
@@ -152,10 +159,12 @@ function ClientDetailPanel({ rut, periodo }: { rut: string; periodo: string }) {
     if (periodo.startsWith("mes-")) {
       pp = `periodo=mes&mes=${periodo.split("-")[1]}`;
     }
-    api.get<ClienteDetalle>(`/api/oportunidades/cliente-detalle?rut=${encodeURIComponent(rut)}&${pp}`)
+    const catParam = categoria ? `&categoria=${categoria}` : "";
+    const zonaParam = zona ? `&zona=${encodeURIComponent(zona)}` : "";
+    api.get<ClienteDetalle>(`/api/oportunidades/cliente-detalle?rut=${encodeURIComponent(rut)}&${pp}${catParam}${zonaParam}`)
       .then(r => { setDet(r); setLoading(false); })
       .catch(() => setLoading(false));
-  }, [rut, periodo]);
+  }, [rut, periodo, categoria, zona]);
 
   if (loading) return <div style={{ padding: 20, textAlign: "center", color: "#94A3B8", fontSize: 12 }}>Cargando detalle...</div>;
   if (!det || det.error) return <div style={{ padding: 16, color: "#EF4444", fontSize: 12 }}>Error: {det?.error || "sin datos"}</div>;
@@ -181,8 +190,12 @@ function ClientDetailPanel({ rut, periodo }: { rut: string; periodo: string }) {
               <Tooltip contentStyle={{ background: "white", border: "1px solid #E2E8F0", borderRadius: 8, fontSize: 11 }}
                 formatter={(v: any, name: any) => [fmtAbs(v), name]} />
               <Legend wrapperStyle={{ fontSize: 11 }} />
-              <Bar dataKey="venta_25" name="2025" fill="#CBD5E1" radius={[3, 3, 0, 0]} />
-              <Bar dataKey="venta_26" name="2026" fill="#3B82F6" radius={[3, 3, 0, 0]} />
+              <Bar dataKey="venta_25" name="2025" fill="#CBD5E1" radius={[3, 3, 0, 0]}>
+                <LabelList dataKey="venta_25" position="top" formatter={(v: any) => v > 0 ? fmt(v) : ""} style={{ fontSize: 9, fill: "#94A3B8" }} />
+              </Bar>
+              <Bar dataKey="venta_26" name="2026" fill="#3B82F6" radius={[3, 3, 0, 0]}>
+                <LabelList dataKey="venta_26" position="top" formatter={(v: any) => v > 0 ? fmt(v) : ""} style={{ fontSize: 9, fill: "#3B82F6", fontWeight: 600 }} />
+              </Bar>
             </ComposedChart>
           </ResponsiveContainer>
         </div>
@@ -275,22 +288,33 @@ function ClientDetailPanel({ rut, periodo }: { rut: string; periodo: string }) {
 
       {/* Licitaciones */}
       {tab === "licitaciones" && (
-        det.licitaciones.length === 0 ? <div style={{ padding: 20, textAlign: "center", color: "#94A3B8", fontSize: 12 }}>Sin licitaciones activas</div> : (
+        det.licitaciones.length === 0 ? <div style={{ padding: 20, textAlign: "center", color: "#94A3B8", fontSize: 12 }}>Sin licitaciones adjudicadas vigentes</div> : (
           <div style={{ maxHeight: 300, overflowY: "auto" }}>
             <table style={{ width: "100%", borderCollapse: "collapse" }}>
               <thead style={{ position: "sticky", top: 0, background: "#F8FAFC" }}>
-                <tr><th style={{ ...thS, fontSize: 10 }}>Licitacion</th><th style={{ ...thR, fontSize: 10 }}>Adjudicado</th>
-                  <th style={{ ...thR, fontSize: 10 }}>Facturado</th><th style={{ ...thR, fontSize: 10 }}>Cumpl.</th>
-                  <th style={{ ...thR, fontSize: 10 }}>Dias Rest.</th></tr>
+                <tr>
+                  <th style={{ ...thS, fontSize: 10 }}>Licitacion</th>
+                  <th style={{ ...thS, fontSize: 10 }}>Inicio</th>
+                  <th style={{ ...thS, fontSize: 10 }}>Termino</th>
+                  <th style={{ ...thR, fontSize: 10 }}>Adjudicado</th>
+                  <th style={{ ...thR, fontSize: 10 }}>Facturado</th>
+                  <th style={{ ...thR, fontSize: 10 }}>Pendiente</th>
+                  <th style={{ ...thR, fontSize: 10 }}>Cumpl.</th>
+                  <th style={{ ...thR, fontSize: 10 }}>Dias Rest.</th>
+                </tr>
               </thead>
               <tbody>
                 {det.licitaciones.map((l, i) => {
                   const urgente = l.dias_restantes !== null && l.dias_restantes <= 30 && l.cumplimiento < 100;
+                  const pendiente = l.adjudicado - l.facturado;
                   return (
                     <tr key={l.licitacion} style={{ background: urgente ? "#FEF2F2" : i % 2 === 0 ? "#F8FAFC" : "white" }}>
                       <td style={{ ...td, fontSize: 10, fontFamily: "monospace" }}>{l.licitacion}</td>
+                      <td style={{ ...td, fontSize: 10, color: "#64748B" }}>{l.inicio || "--"}</td>
+                      <td style={{ ...td, fontSize: 10, color: urgente ? "#EF4444" : "#64748B", fontWeight: urgente ? 700 : 400 }}>{l.termino || "--"}</td>
                       <td style={{ ...tdR, fontSize: 10 }}>{fmtAbs(l.adjudicado)}</td>
                       <td style={{ ...tdR, fontSize: 10 }}>{fmtAbs(l.facturado)}</td>
+                      <td style={{ ...tdR, fontSize: 10, fontWeight: 600, color: pendiente > 0 ? "#F59E0B" : "#10B981" }}>{fmtAbs(pendiente)}</td>
                       <td style={{ ...tdR, fontSize: 10, fontWeight: 700, color: l.cumplimiento >= 100 ? "#10B981" : l.cumplimiento >= 50 ? "#F59E0B" : "#EF4444" }}>
                         {l.cumplimiento}%
                       </td>
@@ -343,6 +367,7 @@ export default function OportunidadesPage() {
   const [loadingKams, setLoadingKams] = useState(true);
   const [selectedZona, setSelectedZona] = useState<string | null>(null);
   const [periodo, setPeriodo] = useState("ytd");
+  const [categoria, setCategoria] = useState("");
 
   // Data for selected KAM
   const [clientes, setClientes] = useState<ClienteOp[]>([]);
@@ -378,14 +403,15 @@ export default function OportunidadesPage() {
     return `periodo=${p}`;
   }, []);
 
-  // Load clients when KAM or period changes
+  // Load clients when KAM, period, or category changes
   useEffect(() => {
     if (!selectedZona) return;
     setLoadingCli(true);
     setExpandedRut(null);
     setSearch("");
     const pp = buildPeriodoParam(periodo);
-    api.get<{ kpis: Kpis; meta: MetaInfo; clientes: ClienteOp[]; top_oportunidades: TopOportunidad[] }>(`/api/oportunidades/clientes?zona=${encodeURIComponent(selectedZona)}&${pp}`)
+    const catParam = categoria ? `&categoria=${categoria}` : "";
+    api.get<{ kpis: Kpis; meta: MetaInfo; clientes: ClienteOp[]; top_oportunidades: TopOportunidad[] }>(`/api/oportunidades/clientes?zona=${encodeURIComponent(selectedZona)}&${pp}${catParam}`)
       .then(r => {
         setKpis(r.kpis || null);
         setMeta(r.meta || null);
@@ -394,7 +420,7 @@ export default function OportunidadesPage() {
         setLoadingCli(false);
       })
       .catch(() => setLoadingCli(false));
-  }, [selectedZona, periodo, buildPeriodoParam]);
+  }, [selectedZona, periodo, categoria, buildPeriodoParam]);
 
   const selectedKam = kams.find(k => k.zona === selectedZona);
 
@@ -444,6 +470,26 @@ export default function OportunidadesPage() {
             fontWeight: periodo === `mes-${m}` ? 700 : 400,
           }}>{MESES[m - 1]}</button>
         ))}
+      </div>
+
+      {/* Category filter */}
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <span style={{ fontSize: 11, fontWeight: 600, color: "#64748B", textTransform: "uppercase", letterSpacing: "0.04em" }}>Categoria:</span>
+        <div style={{ display: "flex", gap: 4 }}>
+          {CAT_OPTIONS.map(c => (
+            <button key={c.value} onClick={() => setCategoria(c.value)} style={{
+              padding: "5px 12px", borderRadius: 6, border: "1px solid #E2E8F0", cursor: "pointer", fontSize: 12,
+              background: categoria === c.value ? "#8B5CF6" : "white",
+              color: categoria === c.value ? "white" : "#374151",
+              fontWeight: categoria === c.value ? 700 : 400,
+            }}>{c.label}</button>
+          ))}
+        </div>
+        {categoria && (
+          <span style={{ fontSize: 11, color: "#8B5CF6", fontWeight: 600 }}>
+            Filtrando por {categoria}
+          </span>
+        )}
       </div>
 
       {/* KAM tabs */}
@@ -702,7 +748,9 @@ export default function OportunidadesPage() {
                         <td style={{ ...tdR, fontSize: 11, color: c.monto_comp_cm > 0 ? "#EF4444" : "#CBD5E1", fontWeight: c.monto_comp_cm > 0 ? 600 : 400 }}>
                           {c.monto_comp_cm > 0 ? fmt(c.monto_comp_cm) : "--"}
                         </td>
-                        <td style={{ ...tdR, fontSize: 11, fontWeight: c.potencial > 0 ? 700 : 400, color: c.potencial > 0 ? "#8B5CF6" : "#CBD5E1" }}>
+                        <td style={{ ...tdR, fontSize: 11, fontWeight: c.potencial > 0 ? 700 : 400, color: c.potencial > 0 ? "#8B5CF6" : "#CBD5E1" }}
+                          title={c.potencial_desglose?.map(d => `${d.tipo}: ${fmt(d.monto)}`).join("\n") || ""}
+                        >
                           {c.potencial > 0 ? fmt(c.potencial) : "--"}
                         </td>
                         <td style={{ ...td, fontSize: 10 }}>
@@ -719,7 +767,7 @@ export default function OportunidadesPage() {
                       </tr>
                       {isExpanded && (
                         <tr><td colSpan={13} style={{ padding: 0 }}>
-                          <ClientDetailPanel rut={c.rut} periodo={periodo} />
+                          <ClientDetailPanel rut={c.rut} periodo={periodo} categoria={categoria} zona={selectedZona ?? undefined} />
                         </td></tr>
                       )}
                     </Fragment>

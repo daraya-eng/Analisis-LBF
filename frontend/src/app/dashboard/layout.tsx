@@ -17,6 +17,7 @@ const PATH_TO_MODULE: Record<string, string> = {
   stock: "stock",
   "mercado-publico": "mercado_publico",
   ma: "ma",
+  guantes: "guantes",
 };
 
 export default function DashboardLayout({

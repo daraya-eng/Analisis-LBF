@@ -24,6 +24,23 @@ import {
 
 /* ─── Types ─────────────────────────────────────────────────────────── */
 
+interface RitmoData {
+  time_pct: number;
+  actual_pct: number;
+  diff_pct: number;
+  status: "adelantado" | "atrasado" | "en_linea";
+  venta_25_al_dia: number;
+  diff_vs_25: number;
+  dias_transcurridos: number;
+  dias_totales: number;
+  periodo_completo: boolean;
+  ritmo_diario: number;
+  necesario_diario: number;
+  proyeccion: number;
+  hab_transcurridos: number;
+  hab_restantes: number;
+}
+
 interface DashKpis {
   meta_anual: number;
   meta_periodo: number;
@@ -42,6 +59,7 @@ interface DashKpis {
   gap_meta_global: number;
   mes_nombre: string;
   n_meses: number;
+  ritmo: RitmoData;
 }
 
 interface CatRow {
@@ -57,6 +75,9 @@ interface CatRow {
   venta: number;
   cumpl: number;
   gap: number;
+  ritmo_diario: number;
+  necesario_diario: number;
+  proyeccion: number;
 }
 
 interface SegRow {
@@ -66,6 +87,11 @@ interface SegRow {
   EVA: number;
   MAH: number;
   EQM: number;
+  guias_total: number;
+  guias_SQ: number;
+  guias_EVA: number;
+  guias_MAH: number;
+  guias_EQM: number;
 }
 
 interface CatDetailZona {
@@ -409,6 +435,13 @@ export default function DashboardPage() {
       </div>
 
       {/* ═══ CUMPLIMIENTO BAR — prominent, centered ═══ */}
+      {(() => {
+        const proyPct = k.meta_periodo > 0 ? (k.ritmo?.proyeccion ?? 0) / k.meta_periodo * 100 : 0;
+        const proyBar = Math.min(proyPct, 120);
+        const timePct = k.ritmo?.time_pct ?? 0;
+        const showProy = k.ritmo && !k.ritmo.periodo_completo && timePct > 0;
+        const proyColor = proyPct >= 100 ? "#10B981" : proyPct >= 80 ? "#F59E0B" : "#EF4444";
+        return (
       <div style={{
         background: "white", borderRadius: 12, border: "1px solid #E2E8F0",
         padding: "16px 24px", marginBottom: 16,
@@ -417,12 +450,18 @@ export default function DashboardPage() {
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
           <span style={{ fontSize: 14, fontWeight: 600, color: "#374151" }}>
             Cumplimiento Meta {periodLabel}
+            {showProy && (
+              <span style={{ fontSize: 12, fontWeight: 400, color: "#64748B", marginLeft: 8 }}>
+                ({k.ritmo.hab_restantes}d habiles restantes)
+              </span>
+            )}
           </span>
           <span style={{ fontWeight: 800, color: barColor, fontSize: 20 }}>
             {semaforo(cumplPct)} {fmtPct(cumplPct)}
           </span>
         </div>
-        <div style={{ height: 14, background: "#E2E8F0", borderRadius: 7, overflow: "hidden" }}>
+        {/* Barra de cumplimiento actual */}
+        <div style={{ position: "relative", height: 14, background: "#E2E8F0", borderRadius: 7, overflow: "hidden", marginBottom: showProy ? 6 : 0 }}>
           <div style={{
             height: "100%",
             width: `${pctBar}%`,
@@ -430,12 +469,66 @@ export default function DashboardPage() {
             borderRadius: 7,
             transition: "width 0.5s ease",
           }} />
+          {showProy && timePct < 100 && (
+            <div style={{
+              position: "absolute", top: 0, left: `${Math.min(timePct, 100)}%`, width: 2, height: "100%",
+              background: "#1E293B", opacity: 0.5,
+            }} title={`${fmtPct(timePct)} del tiempo transcurrido`} />
+          )}
         </div>
+        {/* Barra de proyeccion */}
+        {showProy && (
+          <div style={{ marginTop: 4 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 3 }}>
+              <span style={{ fontSize: 10, color: "#64748B", whiteSpace: "nowrap" }}>Proyeccion</span>
+              <div style={{ flex: 1, position: "relative", height: 8, background: "#F1F5F9", borderRadius: 4, overflow: "hidden" }}>
+                <div style={{
+                  height: "100%",
+                  width: `${Math.min(proyBar / 1.2, 100)}%`,
+                  background: `linear-gradient(90deg, ${proyColor}88, ${proyColor})`,
+                  borderRadius: 4,
+                  transition: "width 0.5s ease",
+                }} />
+                {/* Marca 100% meta */}
+                <div style={{
+                  position: "absolute", top: 0, left: `${100 / 1.2}%`, width: 2, height: "100%",
+                  background: "#374151", opacity: 0.6,
+                }} />
+              </div>
+              <span style={{ fontSize: 11, fontWeight: 700, color: proyColor, whiteSpace: "nowrap" }}>
+                {fmtPct(proyPct)}
+              </span>
+            </div>
+          </div>
+        )}
         <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "#64748B", marginTop: 6 }}>
           <span>Venta: <strong style={{ color: "#0F172A" }}>{fmtAbs(k.venta)}</strong></span>
+          {showProy && <span>Proyeccion: <strong style={{ color: proyColor }}>{fmtAbs(k.ritmo.proyeccion)}</strong></span>}
           <span>Meta: <strong style={{ color: "#0F172A" }}>{fmtAbs(k.meta_periodo)}</strong></span>
         </div>
       </div>
+        );
+      })()}
+
+      {/* ═══ RITMO / PACE ═══ */}
+      {k.ritmo && !k.ritmo.periodo_completo && k.ritmo.time_pct > 0 && (
+        <div style={{ display: "flex", gap: 12, marginBottom: 12, flexWrap: "wrap" }}>
+          <StatCard
+            label="Ritmo diario"
+            value={fmt(k.ritmo.ritmo_diario)}
+            sub={`Necesario: ${fmt(k.ritmo.necesario_diario)}`}
+            color={k.ritmo.ritmo_diario >= k.ritmo.necesario_diario ? "#10B981" : "#EF4444"}
+            tooltip="Venta promedio por dia habil en el periodo. Necesario = cuanto hay que vender diario para cumplir la meta"
+          />
+          <StatCard
+            label="Proyeccion mes"
+            value={fmt(k.ritmo.proyeccion)}
+            sub={`${k.ritmo.hab_restantes}d habiles restantes`}
+            color={k.ritmo.proyeccion >= k.meta_periodo ? "#10B981" : "#EF4444"}
+            tooltip="Proyeccion lineal de venta al cierre del periodo basado en el ritmo diario actual"
+          />
+        </div>
+      )}
 
       {/* ═══ KPIs ROW 1 ═══ */}
       <div style={{ display: "flex", gap: 12, marginBottom: 12, flexWrap: "wrap" }}>
@@ -457,12 +550,22 @@ export default function DashboardPage() {
           color={k.cumpl >= 100 ? "#10B981" : k.cumpl >= 80 ? "#F59E0B" : "#EF4444"}
           tooltip="Venta / Meta x 100. Verde >=100%, amarillo >=80%, rojo <80%"
         />
-        <StatCard
-          label="Crec. vs 2025"
-          value={`${k.crec_vs_25 >= 0 ? "+" : ""}${fmtPct(k.crec_vs_25)}`}
-          color={k.crec_vs_25 >= 0 ? "#10B981" : "#EF4444"}
-          tooltip="Crecimiento porcentual de venta 2026 vs mismo periodo 2025"
-        />
+        {k.ritmo && !k.ritmo.periodo_completo && k.ritmo.time_pct > 0 ? (
+          <StatCard
+            label="Cumpl. vs Proyeccion"
+            value={`${k.cumpl >= k.ritmo.time_pct ? "+" : ""}${fmtPct(k.cumpl - k.ritmo.time_pct)}`}
+            sub={`Real: ${fmtPct(k.cumpl)} | Esperado: ${fmtPct(k.ritmo.time_pct)}`}
+            color={k.cumpl >= k.ritmo.time_pct ? "#10B981" : "#EF4444"}
+            tooltip="Diferencia entre cumplimiento real y % de tiempo transcurrido. Positivo = adelantado"
+          />
+        ) : (
+          <StatCard
+            label="Crec. vs 2025"
+            value={`${k.crec_vs_25 >= 0 ? "+" : ""}${fmtPct(k.crec_vs_25)}`}
+            color={k.crec_vs_25 >= 0 ? "#10B981" : "#EF4444"}
+            tooltip="Crecimiento porcentual de venta 2026 vs mismo periodo 2025"
+          />
+        )}
       </div>
 
       {/* ═══ KPIs ROW 2 — Contribucion y Margen ═══ */}
@@ -662,6 +765,8 @@ export default function DashboardPage() {
               { key: "categoria", label: "Categoria" }, { key: "meta_anual", label: "Meta Anual" },
               { key: "meta_periodo", label: "Meta Periodo" }, { key: "venta", label: "Venta" },
               { key: "gap", label: "Gap" }, { key: "cumpl", label: "Cumpl %" },
+              { key: "ritmo_diario", label: "Ritmo $/dia" }, { key: "necesario_diario", label: "Necesario $/dia" },
+              { key: "proyeccion", label: "Proyeccion" },
               { key: "margen_real", label: "Margen Real %" }, { key: "margen_meta", label: "Margen Meta %" },
             ]}
             filename="categoria_meta_venta"
@@ -676,6 +781,13 @@ export default function DashboardPage() {
               <th style={thR} title="Venta neta acumulada (facturas + guias)">Venta</th>
               <th style={thR} title="Venta - Meta (positivo = supera meta)">Gap</th>
               <th style={thR} title="Venta / Meta x 100">Cumpl. Venta</th>
+              {k?.ritmo && !k.ritmo.periodo_completo && (
+                <>
+                  <th style={thR} title="Venta / dias habiles transcurridos">Ritmo $/dia</th>
+                  <th style={thR} title="(Meta - Venta) / dias habiles restantes">Necesario $/dia</th>
+                  <th style={thR} title="Venta + Ritmo x dias restantes">Proyeccion</th>
+                </>
+              )}
               <th style={thR} title="Margen bruto: (Venta - Costo) / Venta x 100">Margen %</th>
             </tr>
           </thead>
@@ -719,13 +831,24 @@ export default function DashboardPage() {
                     <td style={{ ...tdR, fontWeight: 600, color: cumplColor }}>
                       {semaforo(row.cumpl)} {fmtPct(row.cumpl)}
                     </td>
+                    {k?.ritmo && !k.ritmo.periodo_completo && (
+                      <>
+                        <td style={{ ...tdR, fontSize: 12 }}>{fmt(row.ritmo_diario)}</td>
+                        <td style={{ ...tdR, fontSize: 12, color: row.necesario_diario > row.ritmo_diario ? "#EF4444" : "#10B981" }}>
+                          {fmt(row.necesario_diario)}
+                        </td>
+                        <td style={{ ...tdR, fontSize: 12, fontWeight: 600, color: row.proyeccion >= row.meta_periodo ? "#10B981" : "#EF4444" }}>
+                          {fmt(row.proyeccion)}
+                        </td>
+                      </>
+                    )}
                     <td style={tdR}>
                       <MarginGauge real={row.margen_real} meta={row.margen_meta} />
                     </td>
                   </tr>
                   {isExpanded && (
                     <tr>
-                      <td colSpan={7} style={{ padding: 0, background: "#F8FAFC", borderBottom: "1px solid #E2E8F0" }}>
+                      <td colSpan={k?.ritmo && !k.ritmo.periodo_completo ? 10 : 7} style={{ padding: 0, background: "#F8FAFC", borderBottom: "1px solid #E2E8F0" }}>
                         {catDetailLoading ? (
                           <div style={{ padding: 24, textAlign: "center", color: "#64748B", fontSize: 13 }}>
                             <div className="spinner-ring animate-spin-ring" style={{ width: 18, height: 18, borderWidth: 2, borderColor: "rgba(59,130,246,0.2)", borderTopColor: "#3B82F6", display: "inline-block", marginRight: 8, verticalAlign: "middle" }} />
@@ -796,29 +919,37 @@ export default function DashboardPage() {
             </tr>
           </thead>
           <tbody>
-            {segData.map((row, i) => (
-              <tr key={i} style={{ borderBottom: "1px solid #F1F5F9", background: i % 2 === 0 ? "white" : "#FAFBFD" }}>
-                <td style={{ ...tdStyle, fontWeight: 600 }}>
-                  {row.segmento === "PUBLICO" ? "Publico" : "Privado"}
-                </td>
-                <td style={tdR}>{fmtAbs(row.SQ)}</td>
-                <td style={tdR}>{fmtAbs(row.MAH)}</td>
-                <td style={tdR}>{fmtAbs(row.EQM)}</td>
-                <td style={tdR}>{fmtAbs(row.EVA)}</td>
-                <td style={{ ...tdR, fontWeight: 700 }}>{fmtAbs(row.total)}</td>
-              </tr>
-            ))}
+            {segData.map((row, i) => {
+              const GuiasSub = ({ v }: { v: number }) => v > 0 ? (
+                <div style={{ fontSize: 10, color: "#94A3B8", fontWeight: 400 }}>Guias: {fmt(v)}</div>
+              ) : null;
+              return (
+                <tr key={i} style={{ borderBottom: "1px solid #F1F5F9", background: i % 2 === 0 ? "white" : "#FAFBFD" }}>
+                  <td style={{ ...tdStyle, fontWeight: 600 }}>
+                    {row.segmento === "PUBLICO" ? "Publico" : "Privado"}
+                  </td>
+                  <td style={tdR}>{fmtAbs(row.SQ)}<GuiasSub v={row.guias_SQ ?? 0} /></td>
+                  <td style={tdR}>{fmtAbs(row.MAH)}<GuiasSub v={row.guias_MAH ?? 0} /></td>
+                  <td style={tdR}>{fmtAbs(row.EQM)}<GuiasSub v={row.guias_EQM ?? 0} /></td>
+                  <td style={tdR}>{fmtAbs(row.EVA)}<GuiasSub v={row.guias_EVA ?? 0} /></td>
+                  <td style={{ ...tdR, fontWeight: 700 }}>{fmtAbs(row.total)}<GuiasSub v={row.guias_total ?? 0} /></td>
+                </tr>
+              );
+            })}
             {/* Total row */}
             {segData.length === 2 && (() => {
               const s = segData;
+              const GuiasSub = ({ v }: { v: number }) => v > 0 ? (
+                <div style={{ fontSize: 10, color: "#94A3B8", fontWeight: 400 }}>Guias: {fmt(v)}</div>
+              ) : null;
               return (
                 <tr style={{ borderTop: "2px solid #D1D5DB", background: "#F1F5F9", fontWeight: 700 }}>
                   <td style={tdStyle}>Total</td>
-                  <td style={tdR}>{fmtAbs(s[0].SQ + s[1].SQ)}</td>
-                  <td style={tdR}>{fmtAbs(s[0].MAH + s[1].MAH)}</td>
-                  <td style={tdR}>{fmtAbs(s[0].EQM + s[1].EQM)}</td>
-                  <td style={tdR}>{fmtAbs(s[0].EVA + s[1].EVA)}</td>
-                  <td style={tdR}>{fmtAbs(s[0].total + s[1].total)}</td>
+                  <td style={tdR}>{fmtAbs(s[0].SQ + s[1].SQ)}<GuiasSub v={(s[0].guias_SQ ?? 0) + (s[1].guias_SQ ?? 0)} /></td>
+                  <td style={tdR}>{fmtAbs(s[0].MAH + s[1].MAH)}<GuiasSub v={(s[0].guias_MAH ?? 0) + (s[1].guias_MAH ?? 0)} /></td>
+                  <td style={tdR}>{fmtAbs(s[0].EQM + s[1].EQM)}<GuiasSub v={(s[0].guias_EQM ?? 0) + (s[1].guias_EQM ?? 0)} /></td>
+                  <td style={tdR}>{fmtAbs(s[0].EVA + s[1].EVA)}<GuiasSub v={(s[0].guias_EVA ?? 0) + (s[1].guias_EVA ?? 0)} /></td>
+                  <td style={tdR}>{fmtAbs(s[0].total + s[1].total)}<GuiasSub v={(s[0].guias_total ?? 0) + (s[1].guias_total ?? 0)} /></td>
                 </tr>
               );
             })()}

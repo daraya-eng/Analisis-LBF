@@ -9,7 +9,7 @@ from fastapi import FastAPI, Depends, BackgroundTasks, Request
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 from jose import JWTError, jwt
-from routes import auth_routes, dashboard_routes, zona_routes, categoria_routes, resumen_routes, televentas_routes, multiproducto_routes, clientes_routes, mercado_routes, facturacion_routes, stock_routes, mercado_publico_routes, ma_routes, oportunidades_routes
+from routes import auth_routes, dashboard_routes, zona_routes, categoria_routes, resumen_routes, televentas_routes, multiproducto_routes, clientes_routes, mercado_routes, facturacion_routes, stock_routes, mercado_publico_routes, ma_routes, oportunidades_routes, guantes_routes
 from auth import get_current_user, track_request, SECRET_KEY, ALGORITHM
 from cache import clear_mem_cache
 
@@ -150,6 +150,7 @@ app.include_router(stock_routes.router, prefix="/api/stock", tags=["stock"])
 app.include_router(mercado_publico_routes.router, prefix="/api/mercado-publico", tags=["mercado_publico"])
 app.include_router(ma_routes.router, prefix="/api/ma", tags=["ma"])
 app.include_router(oportunidades_routes.router, prefix="/api/oportunidades", tags=["oportunidades"])
+app.include_router(guantes_routes.router, prefix="/api/guantes", tags=["guantes"])
 
 
 @app.get("/api/health")

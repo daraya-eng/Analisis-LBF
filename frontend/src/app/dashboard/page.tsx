@@ -921,7 +921,7 @@ export default function DashboardPage() {
           <tbody>
             {segData.map((row, i) => {
               const GuiasSub = ({ v }: { v: number }) => v > 0 ? (
-                <div style={{ fontSize: 10, color: "#94A3B8", fontWeight: 400 }}>Guias: {fmt(v)}</div>
+                <div style={{ fontSize: 10, color: "#94A3B8", fontWeight: 400 }}>inc. Guías: {fmt(v)}</div>
               ) : null;
               return (
                 <tr key={i} style={{ borderBottom: "1px solid #F1F5F9", background: i % 2 === 0 ? "white" : "#FAFBFD" }}>
@@ -940,7 +940,7 @@ export default function DashboardPage() {
             {segData.length === 2 && (() => {
               const s = segData;
               const GuiasSub = ({ v }: { v: number }) => v > 0 ? (
-                <div style={{ fontSize: 10, color: "#94A3B8", fontWeight: 400 }}>Guias: {fmt(v)}</div>
+                <div style={{ fontSize: 10, color: "#94A3B8", fontWeight: 400 }}>inc. Guías: {fmt(v)}</div>
               ) : null;
               return (
                 <tr style={{ borderTop: "2px solid #D1D5DB", background: "#F1F5F9", fontWeight: 700 }}>

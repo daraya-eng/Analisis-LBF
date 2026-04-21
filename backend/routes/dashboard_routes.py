@@ -162,16 +162,26 @@ def _load_dashboard_raw() -> dict:
         venta25_mes[mes] = float(r[1] or 0)
 
     # ═══ 5. VENTA por segmento x categoría x mes ═══
+    # Guías (DOC_CODE='GF') no traen SEGMENTO → resolver por RUT desde DW
     cur.execute(f"""
+        WITH seg_lookup AS (
+            SELECT RUT, MAX(LTRIM(RTRIM(SEGMENTO))) AS SEGMENTO
+            FROM DW_TOTAL_FACTURA
+            WHERE SEGMENTO IS NOT NULL AND SEGMENTO <> ''
+            GROUP BY RUT
+        )
         SELECT
-            LTRIM(RTRIM(ISNULL(SEGMENTO, ''))) AS seg,
+            ISNULL(NULLIF(LTRIM(RTRIM(f.SEGMENTO)), ''), sl.SEGMENTO) AS seg,
             {_CAT_CASE} AS cat,
-            MES,
-            SUM(CAST(VENTA AS float)) AS venta
-        FROM BI_TOTAL_FACTURA
-        WHERE ANO = {_ANO} AND {_EXCL_DW}
+            f.MES,
+            SUM(CAST(f.VENTA AS float)) AS venta
+        FROM BI_TOTAL_FACTURA f
+        LEFT JOIN seg_lookup sl ON sl.RUT = f.RUT
+        WHERE f.ANO = {_ANO} AND {_EXCL_DW}
           AND {_FG}
-        GROUP BY LTRIM(RTRIM(ISNULL(SEGMENTO, ''))), {_CAT_CASE}, MES
+        GROUP BY
+            ISNULL(NULLIF(LTRIM(RTRIM(f.SEGMENTO)), ''), sl.SEGMENTO),
+            {_CAT_CASE}, f.MES
     """)
     seg_mes_data: dict = {}
     for r in cur.fetchall():
@@ -179,8 +189,10 @@ def _load_dashboard_raw() -> dict:
         cat = str(r[1]).strip()
         mes = int(r[2])
         venta = float(r[3] or 0)
-        if seg not in ('PUBLICO', 'PRIVADO') or cat not in _CATS_VALIDAS:
+        if cat not in _CATS_VALIDAS:
             continue
+        # Normalizar: todo lo que contenga PUBLICO → PUBLICO, resto → PRIVADO
+        seg = "PUBLICO" if "PUBLICO" in seg else "PRIVADO"
         if seg not in seg_mes_data:
             seg_mes_data[seg] = {}
         if mes not in seg_mes_data[seg]:
@@ -189,16 +201,25 @@ def _load_dashboard_raw() -> dict:
 
     # ═══ 5b. GUÍAS por segmento x categoría x mes (DOC_CODE='GF') ═══
     cur.execute(f"""
+        WITH seg_lookup AS (
+            SELECT RUT, MAX(LTRIM(RTRIM(SEGMENTO))) AS SEGMENTO
+            FROM DW_TOTAL_FACTURA
+            WHERE SEGMENTO IS NOT NULL AND SEGMENTO <> ''
+            GROUP BY RUT
+        )
         SELECT
-            LTRIM(RTRIM(ISNULL(SEGMENTO, ''))) AS seg,
+            ISNULL(NULLIF(LTRIM(RTRIM(f.SEGMENTO)), ''), sl.SEGMENTO) AS seg,
             {_CAT_CASE} AS cat,
-            MES,
-            SUM(CAST(VENTA AS float)) AS venta
-        FROM BI_TOTAL_FACTURA
-        WHERE ANO = {_ANO} AND {_EXCL_DW}
+            f.MES,
+            SUM(CAST(f.VENTA AS float)) AS venta
+        FROM BI_TOTAL_FACTURA f
+        LEFT JOIN seg_lookup sl ON sl.RUT = f.RUT
+        WHERE f.ANO = {_ANO} AND {_EXCL_DW}
           AND {_FG}
-          AND ISNULL(DOC_CODE, '') = 'GF'
-        GROUP BY LTRIM(RTRIM(ISNULL(SEGMENTO, ''))), {_CAT_CASE}, MES
+          AND ISNULL(f.DOC_CODE, '') = 'GF'
+        GROUP BY
+            ISNULL(NULLIF(LTRIM(RTRIM(f.SEGMENTO)), ''), sl.SEGMENTO),
+            {_CAT_CASE}, f.MES
     """)
     guias_seg_mes: dict = {}
     for r in cur.fetchall():
@@ -206,8 +227,9 @@ def _load_dashboard_raw() -> dict:
         cat = str(r[1]).strip()
         mes = int(r[2])
         venta = float(r[3] or 0)
-        if seg not in ('PUBLICO', 'PRIVADO') or cat not in _CATS_VALIDAS:
+        if cat not in _CATS_VALIDAS:
             continue
+        seg = "PUBLICO" if "PUBLICO" in seg else "PRIVADO"
         if seg not in guias_seg_mes:
             guias_seg_mes[seg] = {}
         if mes not in guias_seg_mes[seg]:

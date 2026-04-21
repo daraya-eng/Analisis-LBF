@@ -202,136 +202,161 @@ function ClientDetail({ rut, period }: { rut: string; period: string }) {
   if (!detalle) return <div style={{ padding: 12, color: "#94A3B8", fontSize: 12 }}>Sin datos</div>;
 
   const cc = (v: number) => v >= 0 ? "#10B981" : "#EF4444";
+  const sign = (v: number) => v >= 0 ? "+" : "";
+
+  // Compute portfolio totals directly from arrays (robust, no cache issue)
+  const totalPerdidos = detalle.productos_perdidos.reduce((s, p) => s + p.venta_25, 0);
+  const totalNuevos   = detalle.productos_nuevos.reduce((s, p) => s + p.venta_26, 0);
+
+  // vol_ambos = total volume effect minus portfolio effects
+  const volAmbos = detalle.efecto_volumen + totalPerdidos - totalNuevos;
 
   const total = detalle.efecto_precio + detalle.efecto_volumen;
-  const cardStyle = (v: number, bg0: string, bg1: string) => ({
-    padding: "8px 12px", background: v >= 0 ? bg0 : bg1, borderRadius: 8, flex: 1, minWidth: 0,
-  });
-  const sign = (v: number) => v >= 0 ? "+" : "";
-  const thU = { ...thStyle, fontSize: 10, padding: "4px 8px" } as React.CSSProperties;
-  const thUR = { ...thR, fontSize: 10, padding: "4px 8px" } as React.CSSProperties;
-  const tdP = { padding: "3px 8px" } as React.CSSProperties;
+
+  // Sort ambos by biggest combined impact
+  const prodSorted = [...detalle.productos].sort(
+    (a, b) => Math.abs(b.efecto_precio + b.efecto_volumen) - Math.abs(a.efecto_precio + a.efecto_volumen)
+  );
+
+  const thU  = { ...thStyle, fontSize: 10, padding: "4px 8px" } as React.CSSProperties;
+  const thUR = { ...thR,     fontSize: 10, padding: "4px 8px" } as React.CSSProperties;
+  const tdP  = { padding: "3px 8px" } as React.CSSProperties;
   const tdPR = { ...tdR, padding: "3px 8px" } as React.CSSProperties;
+
+  const KpiCard = ({ label, value, sub, accent }: { label: string; value: number; sub: string; accent?: string }) => {
+    const col = accent ?? cc(value);
+    const bg  = value >= 0 ? (accent ? "#FFF7ED" : "#ECFDF5") : "#FEF2F2";
+    return (
+      <div style={{ padding: "8px 14px", background: bg, borderRadius: 8, flex: "1 1 0", minWidth: 0 }}>
+        <div style={{ fontSize: 9, fontWeight: 700, color: "#64748B", textTransform: "uppercase", marginBottom: 2 }}>{label}</div>
+        <div style={{ fontSize: 14, fontWeight: 800, color: col }}>{sign(value)}{fmtAbs(value)}</div>
+        <div style={{ fontSize: 9, color: "#94A3B8", marginTop: 1 }}>{sub}</div>
+      </div>
+    );
+  };
 
   return (
     <div style={{ padding: "12px 0" }}>
 
-      {/* ── Tarjetas resumen integradas ── */}
-      <div style={{ display: "flex", gap: 8, marginBottom: 14, flexWrap: "wrap" }}>
-        <div style={cardStyle(detalle.efecto_precio, "#ECFDF5", "#FEF2F2")}>
-          <div style={{ fontSize: 9, fontWeight: 700, color: "#64748B", textTransform: "uppercase", marginBottom: 2 }}>Ef. Precio</div>
-          <div style={{ fontSize: 14, fontWeight: 800, color: cc(detalle.efecto_precio) }}>{sign(detalle.efecto_precio)}{fmtAbs(detalle.efecto_precio)}</div>
-          <div style={{ fontSize: 9, color: "#94A3B8", marginTop: 1 }}>productos en ambos periodos</div>
-        </div>
-        <div style={cardStyle(detalle.vol_ambos ?? 0, "#ECFDF5", "#FEF2F2")}>
-          <div style={{ fontSize: 9, fontWeight: 700, color: "#64748B", textTransform: "uppercase", marginBottom: 2 }}>Ef. Volumen</div>
-          <div style={{ fontSize: 14, fontWeight: 800, color: cc(detalle.vol_ambos ?? 0) }}>{sign(detalle.vol_ambos ?? 0)}{fmtAbs(detalle.vol_ambos ?? 0)}</div>
-          <div style={{ fontSize: 9, color: "#94A3B8", marginTop: 1 }}>productos en ambos periodos</div>
-        </div>
-        {detalle.productos_perdidos.length > 0 && (
-          <div style={cardStyle(detalle.vol_perdidos, "#ECFDF5", "#FEF2F2")}>
-            <div style={{ fontSize: 9, fontWeight: 700, color: "#64748B", textTransform: "uppercase", marginBottom: 2 }}>Vol. Dejados ({detalle.productos_perdidos.length})</div>
-            <div style={{ fontSize: 14, fontWeight: 800, color: "#EF4444" }}>{fmtAbs(detalle.vol_perdidos)}</div>
-            <div style={{ fontSize: 9, color: "#94A3B8", marginTop: 1 }}>venta 2025 no repetida</div>
+      {/* ── 4 KPI cards ── */}
+      <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
+        <KpiCard label="Ef. Precio"   value={detalle.efecto_precio} sub={`${detalle.productos.length} prods. en ambos años`} />
+        <KpiCard label="Ef. Volumen"  value={volAmbos}              sub={`${detalle.productos.length} prods. en ambos años`} />
+        {totalPerdidos > 0 && (
+          <div style={{ padding: "8px 14px", background: "#FEF2F2", borderRadius: 8, flex: "1 1 0", minWidth: 0 }}>
+            <div style={{ fontSize: 9, fontWeight: 700, color: "#64748B", textTransform: "uppercase", marginBottom: 2 }}>
+              Dejados ({detalle.productos_perdidos.length})
+            </div>
+            <div style={{ fontSize: 14, fontWeight: 800, color: "#DC2626" }}>-{fmtAbs(totalPerdidos)}</div>
+            <div style={{ fontSize: 9, color: "#94A3B8", marginTop: 1 }}>sin venta en 2026</div>
           </div>
         )}
-        {detalle.productos_nuevos.length > 0 && (
-          <div style={cardStyle(detalle.vol_nuevos, "#ECFDF5", "#FEF2F2")}>
-            <div style={{ fontSize: 9, fontWeight: 700, color: "#64748B", textTransform: "uppercase", marginBottom: 2 }}>Vol. Nuevos ({detalle.productos_nuevos.length})</div>
-            <div style={{ fontSize: 14, fontWeight: 800, color: "#10B981" }}>+{fmtAbs(detalle.vol_nuevos)}</div>
-            <div style={{ fontSize: 9, color: "#94A3B8", marginTop: 1 }}>venta 2026 sin historia</div>
+        {totalNuevos > 0 && (
+          <div style={{ padding: "8px 14px", background: "#ECFDF5", borderRadius: 8, flex: "1 1 0", minWidth: 0 }}>
+            <div style={{ fontSize: 9, fontWeight: 700, color: "#64748B", textTransform: "uppercase", marginBottom: 2 }}>
+              Nuevos ({detalle.productos_nuevos.length})
+            </div>
+            <div style={{ fontSize: 14, fontWeight: 800, color: "#059669" }}>+{fmtAbs(totalNuevos)}</div>
+            <div style={{ fontSize: 9, color: "#94A3B8", marginTop: 1 }}>sin historial en 2025</div>
           </div>
         )}
-        <div style={{ padding: "8px 12px", background: total >= 0 ? "#EFF6FF" : "#FEF2F2", borderRadius: 8, flex: 1, minWidth: 0, borderLeft: `3px solid ${total >= 0 ? "#3B82F6" : "#EF4444"}` }}>
+        <div style={{ padding: "8px 14px", background: total >= 0 ? "#EFF6FF" : "#FEF2F2", borderRadius: 8, flex: "1 1 0", minWidth: 0, borderLeft: `3px solid ${total >= 0 ? "#3B82F6" : "#EF4444"}` }}>
           <div style={{ fontSize: 9, fontWeight: 700, color: "#64748B", textTransform: "uppercase", marginBottom: 2 }}>Variación Total</div>
           <div style={{ fontSize: 14, fontWeight: 800, color: cc(total) }}>{sign(total)}{fmtAbs(total)}</div>
           <div style={{ fontSize: 9, color: "#94A3B8", marginTop: 1 }}>precio + volumen</div>
         </div>
       </div>
 
-      {/* ── Tabla unificada con 3 secciones ── */}
-      <div style={{ maxHeight: 420, overflowY: "auto", border: "1px solid #E2E8F0", borderRadius: 8 }}>
-        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
-          <thead>
-            <tr style={{ background: "#F8FAFC", position: "sticky", top: 0, zIndex: 1 }}>
-              <th style={thU}>Producto</th>
-              <th style={thUR}>Venta 25</th>
-              <th style={thUR}>Venta 26</th>
-              <th style={thUR}>P.Unit 25</th>
-              <th style={thUR}>P.Unit 26</th>
-              <th style={thUR}>Ef. Precio</th>
-              <th style={thUR}>Ef. Volumen</th>
-            </tr>
-          </thead>
-          <tbody>
-            {/* Sección 1: productos en ambos periodos */}
-            {detalle.productos.length > 0 && (
-              <tr>
-                <td colSpan={7} style={{ padding: "4px 8px", background: "#F1F5F9", fontSize: 10, fontWeight: 700, color: "#475569" }}>
-                  Productos en ambos periodos ({detalle.productos.length})
-                </td>
-              </tr>
-            )}
-            {detalle.productos.map((p, i) => (
-              <tr key={p.codigo} style={{ borderBottom: "1px solid #F1F5F9", background: i % 2 === 0 ? "white" : "#FAFBFD" }}>
-                <td style={{ ...tdP, maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                  <span style={{ fontFamily: "monospace", fontWeight: 600, marginRight: 4, fontSize: 10, color: "#64748B" }}>{p.codigo}</span>{p.descripcion}
-                </td>
-                <td style={tdPR}>{fmtAbs(p.venta_25)}</td>
-                <td style={{ ...tdPR, fontWeight: 600 }}>{fmtAbs(p.venta_26)}</td>
-                <td style={tdPR}>{fmtAbs(p.precio_25)}</td>
-                <td style={tdPR}>{fmtAbs(p.precio_26)}</td>
-                <td style={{ ...tdPR, fontWeight: 700, color: cc(p.efecto_precio) }}>{sign(p.efecto_precio)}{fmtAbs(p.efecto_precio)}</td>
-                <td style={{ ...tdPR, fontWeight: 700, color: cc(p.efecto_volumen) }}>{sign(p.efecto_volumen)}{fmtAbs(p.efecto_volumen)}</td>
-              </tr>
-            ))}
+      {/* ── Tabla limpia: solo productos en ambos periodos ── */}
+      {prodSorted.length > 0 && (
+        <div style={{ marginBottom: 12 }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: "#475569", marginBottom: 6, paddingLeft: 2 }}>
+            Análisis Precio / Volumen — {prodSorted.length} productos en ambos años
+          </div>
+          <div style={{ maxHeight: 320, overflowY: "auto", border: "1px solid #E2E8F0", borderRadius: 8 }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
+              <thead>
+                <tr style={{ background: "#F8FAFC", position: "sticky", top: 0, zIndex: 1 }}>
+                  <th style={thU}>Producto</th>
+                  <th style={thUR}>Venta 25</th>
+                  <th style={thUR}>Venta 26</th>
+                  <th style={thUR}>P.Unit 25</th>
+                  <th style={thUR}>P.Unit 26</th>
+                  <th style={thUR}>Ef. Precio</th>
+                  <th style={thUR}>Ef. Volumen</th>
+                </tr>
+              </thead>
+              <tbody>
+                {prodSorted.map((p, i) => (
+                  <tr key={p.codigo} style={{ borderBottom: "1px solid #F1F5F9", background: i % 2 === 0 ? "white" : "#FAFBFD" }}>
+                    <td style={{ ...tdP, maxWidth: 240, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      <span style={{ fontFamily: "monospace", fontWeight: 600, marginRight: 4, fontSize: 10, color: "#94A3B8" }}>{p.codigo}</span>
+                      {p.descripcion}
+                    </td>
+                    <td style={tdPR}>{fmtAbs(p.venta_25)}</td>
+                    <td style={{ ...tdPR, fontWeight: 600 }}>{fmtAbs(p.venta_26)}</td>
+                    <td style={tdPR}>{fmtAbs(p.precio_25)}</td>
+                    <td style={tdPR}>{fmtAbs(p.precio_26)}</td>
+                    <td style={{ ...tdPR, fontWeight: 700, color: cc(p.efecto_precio) }}>{sign(p.efecto_precio)}{fmtAbs(p.efecto_precio)}</td>
+                    <td style={{ ...tdPR, fontWeight: 700, color: cc(p.efecto_volumen) }}>{sign(p.efecto_volumen)}{fmtAbs(p.efecto_volumen)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
-            {/* Sección 2: productos dejados de vender */}
-            {detalle.productos_perdidos.length > 0 && (
-              <tr>
-                <td colSpan={7} style={{ padding: "4px 8px", background: "#FEF2F2", fontSize: 10, fontWeight: 700, color: "#DC2626" }}>
-                  Dejados de vender ({detalle.productos_perdidos.length}) — pérdida pura de volumen
-                </td>
-              </tr>
-            )}
-            {detalle.productos_perdidos.map((p, i) => (
-              <tr key={p.codigo} style={{ borderBottom: "1px solid #FEE2E2", background: i % 2 === 0 ? "#FFFBFB" : "#FEF2F2" }}>
-                <td style={{ ...tdP, maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                  <span style={{ fontFamily: "monospace", fontWeight: 600, marginRight: 4, fontSize: 10, color: "#94A3B8" }}>{p.codigo}</span>{p.descripcion}
-                </td>
-                <td style={tdPR}>{fmtAbs(p.venta_25)}</td>
-                <td style={{ ...tdPR, color: "#94A3B8" }}>—</td>
-                <td style={{ ...tdPR, color: "#94A3B8" }}>—</td>
-                <td style={{ ...tdPR, color: "#94A3B8" }}>—</td>
-                <td style={{ ...tdPR, color: "#94A3B8" }}>—</td>
-                <td style={{ ...tdPR, fontWeight: 700, color: "#EF4444" }}>-{fmtAbs(p.venta_25)}</td>
-              </tr>
-            ))}
+      {/* ── Paneles de portafolio: dejados | nuevos ── */}
+      {(detalle.productos_perdidos.length > 0 || detalle.productos_nuevos.length > 0) && (
+        <div style={{ display: "grid", gridTemplateColumns: detalle.productos_perdidos.length > 0 && detalle.productos_nuevos.length > 0 ? "1fr 1fr" : "1fr", gap: 10 }}>
 
-            {/* Sección 3: productos nuevos */}
-            {detalle.productos_nuevos.length > 0 && (
-              <tr>
-                <td colSpan={7} style={{ padding: "4px 8px", background: "#ECFDF5", fontSize: 10, fontWeight: 700, color: "#059669" }}>
-                  Productos nuevos ({detalle.productos_nuevos.length}) — ganancia pura de volumen
-                </td>
-              </tr>
-            )}
-            {detalle.productos_nuevos.map((p, i) => (
-              <tr key={p.codigo} style={{ borderBottom: "1px solid #D1FAE5", background: i % 2 === 0 ? "#FAFFFE" : "#ECFDF5" }}>
-                <td style={{ ...tdP, maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                  <span style={{ fontFamily: "monospace", fontWeight: 600, marginRight: 4, fontSize: 10, color: "#94A3B8" }}>{p.codigo}</span>{p.descripcion}
-                </td>
-                <td style={{ ...tdPR, color: "#94A3B8" }}>—</td>
-                <td style={{ ...tdPR, fontWeight: 600 }}>{fmtAbs(p.venta_26)}</td>
-                <td style={{ ...tdPR, color: "#94A3B8" }}>—</td>
-                <td style={{ ...tdPR, color: "#94A3B8" }}>—</td>
-                <td style={{ ...tdPR, color: "#94A3B8" }}>—</td>
-                <td style={{ ...tdPR, fontWeight: 700, color: "#10B981" }}>+{fmtAbs(p.venta_26)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+          {/* Panel dejados */}
+          {detalle.productos_perdidos.length > 0 && (
+            <div style={{ border: "1px solid #FCA5A5", borderRadius: 8, overflow: "hidden" }}>
+              <div style={{ background: "#FEF2F2", padding: "6px 10px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span style={{ fontSize: 10, fontWeight: 700, color: "#DC2626" }}>
+                  Dejados de vender ({detalle.productos_perdidos.length})
+                </span>
+                <span style={{ fontSize: 11, fontWeight: 800, color: "#DC2626" }}>-{fmtAbs(totalPerdidos)}</span>
+              </div>
+              <div style={{ maxHeight: 160, overflowY: "auto" }}>
+                {detalle.productos_perdidos.map((p, i) => (
+                  <div key={p.codigo} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "4px 10px", borderTop: i > 0 ? "1px solid #FEE2E2" : undefined, background: i % 2 === 0 ? "white" : "#FFFBFB", gap: 8 }}>
+                    <span style={{ fontSize: 10, color: "#374151", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>
+                      {p.descripcion}
+                    </span>
+                    <span style={{ fontSize: 10, fontWeight: 700, color: "#DC2626", whiteSpace: "nowrap" }}>-{fmtAbs(p.venta_25)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Panel nuevos */}
+          {detalle.productos_nuevos.length > 0 && (
+            <div style={{ border: "1px solid #6EE7B7", borderRadius: 8, overflow: "hidden" }}>
+              <div style={{ background: "#ECFDF5", padding: "6px 10px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span style={{ fontSize: 10, fontWeight: 700, color: "#059669" }}>
+                  Productos nuevos ({detalle.productos_nuevos.length})
+                </span>
+                <span style={{ fontSize: 11, fontWeight: 800, color: "#059669" }}>+{fmtAbs(totalNuevos)}</span>
+              </div>
+              <div style={{ maxHeight: 160, overflowY: "auto" }}>
+                {detalle.productos_nuevos.map((p, i) => (
+                  <div key={p.codigo} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "4px 10px", borderTop: i > 0 ? "1px solid #D1FAE5" : undefined, background: i % 2 === 0 ? "white" : "#F0FDF4", gap: 8 }}>
+                    <span style={{ fontSize: 10, color: "#374151", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>
+                      {p.descripcion}
+                    </span>
+                    <span style={{ fontSize: 10, fontWeight: 700, color: "#059669", whiteSpace: "nowrap" }}>+{fmtAbs(p.venta_26)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+        </div>
+      )}
     </div>
   );
 }

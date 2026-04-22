@@ -51,7 +51,7 @@ function CumplimientoBar({ pct, w }: { pct: number; w?: number }) {
 }
 
 /* ─── Detalle expandido de una licitación ──────────────── */
-const LicDetalle = memo(function LicDetalle({ licId, notaInicial }: { licId: string; notaInicial?: any }) {
+const LicDetalle = memo(function LicDetalle({ licId, notaInicial, catFilter }: { licId: string; notaInicial?: any; catFilter?: string }) {
   const [det, setDet] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [notaText, setNotaText] = useState("");
@@ -93,7 +93,10 @@ const LicDetalle = memo(function LicDetalle({ licId, notaInicial }: { licId: str
   if (loading) return <div style={{ padding: 16, textAlign: "center", color: "#94A3B8", fontSize: 12 }}>Cargando detalle...</div>;
   if (!det || det.error) return <div style={{ padding: 16, color: "#EF4444", fontSize: 12 }}>Error: {det?.error || "sin datos"}</div>;
 
-  const adj = det.adjudicados || [];
+  const adjAll = det.adjudicados || [];
+  const adj = catFilter && catFilter !== "todas"
+    ? adjAll.filter((a: any) => a.categoria === catFilter)
+    : adjAll;
   const fac = det.facturados || [];
 
   return (
@@ -143,7 +146,9 @@ const LicDetalle = memo(function LicDetalle({ licId, notaInicial }: { licId: str
       <div style={{ display: "grid", gridTemplateColumns: fac.length > 0 ? "1fr 1fr" : "1fr", gap: 16 }}>
         {/* Productos adjudicados */}
         <div style={card}>
-          <h4 style={{ fontSize: 13, fontWeight: 700, color: "#0F172A", marginBottom: 8 }}>Productos Adjudicados ({adj.length})</h4>
+          <h4 style={{ fontSize: 13, fontWeight: 700, color: "#0F172A", marginBottom: 8 }}>
+            Productos Adjudicados ({adj.length}{catFilter && catFilter !== "todas" ? ` de ${adjAll.length} — filtrado por ${catFilter}` : ""})
+          </h4>
           {adj.length === 0 ? <div style={{ color: "#94A3B8", fontSize: 12 }}>Sin detalle de productos</div> : (
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
               <thead>
@@ -213,8 +218,8 @@ const LicDetalle = memo(function LicDetalle({ licId, notaInicial }: { licId: str
 });
 
 /* ─── Fila individual memoizada ──────── */
-const LicRow = memo(function LicRow({ l, i, isOpen, onToggle, colCount }: {
-  l: any; i: number; isOpen: boolean; onToggle: (id: string) => void; colCount: number;
+const LicRow = memo(function LicRow({ l, i, isOpen, onToggle, colCount, catFilter }: {
+  l: any; i: number; isOpen: boolean; onToggle: (id: string) => void; colCount: number; catFilter?: string;
 }) {
   const gap = l.adjudicado - l.facturado;
   return (
@@ -232,7 +237,13 @@ const LicRow = memo(function LicRow({ l, i, isOpen, onToggle, colCount }: {
         <td style={{ ...td, fontSize: 12, fontWeight: 600, color: "#4338CA" }}>{l.kam}</td>
         <td style={{ ...td, fontSize: 12, maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis" }} title={l.licitacion}>{l.licitacion}</td>
         <td style={{ ...td, maxWidth: 160, overflow: "hidden", textOverflow: "ellipsis" }} title={l.nombre}>{l.nombre}</td>
-        <td style={{ ...tdR, fontWeight: 600 }}>{fmtAbs(l.adjudicado)}</td>
+        <td style={{ ...tdR, fontWeight: 600 }}>
+          {fmtAbs(l.adjudicado)}
+          {l.monto_fuente === "OC" && (
+            <span title="Monto obtenido desde Órdenes de Compra (licitación sin monto en ChileCompra)"
+              style={{ fontSize: 9, fontWeight: 700, color: "#7C3AED", background: "#F5F3FF", padding: "1px 4px", borderRadius: 3, marginLeft: 4 }}>OC</span>
+          )}
+        </td>
         <td style={{ ...tdR, color: "#10B981" }}>{fmtAbs(l.facturado)}</td>
         <td style={{ ...tdR, fontWeight: 700, color: "#EF4444" }}>{fmtAbs(gap)}</td>
         <td style={td}><CumplimientoBar pct={l.cumplimiento} w={60} /></td>
@@ -241,18 +252,48 @@ const LicRow = memo(function LicRow({ l, i, isOpen, onToggle, colCount }: {
       </tr>
       {isOpen && (
         <tr><td colSpan={colCount} style={{ padding: 0 }}>
-          <LicDetalle licId={l.licitacion} notaInicial={l.nota} />
+          <LicDetalle licId={l.licitacion} notaInicial={l.nota} catFilter={catFilter} />
         </td></tr>
       )}
     </Fragment>
   );
-}, (prev, next) => prev.isOpen === next.isOpen && prev.i === next.i && prev.l === next.l);
+}, (prev, next) => prev.isOpen === next.isOpen && prev.i === next.i && prev.l === next.l && prev.catFilter === next.catFilter);
+
+/* ─── Barra de totales (sobre el cuadro, reactiva al filtro) ── */
+function TotalsBar({ rows }: { rows: any[] }) {
+  const adj = rows.reduce((s, l) => s + (l.adjudicado || 0), 0);
+  const fac = rows.reduce((s, l) => s + (l.facturado || 0), 0);
+  const gap = adj - fac;
+  const cum = adj > 0 ? Math.round(fac / adj * 100) : 0;
+  const cumColor = cum >= 80 ? "#10B981" : cum >= 50 ? "#F59E0B" : "#EF4444";
+  const item = (label: string, value: string, color?: string) => (
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 1 }}>
+      <span style={{ fontSize: 10, color: "#94A3B8", textTransform: "uppercase", letterSpacing: "0.05em" }}>{label}</span>
+      <span style={{ fontSize: 14, fontWeight: 700, color: color || "#0F172A" }}>{value}</span>
+    </div>
+  );
+  return (
+    <div style={{
+      display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 24,
+      padding: "10px 16px", background: "#F8FAFC", borderBottom: "1px solid #E2E8F0",
+      flexWrap: "wrap",
+    }}>
+      <span style={{ fontSize: 12, color: "#64748B", marginRight: "auto" }}>
+        <strong style={{ color: "#0F172A" }}>{rows.length}</strong> licitaciones
+      </span>
+      {item("Adjudicado", fmtAbs(adj))}
+      {item("Facturado", fmtAbs(fac), "#10B981")}
+      {item("Gap", fmtAbs(gap), "#EF4444")}
+      {item("Cumpl.", `${cum}%`, cumColor)}
+    </div>
+  );
+}
 
 type SortKey = "adjudicado" | "facturado" | "gap" | "cumplimiento" | "dias_restantes" | null;
 type SortDir = "asc" | "desc";
 
 /* ─── Tabla de licitaciones con filas expandibles y sorting ──────── */
-function LicTable({ rows, colCount }: { rows: any[]; colCount: number }) {
+function LicTable({ rows, colCount, catFilter }: { rows: any[]; colCount: number; catFilter?: string }) {
   const [sel, setSel] = useState<string | null>(null);
   const [sortKey, setSortKey] = useState<SortKey>(null);
   const [sortDir, setSortDir] = useState<SortDir>("desc");
@@ -298,7 +339,7 @@ function LicTable({ rows, colCount }: { rows: any[]; colCount: number }) {
       </thead>
       <tbody>
         {sorted.map((l: any, i: number) => (
-          <LicRow key={l.licitacion} l={l} i={i} isOpen={sel === l.licitacion} onToggle={toggle} colCount={colCount} />
+          <LicRow key={l.licitacion} l={l} i={i} isOpen={sel === l.licitacion} onToggle={toggle} colCount={colCount} catFilter={catFilter} />
         ))}
       </tbody>
     </table>
@@ -543,6 +584,9 @@ export default function FacturacionPage() {
   const [filtroAno, setFiltroAno] = useState<string>("todos");
   const [filtroMes, setFiltroMes] = useState<string>("todos");
   const [filtroKam, setFiltroKam] = useState<string>("todos");
+  const [filtroCat, setFiltroCat] = useState<string>("todas");
+  const [expandedClient, setExpandedClient] = useState<string | null>(null);
+  const [expandedLicInClient, setExpandedLicInClient] = useState<string | null>(null);
   const [emailModal, setEmailModal] = useState<{ kam: string; lics: any[]; urgente: boolean } | null>(null);
 
   useEffect(() => {
@@ -578,10 +622,12 @@ export default function FacturacionPage() {
 
   // KAMs disponibles
   const kamsDisponibles: string[] = data.kams || [];
+  const catsDisponibles: string[] = data.cats_available || [];
 
   // Filtrar licitaciones
-  const licFiltradas = licitaciones.filter(l => {
+  const licFiltradas = licitaciones.filter((l: any) => {
     if (filtroKam !== "todos" && l.kam !== filtroKam) return false;
+    if (filtroCat !== "todas" && !(l.categorias || []).includes(filtroCat)) return false;
     const p = parseFechaTermino(l.fecha_termino);
     if (!p) return true;
     if (filtroAno !== "todos" && p.year !== parseInt(filtroAno)) return false;
@@ -589,8 +635,18 @@ export default function FacturacionPage() {
     return true;
   });
 
-  // Filtrar urgentes por KAM
-  const urgentesFiltradas = filtroKam !== "todos" ? urgentes.filter((u: any) => u.kam === filtroKam) : urgentes;
+  // Filtrar urgentes por KAM y categoría
+  const urgentesFiltradas = urgentes.filter((u: any) => {
+    if (filtroKam !== "todos" && u.kam !== filtroKam) return false;
+    if (filtroCat !== "todas" && !(u.categorias || []).includes(filtroCat)) return false;
+    return true;
+  });
+
+  // Filtrar clientes por RUTs que aparecen en licitaciones filtradas
+  const rutsFiltrados = new Set(licFiltradas.map((l: any) => l.rut));
+  const clientesFiltrados = filtroCat !== "todas" || filtroKam !== "todos"
+    ? clientes.filter((c: any) => rutsFiltrados.has(c.rut))
+    : clientes;
 
   // Agrupar urgentes por KAM
   const kamMap: Record<string, { kam: string; count: number; gap: number; adj: number; fac: number }> = {};
@@ -607,9 +663,9 @@ export default function FacturacionPage() {
   const canalColors = ["#3B82F6", "#8B5CF6", "#10B981", "#F59E0B", "#EF4444", "#EC4899"];
 
   const tabs: { id: TabId; label: string; count: number; alert?: boolean }[] = [
-    { id: "urgentes", label: `Urgentes ${mesNombre}`, count: urgentes.length, alert: urgentes.length > 0 },
-    { id: "licitaciones", label: "Todas las Licitaciones", count: licitaciones.length },
-    { id: "clientes", label: "Por Cliente", count: clientes.length },
+    { id: "urgentes", label: `Urgentes ${mesNombre}`, count: urgentesFiltradas.length, alert: urgentesFiltradas.length > 0 },
+    { id: "licitaciones", label: "Todas las Licitaciones", count: licFiltradas.length },
+    { id: "clientes", label: "Por Cliente", count: clientesFiltrados.length },
   ];
 
   const LIC_COLS = 10; // number of columns in lic table
@@ -670,6 +726,30 @@ export default function FacturacionPage() {
         </ResponsiveContainer>
       </div>
 
+      {/* Filtro global: Categoría + KAM (aplica a todos los tabs) */}
+      <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", padding: "10px 16px", background: "white", border: "1px solid #E2E8F0", borderRadius: 8 }}>
+        <span style={{ fontSize: 12, color: "#64748B", fontWeight: 600 }}>Filtrar:</span>
+        <select value={filtroCat} onChange={e => setFiltroCat(e.target.value)} style={selectStyle}>
+          <option value="todas">Todas las categorías</option>
+          {catsDisponibles.map(c => <option key={c} value={c}>{c}</option>)}
+        </select>
+        <select value={filtroKam} onChange={e => setFiltroKam(e.target.value)} style={selectStyle}>
+          <option value="todos">Todos los KAM</option>
+          {kamsDisponibles.map(k2 => <option key={k2} value={k2}>{k2}</option>)}
+        </select>
+        {(filtroCat !== "todas" || filtroKam !== "todos") && (
+          <button onClick={() => { setFiltroCat("todas"); setFiltroKam("todos"); }}
+            style={{ ...selectStyle, color: "#EF4444", borderColor: "#FECACA", cursor: "pointer" }}>
+            Limpiar
+          </button>
+        )}
+        {filtroCat !== "todas" && (
+          <span style={{ fontSize: 12, color: "#6D28D9", fontWeight: 600, padding: "4px 10px", background: "#F5F3FF", borderRadius: 6 }}>
+            Mostrando: {filtroCat}
+          </span>
+        )}
+      </div>
+
       {/* Tabs */}
       <div style={{ display: "flex", gap: 4, borderBottom: "2px solid #E2E8F0" }}>
         {tabs.map(t => (
@@ -688,27 +768,14 @@ export default function FacturacionPage() {
       {/* ═══ Tab: Urgentes mes ═══ */}
       {tab === "urgentes" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-          {/* Filtro KAM */}
+          {/* Acciones urgentes */}
           <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-            <span style={{ fontSize: 12, color: "#64748B", fontWeight: 600 }}>Filtrar:</span>
-            <select value={filtroKam} onChange={e => setFiltroKam(e.target.value)} style={selectStyle}>
-              <option value="todos">Todos los KAM</option>
-              {kamsDisponibles.map(k2 => <option key={k2} value={k2}>{k2}</option>)}
-            </select>
-            {filtroKam !== "todos" && (
-              <>
-                <button onClick={() => setFiltroKam("todos")}
-                  style={{ ...selectStyle, color: "#EF4444", borderColor: "#FECACA", cursor: "pointer" }}>
-                  Limpiar
-                </button>
-                {kamToEmail(filtroKam) && (
-                  <button onClick={() => setEmailModal({ kam: filtroKam, lics: urgentesFiltradas, urgente: true })}
-                    style={{ ...selectStyle, display: "inline-flex", alignItems: "center", gap: 5,
-                      color: "#2563EB", borderColor: "#BFDBFE", cursor: "pointer", background: "white" }}>
-                    <Mail size={14} /> Enviar a {filtroKam.split(" ")[0]}
-                  </button>
-                )}
-              </>
+            {filtroKam !== "todos" && kamToEmail(filtroKam) && (
+              <button onClick={() => setEmailModal({ kam: filtroKam, lics: urgentesFiltradas, urgente: true })}
+                style={{ ...selectStyle, display: "inline-flex", alignItems: "center", gap: 5,
+                  color: "#2563EB", borderColor: "#BFDBFE", cursor: "pointer", background: "white" }}>
+                <Mail size={14} /> Enviar a {filtroKam.split(" ")[0]}
+              </button>
             )}
           </div>
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
@@ -754,7 +821,8 @@ export default function FacturacionPage() {
             <div style={{ padding: "12px 16px", borderBottom: "1px solid #E2E8F0", background: "#FEF2F2" }}>
               <span style={{ fontSize: 13, fontWeight: 700, color: "#991B1B" }}>Detalle — Licitaciones que vencen en {mesNombre} con facturación pendiente</span>
             </div>
-            <LicTable rows={urgentesFiltradas} colCount={LIC_COLS} />
+            <TotalsBar rows={urgentesFiltradas} />
+            <LicTable rows={urgentesFiltradas} colCount={LIC_COLS} catFilter={filtroCat} />
           </div>
         </div>
       )}
@@ -762,13 +830,8 @@ export default function FacturacionPage() {
       {/* ═══ Tab: Todas las Licitaciones ═══ */}
       {tab === "licitaciones" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-          {/* Filtros */}
+          {/* Filtros fecha + email */}
           <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-            <span style={{ fontSize: 12, color: "#64748B", fontWeight: 600 }}>Filtrar:</span>
-            <select value={filtroKam} onChange={e => setFiltroKam(e.target.value)} style={selectStyle}>
-              <option value="todos">Todos los KAM</option>
-              {kamsDisponibles.map(k2 => <option key={k2} value={k2}>{k2}</option>)}
-            </select>
             <select value={filtroAno} onChange={e => setFiltroAno(e.target.value)} style={selectStyle}>
               <option value="todos">Todos los años</option>
               {anos.map(a => <option key={a} value={a}>{a}</option>)}
@@ -777,10 +840,10 @@ export default function FacturacionPage() {
               <option value="todos">Todos los meses</option>
               {meses.map(m => <option key={m} value={m}>{MESES_NOMBRE[m]}</option>)}
             </select>
-            {(filtroAno !== "todos" || filtroMes !== "todos" || filtroKam !== "todos") && (
-              <button onClick={() => { setFiltroAno("todos"); setFiltroMes("todos"); setFiltroKam("todos"); }}
+            {(filtroAno !== "todos" || filtroMes !== "todos") && (
+              <button onClick={() => { setFiltroAno("todos"); setFiltroMes("todos"); }}
                 style={{ ...selectStyle, color: "#EF4444", borderColor: "#FECACA", cursor: "pointer" }}>
-                Limpiar
+                Limpiar fechas
               </button>
             )}
             {filtroKam !== "todos" && kamToEmail(filtroKam) && (
@@ -812,7 +875,8 @@ export default function FacturacionPage() {
           </div>
 
           <div style={{ ...card, padding: 0, overflow: "auto" }}>
-            <LicTable rows={licFiltradas} colCount={LIC_COLS} />
+            <TotalsBar rows={licFiltradas} />
+            <LicTable rows={licFiltradas} colCount={LIC_COLS} catFilter={filtroCat} />
           </div>
         </div>
       )}
@@ -823,6 +887,7 @@ export default function FacturacionPage() {
           <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 900 }}>
             <thead>
               <tr style={{ background: "#F8FAFC" }}>
+                <th style={{ ...thC, width: 30 }}></th>
                 <th style={thC}>Estado</th>
                 <th style={thS}>KAM</th>
                 <th style={thS}>Cliente</th>
@@ -834,23 +899,99 @@ export default function FacturacionPage() {
               </tr>
             </thead>
             <tbody>
-              {clientes.map((c: any, i: number) => (
-                <tr key={c.rut} style={{ borderBottom: "1px solid #F1F5F9", background: rowBg(i) }}>
-                  <td style={tdC}>
-                    <span style={{
-                      display: "inline-block", padding: "2px 8px", borderRadius: 9999, fontSize: 10, fontWeight: 700,
-                      color: semColor(c.semaforo), background: semBg(c.semaforo),
-                    }}>{c.cumplimiento < 50 ? "Bajo" : c.cumplimiento < 80 ? "Medio" : "Alto"}</span>
-                  </td>
-                  <td style={{ ...td, fontSize: 12, color: "#4338CA" }}>{c.kam}</td>
-                  <td style={{ ...td, maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis" }} title={`${c.rut} — ${c.nombre}`}>{c.nombre}</td>
-                  <td style={{ ...tdR, fontWeight: 600 }}>{fmtAbs(c.adjudicado)}</td>
-                  <td style={{ ...tdR, color: "#10B981" }}>{fmtAbs(c.facturado)}</td>
-                  <td style={td}><CumplimientoBar pct={c.cumplimiento} w={70} /></td>
-                  <td style={tdC}>{c.n_licitaciones}</td>
-                  <td style={{ ...tdC, fontWeight: 700, color: c.dias_mas_pronto <= 30 ? "#EF4444" : c.dias_mas_pronto <= 90 ? "#F59E0B" : "#10B981" }}>{c.dias_mas_pronto}</td>
-                </tr>
-              ))}
+              {clientesFiltrados.map((c: any, i: number) => {
+                const isExpanded = expandedClient === c.rut;
+                // Licitaciones de este cliente (respetando filtros activos)
+                const clienteLics = licitaciones.filter((l: any) => l.rut === c.rut &&
+                  (filtroCat === "todas" || (l.categorias || []).includes(filtroCat)) &&
+                  (filtroKam === "todos" || l.kam === filtroKam));
+                return (
+                  <Fragment key={c.rut}>
+                    {/* Fila cliente */}
+                    <tr
+                      onClick={() => { setExpandedClient(isExpanded ? null : c.rut); setExpandedLicInClient(null); }}
+                      style={{ borderBottom: "1px solid #F1F5F9", background: isExpanded ? "#EFF6FF" : rowBg(i), cursor: "pointer" }}
+                    >
+                      <td style={{ ...tdC, color: "#94A3B8" }}>
+                        {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                      </td>
+                      <td style={tdC}>
+                        <span style={{
+                          display: "inline-block", padding: "2px 8px", borderRadius: 9999, fontSize: 10, fontWeight: 700,
+                          color: semColor(c.semaforo), background: semBg(c.semaforo),
+                        }}>{c.cumplimiento < 50 ? "Bajo" : c.cumplimiento < 80 ? "Medio" : "Alto"}</span>
+                      </td>
+                      <td style={{ ...td, fontSize: 12, color: "#4338CA" }}>{c.kam}</td>
+                      <td style={{ ...td, fontWeight: 600, maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis" }} title={`${c.rut} — ${c.nombre}`}>{c.nombre}</td>
+                      <td style={{ ...tdR, fontWeight: 600 }}>{fmtAbs(c.adjudicado)}</td>
+                      <td style={{ ...tdR, color: "#10B981" }}>{fmtAbs(c.facturado)}</td>
+                      <td style={td}><CumplimientoBar pct={c.cumplimiento} w={70} /></td>
+                      <td style={tdC}>{c.n_licitaciones}</td>
+                      <td style={{ ...tdC, fontWeight: 700, color: c.dias_mas_pronto <= 30 ? "#EF4444" : c.dias_mas_pronto <= 90 ? "#F59E0B" : "#10B981" }}>{c.dias_mas_pronto}</td>
+                    </tr>
+
+                    {/* Detalle licitaciones del cliente */}
+                    {isExpanded && (
+                      <tr>
+                        <td colSpan={9} style={{ padding: 0, background: "#F8FAFC", borderBottom: "2px solid #E2E8F0" }}>
+                          <div style={{ padding: "10px 24px 10px 48px" }}>
+                            {clienteLics.length === 0 ? (
+                              <div style={{ color: "#94A3B8", fontSize: 12, padding: "8px 0" }}>Sin licitaciones para el filtro activo</div>
+                            ) : (
+                              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                                <thead>
+                                  <tr style={{ background: "#F1F5F9" }}>
+                                    <th style={{ ...thC, width: 24, padding: "6px 8px" }}></th>
+                                    <th style={{ ...thS, padding: "6px 8px" }}>Licitación</th>
+                                    <th style={{ ...thR, padding: "6px 8px" }}>Adjudicado</th>
+                                    <th style={{ ...thR, padding: "6px 8px" }}>Facturado</th>
+                                    <th style={{ ...thR, padding: "6px 8px" }}>Gap</th>
+                                    <th style={{ ...thS, padding: "6px 8px" }}>Cumpl.</th>
+                                    <th style={{ ...thC, padding: "6px 8px" }}>Término</th>
+                                    <th style={{ ...thC, padding: "6px 8px" }}>Días</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {clienteLics.map((l: any, li: number) => {
+                                    const licOpen = expandedLicInClient === l.licitacion;
+                                    const gap = l.adjudicado - l.facturado;
+                                    return (
+                                      <Fragment key={l.licitacion}>
+                                        <tr
+                                          onClick={(e) => { e.stopPropagation(); setExpandedLicInClient(licOpen ? null : l.licitacion); }}
+                                          style={{ borderBottom: "1px solid #E2E8F0", background: licOpen ? "#DBEAFE" : li % 2 === 0 ? "white" : "#F8FAFC", cursor: "pointer" }}
+                                        >
+                                          <td style={{ ...tdC, padding: "5px 8px", color: "#94A3B8" }}>
+                                            {licOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+                                          </td>
+                                          <td style={{ ...td, padding: "5px 8px", fontFamily: "monospace", fontWeight: 700, color: "#1E40AF" }}>{l.licitacion}</td>
+                                          <td style={{ ...tdR, padding: "5px 8px", fontWeight: 600 }}>{fmtAbs(l.adjudicado)}</td>
+                                          <td style={{ ...tdR, padding: "5px 8px", color: "#10B981" }}>{fmtAbs(l.facturado)}</td>
+                                          <td style={{ ...tdR, padding: "5px 8px", fontWeight: 700, color: "#EF4444" }}>{fmtAbs(gap)}</td>
+                                          <td style={{ ...td, padding: "5px 8px" }}><CumplimientoBar pct={l.cumplimiento} w={55} /></td>
+                                          <td style={{ ...tdC, padding: "5px 8px", fontSize: 11 }}>{l.fecha_termino}</td>
+                                          <td style={{ ...tdC, padding: "5px 8px", fontWeight: 700, color: semColor(l.semaforo) }}>{l.dias_restantes}</td>
+                                        </tr>
+                                        {licOpen && (
+                                          <tr>
+                                            <td colSpan={8} style={{ padding: 0 }}>
+                                              <LicDetalle licId={l.licitacion} notaInicial={l.nota} catFilter={filtroCat} />
+                                            </td>
+                                          </tr>
+                                        )}
+                                      </Fragment>
+                                    );
+                                  })}
+                                </tbody>
+                              </table>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
+                );
+              })}
             </tbody>
           </table>
         </div>

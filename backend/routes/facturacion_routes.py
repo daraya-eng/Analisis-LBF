@@ -12,6 +12,7 @@ from pydantic import BaseModel
 from typing import Optional, List
 from auth import get_current_user
 from db import get_conn, hoy, filtro_guias
+from db_mp import get_pg_conn
 from cache import mem_get, mem_set, _mem_cache
 
 _NOTAS_PATH = os.path.join(os.path.dirname(__file__), "..", "data", "notas_licitaciones.json")
@@ -80,6 +81,23 @@ def _load_facturacion() -> dict:
         if rut and rut not in kam_map:
             zona_map[rut] = str(r[1] or "").strip()
 
+    # ── Categorías por licitación (para filtro frontend) ──
+    cur.execute(f"""
+        SELECT DISTINCT licitacion, LTRIM(RTRIM(ISNULL(Categoria, ''))) AS cat
+        FROM vw_LICITACIONES_CATEGORIZADAS
+        WHERE EsLBF = 1 AND estado = 'Adjudicado'
+          AND TRY_CAST(fecha_termino AS date) >= '{_HOY}'
+          AND Categoria IS NOT NULL AND Categoria != ''
+    """)
+    cat_per_lic: dict = {}
+    all_cats: set = set()
+    for r in cur.fetchall():
+        lic = str(r[0] or "").strip()
+        cat = str(r[1] or "").strip()
+        if lic and cat:
+            cat_per_lic.setdefault(lic, []).append(cat)
+            all_cats.add(cat)
+
     # ── Licitaciones vigentes LBF, ordenadas por fecha_termino ASC ──
     cur.execute(f"""
         WITH adj AS (
@@ -125,8 +143,9 @@ def _load_facturacion() -> dict:
         sem = "red" if dias <= 30 else ("yellow" if dias <= 90 else "green")
         rut_str = str(r[1] or "").strip()
         kam = kam_map.get(rut_str) or zona_map.get(rut_str, "Sin KAM")
+        lic_id = str(r[0] or "").strip()
         row = {
-            "licitacion": str(r[0] or "").strip(),
+            "licitacion": lic_id,
             "rut": rut_str,
             "nombre": str(r[2] or "").strip(),
             "adjudicado": adj_val,
@@ -137,6 +156,7 @@ def _load_facturacion() -> dict:
             "dias_restantes": dias,
             "semaforo": sem,
             "kam": kam,
+            "categorias": cat_per_lic.get(lic_id, []),
         }
         licitaciones.append(row)
         # Urgentes reales: vencen en el mes en curso y NO están al 100%
@@ -206,6 +226,38 @@ def _load_facturacion() -> dict:
             "kam": kam_map.get(rut_str) or zona_map.get(rut_str, "Sin KAM"),
         })
 
+    # ── Corregir adjudicado desde OCs en PostgreSQL (donde facturado > adjudicado) ──
+    # monto_licitacion en vw_LICITACIONES_CATEGORIZADAS puede venir corrupto ($1, $4, etc.)
+    # Para cualquier licitación donde facturado > adjudicado, buscamos el monto real en OC.
+    lics_a_verificar = [l["licitacion"] for l in licitaciones if l["facturado"] > l["adjudicado"]]
+    if lics_a_verificar:
+        try:
+            pg = get_pg_conn()
+            pg_cur = pg.cursor()
+            placeholders = ",".join(["%s"] * len(lics_a_verificar))
+            pg_cur.execute(f"""
+                SELECT codigo_licitacion, SUM(monto_neto) AS monto_oc
+                FROM ordenes_compra
+                WHERE proveedor_rut = '93.366.000-1'
+                  AND codigo_licitacion IN ({placeholders})
+                  AND estado NOT IN ('Cancelada', 'Rechazada')
+                GROUP BY codigo_licitacion
+            """, lics_a_verificar)
+            oc_map = {str(r[0]).strip(): int(r[1] or 0) for r in pg_cur.fetchall()}
+            pg_cur.close()
+            pg.close()
+
+            # Actualizar adjudicado con OC solo si el monto OC es mayor al actual
+            for l in licitaciones:
+                if l["facturado"] > l["adjudicado"] and l["licitacion"] in oc_map:
+                    monto_real = oc_map[l["licitacion"]]
+                    if monto_real > l["adjudicado"]:
+                        l["adjudicado"] = monto_real
+                        l["cumplimiento"] = round(l["facturado"] / monto_real * 100, 1) if monto_real > 0 else 0
+                        l["monto_fuente"] = "OC"  # marca de origen
+        except Exception:
+            pass  # Si falla PostgreSQL, se mantienen los valores originales
+
     # ── Canales de venta (para contexto) ──
     cur.execute(f"""
         SELECT ISNULL(TIPO_OC, 'Otro') AS canal,
@@ -220,6 +272,21 @@ def _load_facturacion() -> dict:
     """)
     canales = [{"canal": str(r[0] or "").strip(), "venta": round(float(r[1] or 0)),
                 "n_clientes": r[2] or 0} for r in cur.fetchall()]
+
+    # Recalcular KPIs con montos corregidos desde OC
+    total_adj = sum(l["adjudicado"] for l in licitaciones)
+    total_fac = sum(l["facturado"] for l in licitaciones)
+    ur_adj = sum(u["adjudicado"] for u in urgentes_reales)
+    ur_fac = sum(u["facturado"] for u in urgentes_reales)
+    kpis.update({
+        "total_adjudicado": total_adj,
+        "total_facturado": round(total_fac),
+        "cumplimiento": round(total_fac / total_adj * 100, 1) if total_adj > 0 else 0,
+        "gap": total_adj - round(total_fac),
+        "urgentes_reales_gap": ur_adj - ur_fac,
+        "urgentes_reales_adj": ur_adj,
+        "urgentes_reales_fac": ur_fac,
+    })
 
     # Ordenar licitaciones y clientes por cumplimiento ASC (peor primero)
     licitaciones.sort(key=lambda x: x["cumplimiento"])
@@ -244,7 +311,8 @@ def _load_facturacion() -> dict:
 
     return {"kpis": kpis, "licitaciones": licitaciones, "clientes": clientes,
             "canales": canales, "urgentes_reales": urgentes_reales,
-            "mes_nombre": _MES_NOMBRE, "kams": kams_set}
+            "mes_nombre": _MES_NOMBRE, "kams": kams_set,
+            "cats_available": sorted(all_cats)}
 
 
 def _load_detalle_licitacion(licitacion: str) -> dict:

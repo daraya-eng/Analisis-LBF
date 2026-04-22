@@ -170,16 +170,54 @@ function SegCard({ title, data, color, icon }: { title: string; data: SegKpi; co
 
 /* ─── Bar label ──────────────────────────────────────── */
 
+// Colors per series: positive green shades, negative red shades
+const CHART_COLORS = {
+  efecto_precio:    { pos: "#10B981", neg: "#EF4444" },
+  efecto_volumen:   { pos: "#059669", neg: "#DC2626" },
+  sin_comparacion:  { pos: "#34D399", neg: "#F87171" },
+};
+
 function ValLabel(props: { x?: number; y?: number; width?: number; height?: number; value?: number }) {
   const { x = 0, y = 0, width = 0, height = 0, value } = props;
   if (value == null || value === 0) return null;
   const isNeg = value < 0;
-  // Positive bars: label above top (y - 4); negative bars: label below bottom (y + height + 12)
-  const labelY = isNeg ? y + height + 12 : y - 4;
+  const absH = Math.abs(height);
+  const cx = x + width / 2;
+  const label = `${isNeg ? "" : "+"}${fmt(value)}`;
+
+  // Inside bar — white text centered. y + height/2 works for both pos/neg height sign.
+  if (absH > 38) {
+    const cy = y + height / 2;
+    return (
+      <text x={cx} y={cy} fill="white" textAnchor="middle"
+        fontSize={10} fontWeight={800} dominantBaseline="middle">
+        {label}
+      </text>
+    );
+  }
+
+  // Outside bar — pill with colored background so it's visible over white
+  const bgColor = isNeg ? "#EF4444" : "#059669";
+  // For negative bars: recharts may give height<0 (y=bottom) or height>0 (y=top of downward bar)
+  // Place label below the bar bottom in either case
+  const labelY = isNeg
+    ? (height < 0 ? y + 18 : y + absH + 18)
+    : y - 8;
+  const charW = 7;
+  const pillW = label.length * charW + 8;
+  const pillH = 16;
   return (
-    <text x={x + width / 2} y={labelY} fill={isNeg ? "#DC2626" : "#374151"} textAnchor="middle" fontSize={10} fontWeight={700}>
-      {isNeg ? "" : "+"}{fmt(value)}
-    </text>
+    <g>
+      <rect
+        x={cx - pillW / 2} y={labelY - pillH + 4}
+        width={pillW} height={pillH}
+        rx={4} fill={bgColor} opacity={0.9}
+      />
+      <text x={cx} y={labelY - 2} fill="white" textAnchor="middle"
+        fontSize={10} fontWeight={700} dominantBaseline="middle">
+        {label}
+      </text>
+    </g>
   );
 }
 
@@ -610,13 +648,13 @@ export default function ClientesPage() {
       segmento: "Publico",
       efecto_precio: pub.efecto_precio,
       efecto_volumen: pub.efecto_volumen,
-      cartera: pub.diff - pub.efecto_precio - pub.efecto_volumen,
+      sin_comparacion: pub.diff - pub.efecto_precio - pub.efecto_volumen,
     },
     {
       segmento: "Privado",
       efecto_precio: priv.efecto_precio,
       efecto_volumen: priv.efecto_volumen,
-      cartera: priv.diff - priv.efecto_precio - priv.efecto_volumen,
+      sin_comparacion: priv.diff - priv.efecto_precio - priv.efecto_volumen,
     },
   ];
 
@@ -732,11 +770,34 @@ export default function ClientesPage() {
             })}
           </div>
         </div>
-        <p style={{ fontSize: 11, color: "#94A3B8", margin: "0 0 16px" }}>
-          Ef. Precio + Ef. Volumen + Cartera = Variación total · Cartera = clientes sin historial comparado
-        </p>
+        {/* Explicación */}
+        <div style={{ background: "#F8FAFC", border: "1px solid #E2E8F0", borderRadius: 8, padding: "10px 14px", marginBottom: 14 }}>
+          <p style={{ fontSize: 12, color: "#475569", margin: 0, lineHeight: 1.6 }}>
+            <strong>Ef. Precio:</strong> cuánto subió o bajó la venta por cambios en el precio unitario (mismos productos, mismo volumen).<br />
+            <strong>Ef. Volumen:</strong> cuánto cambió la venta por vender más o menos unidades (a precio constante 2025).<br />
+            <strong>Sin comparación:</strong> clientes que compraron solo en 2025 o solo en 2026 — no tienen año base para calcular precio/volumen. Su venta se suma o resta directamente a la variación total.
+          </p>
+        </div>
+        {/* Custom legend */}
+        <div style={{ display: "flex", gap: 20, marginBottom: 12, flexWrap: "wrap" }}>
+          {([
+            { key: "efecto_precio",   label: "Ef. Precio" },
+            { key: "efecto_volumen",  label: "Ef. Volumen" },
+            { key: "sin_comparacion", label: "Sin comparación" },
+          ] as const).map(({ key, label }) => (
+            <div key={key} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <div style={{ display: "flex", gap: 3 }}>
+                <div style={{ width: 14, height: 14, borderRadius: 3, background: CHART_COLORS[key].pos }} />
+                <div style={{ width: 14, height: 14, borderRadius: 3, background: CHART_COLORS[key].neg }} />
+              </div>
+              <span style={{ fontSize: 12, color: "#374151", fontWeight: 600 }}>{label}</span>
+            </div>
+          ))}
+          <span style={{ fontSize: 11, color: "#94A3B8", alignSelf: "center" }}>Verde = positivo · Rojo = negativo</span>
+        </div>
+
         <ResponsiveContainer width="100%" height={280}>
-          <BarChart data={chartData} barCategoryGap="30%">
+          <BarChart data={chartData} barCategoryGap="30%" margin={{ top: 16, right: 16, bottom: 0, left: 0 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" />
             <XAxis dataKey="segmento" tick={{ fontSize: 13, fontWeight: 600 }} />
             <YAxis
@@ -753,28 +814,28 @@ export default function ClientesPage() {
               // eslint-disable-next-line @typescript-eslint/no-explicit-any
               formatter={(v: any, name: any) => {
                 const n = Number(v);
-                return [`${n >= 0 ? "+" : ""}${fmtAbs(n)}`, name];
+                const sign = n >= 0 ? "+" : "-";
+                return [`${sign}${fmtAbs(Math.abs(n))}`, name];
               }}
-              contentStyle={{ borderRadius: 8, fontSize: 13 }}
+              contentStyle={{ borderRadius: 8, fontSize: 13, border: "1px solid #E2E8F0", boxShadow: "0 4px 12px rgba(0,0,0,0.08)" }}
             />
-            <Legend wrapperStyle={{ fontSize: 13 }} />
-            <Bar dataKey="efecto_precio" name="Ef. Precio" radius={[4, 4, 0, 0]}>
+            <Bar dataKey="efecto_precio" name="Ef. Precio" fill={CHART_COLORS.efecto_precio.pos} radius={[4, 4, 0, 0]}>
               {chartData.map((d, i) => (
-                <Cell key={i} fill={d.efecto_precio >= 0 ? "#10B981" : "#EF4444"} />
+                <Cell key={i} fill={d.efecto_precio >= 0 ? CHART_COLORS.efecto_precio.pos : CHART_COLORS.efecto_precio.neg} />
               ))}
               <LabelList dataKey="efecto_precio" content={<ValLabel />} />
             </Bar>
-            <Bar dataKey="efecto_volumen" name="Ef. Volumen" radius={[4, 4, 0, 0]}>
+            <Bar dataKey="efecto_volumen" name="Ef. Volumen" fill={CHART_COLORS.efecto_volumen.pos} radius={[4, 4, 0, 0]}>
               {chartData.map((d, i) => (
-                <Cell key={i} fill={d.efecto_volumen >= 0 ? "#3B82F6" : "#F97316"} />
+                <Cell key={i} fill={d.efecto_volumen >= 0 ? CHART_COLORS.efecto_volumen.pos : CHART_COLORS.efecto_volumen.neg} />
               ))}
               <LabelList dataKey="efecto_volumen" content={<ValLabel />} />
             </Bar>
-            <Bar dataKey="cartera" name="Cartera" radius={[4, 4, 0, 0]}>
+            <Bar dataKey="sin_comparacion" name="Sin comparación" fill={CHART_COLORS.sin_comparacion.pos} radius={[4, 4, 0, 0]}>
               {chartData.map((d, i) => (
-                <Cell key={i} fill={d.cartera >= 0 ? "#8B5CF6" : "#6366F1"} />
+                <Cell key={i} fill={d.sin_comparacion >= 0 ? CHART_COLORS.sin_comparacion.pos : CHART_COLORS.sin_comparacion.neg} />
               ))}
-              <LabelList dataKey="cartera" content={<ValLabel />} />
+              <LabelList dataKey="sin_comparacion" content={<ValLabel />} />
             </Bar>
           </BarChart>
         </ResponsiveContainer>

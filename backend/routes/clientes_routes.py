@@ -166,7 +166,7 @@ def _load_clientes_data(meses: list[int]) -> dict:
         clientes.append({
             "rut": rut,
             "nombre": d26.get("nombre", "") or d25.get("nombre", ""),
-            "segmento": d26.get("segmento", "Sin Segmento"),
+            "segmento": d26.get("segmento") or _resolver_seg(rut, ""),
             "venta_26": round(v26),
             "venta_25": round(v25),
             "diff": round(diff),

@@ -106,6 +106,7 @@ async def guantes_resumen(
               AND oc.fecha_envio >= '{desde.isoformat()}'
               AND oi.cantidad > 0
               AND {_MONTO} > 0
+              AND ({_MONTO} / oi.cantidad) >= 10  -- excluir precios unitarios < $10 (datos basura)
             GROUP BY 1, 2
             ORDER BY 1, 4 DESC
         """)

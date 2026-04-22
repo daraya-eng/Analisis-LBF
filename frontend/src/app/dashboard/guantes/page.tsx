@@ -6,7 +6,7 @@ import { fmt } from "@/lib/format";
 import { ExportButton } from "@/components/table-tools";
 import {
   ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, Legend, LabelList,
+  ResponsiveContainer, Legend,
 } from "recharts";
 
 /* ─── Styles ────────────────────────────────────────────────── */
@@ -113,7 +113,7 @@ export default function GuantesPage() {
   const [data, setData] = useState<ResumenData | null>(null);
   const [loading, setLoading] = useState(true);
   const [tipoFilter, setTipoFilter] = useState("nitrilo");
-  const [tab, setTab] = useState<"alertas" | "transacciones" | "evolucion">("transacciones");
+  const [tab, setTab] = useState<"alertas" | "transacciones" | "proveedores">("transacciones");
   const [provFilter, setProvFilter] = useState("");
 
   useEffect(() => {
@@ -151,9 +151,6 @@ export default function GuantesPage() {
   const finalAlzas = provFilter
     ? filteredAlzas.filter(a => a.proveedor.toLowerCase().includes(provFilter.toLowerCase()))
     : filteredAlzas;
-
-  // Build evolution chart data
-  const chartData = _buildChartData(data.evolucion, data.lbf, tipoFilter);
 
   // Top providers in current data
   const proveedores = _getTopProviders(data.evolucion);
@@ -240,7 +237,7 @@ export default function GuantesPage() {
 
       {/* Tabs */}
       <div style={{ display: "flex", gap: 4, marginBottom: 16, borderBottom: "2px solid #E2E8F0", paddingBottom: 0 }}>
-        {(["transacciones", "evolucion", "alertas"] as const).map(t => (
+        {(["transacciones", "proveedores", "alertas"] as const).map(t => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -252,7 +249,7 @@ export default function GuantesPage() {
               marginBottom: -2,
             }}
           >
-            {t === "transacciones" ? `Transacciones (${finalTxn.length})` : t === "alertas" ? `Alertas (${finalAlzas.length})` : "Evolucion"}
+            {t === "transacciones" ? `Transacciones (${finalTxn.length})` : t === "alertas" ? `Alertas (${finalAlzas.length})` : "Proveedores"}
           </button>
         ))}
       </div>
@@ -260,7 +257,7 @@ export default function GuantesPage() {
       {/* Tab Content */}
       {tab === "alertas" && <AlertasTab alzas={finalAlzas} />}
       {tab === "transacciones" && <TransaccionesTab txns={finalTxn} />}
-      {tab === "evolucion" && <EvolucionTab chartData={chartData} evolucion={data.evolucion} tipoFilter={tipoFilter} />}
+      {tab === "proveedores" && <ProveedoresTab evolucion={data.evolucion} lbf={data.lbf} transacciones={data.transacciones} tipoFilter={tipoFilter} />}
 
       <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
     </div>
@@ -393,73 +390,251 @@ function TransaccionesTab({ txns }: { txns: Transaccion[] }) {
   );
 }
 
-/* ─── Tab: Evolucion ───────────────────────────────────────── */
+/* ─── Tab: Proveedores (con drill-down) ─────────────────────── */
 
-function EvolucionTab({ chartData, evolucion, tipoFilter }: { chartData: any[]; evolucion: EvolRow[]; tipoFilter: string }) {
-  // Build provider table from evolution data
-  const provTable = _buildProviderTable(evolucion, tipoFilter);
+interface ProvResumen {
+  nombre: string; // nombre original sin acortar
+  short: string;
+  monto: number;
+  unidades: number;
+  precio_prom: number;
+  n_ocs: number;
+  meses_activo: number;
+  variacion: number | null; // precio primer vs ultimo mes con data
+  evol: { mes: string; precio_prom: number; monto: number }[]; // para el mini gráfico
+}
+
+function _buildProvResumen(evolucion: EvolRow[], lbf: { mes: string; unidades: number; monto: number; precio_prom: number; n_ocs: number }[]): ProvResumen[] {
+  // Agregar LBF como proveedor virtual
+  const lbfRows: EvolRow[] = lbf.map(l => ({ ...l, proveedor: "LBF (COMERCIAL LBF LIMITADA)" }));
+  const allRows = [...lbfRows, ...evolucion];
+
+  const byProv: Record<string, EvolRow[]> = {};
+  allRows.forEach(e => {
+    if (!byProv[e.proveedor]) byProv[e.proveedor] = [];
+    byProv[e.proveedor].push(e);
+  });
+
+  return Object.entries(byProv).map(([nombre, rows]) => {
+    const monto = rows.reduce((s, r) => s + r.monto, 0);
+    const unidades = rows.reduce((s, r) => s + r.unidades, 0);
+    const n_ocs = rows.reduce((s, r) => s + r.n_ocs, 0);
+    const precio_prom = unidades > 0 ? Math.round(monto / unidades) : 0;
+    const evol = [...rows].sort((a, b) => a.mes.localeCompare(b.mes)).map(r => ({
+      mes: r.mes.slice(5), // "04"
+      precio_prom: r.precio_prom,
+      monto: r.monto,
+    }));
+    const validos = evol.filter(e => e.precio_prom > 0);
+    const variacion = validos.length >= 2
+      ? ((validos[validos.length - 1].precio_prom / validos[0].precio_prom) - 1) * 100
+      : null;
+
+    return {
+      nombre,
+      short: _shortName(nombre),
+      monto,
+      unidades,
+      precio_prom,
+      n_ocs,
+      meses_activo: rows.length,
+      variacion,
+      evol,
+    };
+  }).sort((a, b) => {
+    if (a.short === "LBF") return -1;
+    if (b.short === "LBF") return 1;
+    return b.monto - a.monto;
+  });
+}
+
+function DrillDown({ prov, transacciones }: { prov: ProvResumen; transacciones: Transaccion[] }) {
+  // Transacciones del proveedor (últimos 2 meses — lo que hay en data.transacciones)
+  const txns = transacciones.filter(t => t.proveedor === prov.nombre || _shortName(t.proveedor) === prov.short);
+
+  // Agrupar por producto
+  const porProducto: Record<string, { cantidad: number; monto: number; precios: number[]; compradores: Set<string> }> = {};
+  txns.forEach(t => {
+    if (!porProducto[t.producto]) porProducto[t.producto] = { cantidad: 0, monto: 0, precios: [], compradores: new Set() };
+    porProducto[t.producto].cantidad += t.cantidad;
+    porProducto[t.producto].monto += t.monto;
+    if (t.precio_unit > 0) porProducto[t.producto].precios.push(t.precio_unit);
+    if (t.comprador) porProducto[t.producto].compradores.add(t.comprador);
+  });
+
+  const productosRows = Object.entries(porProducto)
+    .map(([nombre, d]) => ({
+      nombre,
+      cantidad: d.cantidad,
+      monto: d.monto,
+      precio_prom: d.cantidad > 0 ? Math.round(d.monto / d.cantidad) : 0,
+      n_compradores: d.compradores.size,
+      compradores: [...d.compradores].slice(0, 3).join(", "),
+    }))
+    .sort((a, b) => b.monto - a.monto);
+
+  // Gráfico: precio prom por mes del proveedor
+  const chartData = prov.evol;
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-      {/* Chart */}
-      <div style={card}>
-        <h3 style={{ fontSize: 14, fontWeight: 700, color: "#0F172A", margin: "0 0 12px" }}>
-          Precio Promedio Ponderado por Mes — Top Proveedores
-        </h3>
-        <ResponsiveContainer width="100%" height={300}>
-          <ComposedChart data={chartData} margin={{ top: 10, right: 30, left: 10, bottom: 0 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" />
-            <XAxis dataKey="mes" tick={{ fontSize: 11 }} />
-            <YAxis tick={{ fontSize: 11 }} tickFormatter={(v: number) => `$${v.toLocaleString("es-CL")}`} />
-            <Tooltip formatter={(v: any) => [`$${Number(v).toLocaleString("es-CL")}`, ""]} />
-            <Legend wrapperStyle={{ fontSize: 11 }} />
-            <Line type="monotone" dataKey="LBF" stroke="#8B5CF6" strokeWidth={3} dot={{ r: 4 }} />
-            <Line type="monotone" dataKey="HOSPITALIA" stroke="#DC2626" strokeWidth={2} dot={{ r: 3 }} />
-            <Line type="monotone" dataKey="FLEXING" stroke="#10B981" strokeWidth={2} dot={{ r: 3 }} />
-            <Line type="monotone" dataKey="MADEGOM" stroke="#F59E0B" strokeWidth={2} dot={{ r: 3 }} />
-            <Line type="monotone" dataKey="REUTTER" stroke="#3B82F6" strokeWidth={2} dot={{ r: 3 }} />
-            <Line type="monotone" dataKey="GBG" stroke="#EC4899" strokeWidth={2} dot={{ r: 3 }} />
-          </ComposedChart>
-        </ResponsiveContainer>
-      </div>
+    <tr>
+      <td colSpan={8} style={{ padding: 0, background: "#F8FAFC", borderBottom: "2px solid #8B5CF6" }}>
+        <div style={{ padding: "16px 20px", display: "flex", flexDirection: "column", gap: 16 }}>
 
-      {/* Provider table */}
-      <div style={card}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-          <h3 style={{ fontSize: 14, fontWeight: 700, color: "#0F172A", margin: 0 }}>
-            Evolucion por Proveedor (precio ponderado/unidad)
-          </h3>
-          <ExportButton data={provTable} filename="guantes_evolucion" columns={[
+          {/* Mini gráfico precio por mes */}
+          <div>
+            <div style={{ fontSize: 11, fontWeight: 700, color: "#64748B", marginBottom: 8, textTransform: "uppercase", letterSpacing: 0.5 }}>
+              Precio promedio por mes
+            </div>
+            <ResponsiveContainer width="100%" height={160}>
+              <ComposedChart data={chartData} margin={{ top: 4, right: 40, left: 10, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" />
+                <XAxis dataKey="mes" tick={{ fontSize: 10 }} />
+                <YAxis yAxisId="p" tick={{ fontSize: 10 }} tickFormatter={(v: number) => `$${v.toLocaleString("es-CL")}`} width={70} />
+                <YAxis yAxisId="m" orientation="right" tick={{ fontSize: 10, fill: "#94A3B8" }}
+                  tickFormatter={(v: number) => v >= 1_000_000 ? `$${(v / 1_000_000).toFixed(0)}M` : `$${(v / 1_000).toFixed(0)}k`} width={50} />
+                <Tooltip formatter={(v: any, name: string) => [`$${Number(v).toLocaleString("es-CL")}`, name]} />
+                <Bar yAxisId="m" dataKey="monto" name="Monto" fill="#DDD6FE" stroke="#8B5CF6" strokeWidth={1} radius={[3, 3, 0, 0]} />
+                <Line yAxisId="p" type="monotone" dataKey="precio_prom" name="Precio/u" stroke="#8B5CF6" strokeWidth={2} dot={{ r: 4 }} />
+              </ComposedChart>
+            </ResponsiveContainer>
+          </div>
+
+          {/* Tabla de productos (últimos 2 meses) */}
+          {productosRows.length > 0 ? (
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 700, color: "#64748B", marginBottom: 8, textTransform: "uppercase", letterSpacing: 0.5 }}>
+                Detalle por producto — ultimos 2 meses ({txns.length} OC)
+              </div>
+              <div style={{ overflowX: "auto" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                  <thead>
+                    <tr>
+                      <th style={thS}>Producto</th>
+                      <th style={thR}>Unidades</th>
+                      <th style={thR}>Monto</th>
+                      <th style={thR}>Precio/u</th>
+                      <th style={thR}>Compradores</th>
+                      <th style={thS}>Ejemplos</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {productosRows.map((p, i) => (
+                      <tr key={p.nombre} style={{ background: i % 2 === 0 ? "white" : "#F1F5F9" }}>
+                        <td style={{ ...td, maxWidth: 260, overflow: "hidden", textOverflow: "ellipsis", fontSize: 11 }} title={p.nombre}>{p.nombre}</td>
+                        <td style={tdR}>{p.cantidad.toLocaleString("es-CL")}</td>
+                        <td style={tdR}>{fmt(p.monto)}</td>
+                        <td style={{ ...tdR, fontWeight: 700 }}>${p.precio_prom.toLocaleString("es-CL")}</td>
+                        <td style={{ ...tdR, color: "#64748B" }}>{p.n_compradores}</td>
+                        <td style={{ ...td, fontSize: 10, color: "#94A3B8", maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis" }} title={p.compradores}>{p.compradores}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          ) : (
+            <p style={{ fontSize: 11, color: "#94A3B8", margin: 0 }}>
+              Sin transacciones individuales en los ultimos 2 meses — el resumen usa data agregada mensual.
+            </p>
+          )}
+        </div>
+      </td>
+    </tr>
+  );
+}
+
+function ProveedoresTab({ evolucion, lbf, transacciones, tipoFilter }: {
+  evolucion: EvolRow[];
+  lbf: { mes: string; unidades: number; monto: number; precio_prom: number; n_ocs: number }[];
+  transacciones: Transaccion[];
+  tipoFilter: string;
+}) {
+  const [selected, setSelected] = useState<string | null>(null);
+
+  const provs = _buildProvResumen(evolucion, lbf);
+
+  const exportData = provs.map(p => ({
+    proveedor: p.short,
+    monto: p.monto,
+    unidades: p.unidades,
+    precio_prom: p.precio_prom,
+    n_ocs: p.n_ocs,
+    meses_activo: p.meses_activo,
+    variacion: p.variacion != null ? p.variacion.toFixed(1) + "%" : "--",
+  }));
+
+  return (
+    <div style={card}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+        <h3 style={{ fontSize: 14, fontWeight: 700, color: "#0F172A", margin: 0 }}>
+          Resumen por proveedor — haz clic en una fila para ver detalle
+        </h3>
+        <ExportButton data={exportData} filename="guantes_proveedores" columns={[
           { key: "proveedor", label: "Proveedor" },
+          { key: "monto", label: "Monto Total" },
+          { key: "unidades", label: "Unidades" },
+          { key: "precio_prom", label: "Precio Prom/u" },
+          { key: "n_ocs", label: "N OCs" },
+          { key: "meses_activo", label: "Meses Activo" },
           { key: "variacion", label: "Variacion %" },
         ]} />
-        </div>
-        <div style={{ overflowX: "auto" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse" }}>
-            <thead>
-              <tr>
-                <th style={thS}>Proveedor</th>
-                {chartData.map(d => <th key={d.mes} style={thR}>{d.mes}</th>)}
-                <th style={thR}>Variacion</th>
-              </tr>
-            </thead>
-            <tbody>
-              {provTable.map((p, i) => (
-                <tr key={p.proveedor} style={{ background: rowBg(i), fontWeight: p.proveedor === "LBF" ? 700 : 400 }}>
-                  <td style={{ ...td, fontWeight: 600 }}>{p.proveedor}</td>
-                  {chartData.map(d => (
-                    <td key={d.mes} style={tdR}>
-                      {p.precios[d.mes] ? `$${p.precios[d.mes].toLocaleString("es-CL")}` : "--"}
+      </div>
+      <div style={{ overflowX: "auto" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse" }}>
+          <thead>
+            <tr>
+              <th style={thS}>Proveedor</th>
+              <th style={thR}>Monto Total</th>
+              <th style={thR}>Unidades</th>
+              <th style={thR}>Precio Prom/u</th>
+              <th style={thR}>OCs</th>
+              <th style={thR}>Meses</th>
+              <th style={thR}>Var. Precio</th>
+              <th style={{ ...thS, textAlign: "center", width: 32 }}></th>
+            </tr>
+          </thead>
+          <tbody>
+            {provs.map((p, i) => {
+              const isLbf = p.short === "LBF";
+              const isOpen = selected === p.nombre;
+              const varColor = p.variacion == null ? "#64748B" : p.variacion > 5 ? "#DC2626" : p.variacion < -5 ? "#10B981" : "#64748B";
+
+              return (
+                <React.Fragment key={p.nombre}>
+                  <tr
+                    onClick={() => setSelected(isOpen ? null : p.nombre)}
+                    style={{
+                      background: isOpen ? "#F5F3FF" : isLbf ? "#F5F3FF" : rowBg(i),
+                      cursor: "pointer",
+                      fontWeight: isLbf ? 700 : 400,
+                      transition: "background 0.1s",
+                    }}
+                  >
+                    <td style={{ ...td, fontWeight: 600, color: isLbf ? "#8B5CF6" : "#0F172A" }}>
+                      {isLbf && <span style={{ marginRight: 6, fontSize: 10, background: "#8B5CF6", color: "white", padding: "1px 5px", borderRadius: 3 }}>LBF</span>}
+                      {p.short}
                     </td>
-                  ))}
-                  <td style={{ ...tdR, color: (p.variacion ?? 0) > 0 ? "#DC2626" : (p.variacion ?? 0) < 0 ? "#10B981" : "#64748B", fontWeight: 700 }}>
-                    {p.variacion != null ? `${p.variacion > 0 ? "+" : ""}${p.variacion.toFixed(1)}%` : "--"}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+                    <td style={tdR}>{fmt(p.monto)}</td>
+                    <td style={tdR}>{p.unidades.toLocaleString("es-CL")}</td>
+                    <td style={{ ...tdR, fontWeight: 700 }}>${p.precio_prom.toLocaleString("es-CL")}</td>
+                    <td style={tdR}>{p.n_ocs}</td>
+                    <td style={{ ...tdR, color: "#64748B" }}>{p.meses_activo}</td>
+                    <td style={{ ...tdR, color: varColor, fontWeight: 700 }}>
+                      {p.variacion != null ? `${p.variacion > 0 ? "+" : ""}${p.variacion.toFixed(1)}%` : "--"}
+                    </td>
+                    <td style={{ textAlign: "center", padding: "6px 8px", fontSize: 12, color: "#8B5CF6" }}>
+                      {isOpen ? "▲" : "▼"}
+                    </td>
+                  </tr>
+                  {isOpen && (
+                    <DrillDown prov={p} transacciones={transacciones} />
+                  )}
+                </React.Fragment>
+              );
+            })}
+          </tbody>
+        </table>
       </div>
     </div>
   );
@@ -478,7 +653,6 @@ function _classify(nombre: string): string {
 }
 
 function _shortName(name: string): string {
-  // Shorten common long names
   return name
     .replace("COMERCIAL ", "")
     .replace(" LIMITADA", "")
@@ -487,74 +661,6 @@ function _shortName(name: string): string {
     .replace(" S.A.", "")
     .replace(" S A", "")
     .replace("PRODUCTOS MEDICOS ", "");
-}
-
-function _buildChartData(evolucion: EvolRow[], lbf: any[], tipoFilter: string): any[] {
-  // Get unique months
-  const allMeses = [...new Set(evolucion.map(e => e.mes))].sort();
-
-  // Top providers by total monto
-  const provMonto: Record<string, number> = {};
-  evolucion.forEach(e => {
-    const short = _shortName(e.proveedor);
-    provMonto[short] = (provMonto[short] || 0) + e.monto;
-  });
-  const topProvs = Object.entries(provMonto)
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 8)
-    .map(([k]) => k);
-
-  // Build chart rows
-  return allMeses.map(mes => {
-    const row: any = { mes: mes.slice(5) }; // "04" from "2026-04"
-    const mesLabel = mes;
-
-    // LBF
-    const lbfRow = lbf.find(l => l.mes === mesLabel);
-    if (lbfRow) row["LBF"] = lbfRow.precio_prom;
-
-    // Competitors
-    evolucion
-      .filter(e => e.mes === mesLabel)
-      .forEach(e => {
-        const short = _shortName(e.proveedor);
-        if (topProvs.includes(short) || ["HOSPITALIA", "FLEXING", "MADEGOM", "REUTTER", "GBG"].includes(short)) {
-          row[short] = e.precio_prom;
-        }
-      });
-
-    return row;
-  });
-}
-
-function _buildProviderTable(evolucion: EvolRow[], tipoFilter: string): { proveedor: string; precios: Record<string, number>; variacion: number | null }[] {
-  const meses = [...new Set(evolucion.map(e => e.mes))].sort();
-  const provData: Record<string, Record<string, number>> = {};
-
-  evolucion.forEach(e => {
-    const short = _shortName(e.proveedor);
-    if (!provData[short]) provData[short] = {};
-    provData[short][e.mes] = e.precio_prom;
-  });
-
-  // Sort by latest month monto
-  const sorted = Object.entries(provData)
-    .map(([prov, precios]) => {
-      const vals = meses.map(m => precios[m]).filter(Boolean);
-      const first = vals[0];
-      const last = vals[vals.length - 1];
-      const variacion = first && last ? ((last / first) - 1) * 100 : null;
-      return { proveedor: prov, precios, variacion: variacion ?? 0 };
-    })
-    .sort((a, b) => {
-      // LBF first, then by variacion desc
-      if (a.proveedor === "LBF") return -1;
-      if (b.proveedor === "LBF") return 1;
-      return (b.variacion ?? 0) - (a.variacion ?? 0);
-    })
-    .slice(0, 15);
-
-  return sorted;
 }
 
 function _getTopProviders(evolucion: EvolRow[]): string[] {

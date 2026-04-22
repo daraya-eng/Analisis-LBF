@@ -179,30 +179,67 @@ def _load_clientes_data(meses: list[int]) -> dict:
             "contrib_25": round(d25.get("contrib_25", 0)),
         })
 
-    # ═══ 5. KPIs por segmento + efecto precio/volumen por cliente ═══
-    kpis_seg = {}
+    # ═══ 5. Totales por segmento — query directa (igual que dashboard_routes.py) ═══
+    # Se consulta BI_TOTAL_FACTURA directamente por RUT+SEGMENTO para que los
+    # totales de venta_26/venta_25 coincidan exactamente con el Panel Principal.
+    # La resolución de segmento es por registro (no MAX por cliente), eliminando
+    # cualquier diferencia de asignación para clientes con SEGMENTO mixto.
+
+    cur.execute(f"""
+        SELECT LTRIM(RTRIM(ISNULL(f.SEGMENTO, ''))) AS seg_raw,
+               f.RUT,
+               SUM(CAST(f.VENTA AS float)) AS venta_26
+        FROM BI_TOTAL_FACTURA f
+        WHERE f.ANO = {_ANO} AND f.MES IN ({mes_list}) AND {_EXCL_DW}
+          AND {_CAT_CASE} IN ({_CATS_IN})
+          AND {_FG}
+        GROUP BY LTRIM(RTRIM(ISNULL(f.SEGMENTO, ''))), f.RUT
+    """)
+    seg_v26: dict[str, float] = {"PUBLICO": 0.0, "PRIVADO": 0.0}
+    seg_ruts_26: dict[str, set] = {"PUBLICO": set(), "PRIVADO": set()}
+    for r in cur.fetchall():
+        rut = str(r[1] or "").strip()
+        seg = _resolver_seg(rut, str(r[0] or ""))
+        seg_v26[seg] += float(r[2] or 0)
+        seg_ruts_26[seg].add(rut)
+
+    cur.execute(f"""
+        SELECT LTRIM(RTRIM(ISNULL(f.SEGMENTO, ''))) AS seg_raw,
+               f.RUT,
+               SUM(CAST(f.VENTA AS float)) AS venta_25
+        FROM BI_TOTAL_FACTURA f
+        WHERE f.ANO = {_ANO - 1} AND f.MES IN ({mes_list}) AND {_EXCL_DW} AND {_FG}
+        GROUP BY LTRIM(RTRIM(ISNULL(f.SEGMENTO, ''))), f.RUT
+    """)
+    seg_v25: dict[str, float] = {"PUBLICO": 0.0, "PRIVADO": 0.0}
+    for r in cur.fetchall():
+        rut = str(r[1] or "").strip()
+        seg = _resolver_seg(rut, str(r[0] or ""))
+        seg_v25[seg] += float(r[2] or 0)
+
+    # Efecto precio/volumen sigue desde la lista de clientes (requiere granularidad cliente)
+    kpis_seg: dict[str, dict] = {}
     for seg in ("PUBLICO", "PRIVADO"):
         seg_cli = [c for c in clientes if c["segmento"] == seg]
-        v26 = sum(c["venta_26"] for c in seg_cli)
-        v25 = sum(c["venta_25"] for c in seg_cli)
+        v26 = seg_v26[seg]
+        v25 = seg_v25[seg]
         crec = ((v26 / v25) - 1) * 100 if v25 > 0 else (100.0 if v26 > 0 else 0.0)
-        # Efecto precio/volumen calculado por cliente y luego sumado
-        ef_precio = 0
-        ef_volumen = 0
+        ef_precio = 0.0
+        ef_volumen = 0.0
         for c in seg_cli:
             if c["cant_25"] > 0 and c["cant_26"] > 0:
                 p25 = c["venta_25"] / c["cant_25"]
                 p26 = c["venta_26"] / c["cant_26"]
-                ef_precio += (p26 - p25) * c["cant_26"]
+                ef_precio  += (p26 - p25) * c["cant_26"]
                 ef_volumen += (c["cant_26"] - c["cant_25"]) * p25
         kpis_seg[seg] = {
-            "venta_26": round(v26),
-            "venta_25": round(v25),
-            "crec": round(crec, 1),
-            "n_clientes": len([c for c in seg_cli if c["venta_26"] > 0]),
-            "efecto_precio": round(ef_precio),
+            "venta_26":       round(v26),
+            "venta_25":       round(v25),
+            "crec":           round(crec, 1),
+            "n_clientes":     len(seg_ruts_26[seg]),
+            "efecto_precio":  round(ef_precio),
             "efecto_volumen": round(ef_volumen),
-            "diff": round(v26 - v25),
+            "diff":           round(v26 - v25),
         }
 
     # ═══ 6. Todos los clientes ordenados por diferencia ═══

@@ -17,7 +17,8 @@ LBF_RUT = "93.366.000-1"
 _MONTO = "COALESCE(oi.monto_total, oi.cantidad * oi.precio_unitario, 0)"
 
 # Filter: products with "guante" in name OR in medical gloves category
-_GUANTE_FILTER = "(LOWER(oi.nombre) LIKE '%%guante%%' OR oi.categoria ILIKE '%%Guantes m_dicos%%')"
+# Excludes: anticortes (cut-resistant gloves, not medical)
+_GUANTE_FILTER = "(LOWER(oi.nombre) LIKE '%%guante%%' OR oi.categoria ILIKE '%%Guantes m_dicos%%') AND LOWER(oi.nombre) NOT LIKE '%%anticorte%%'"
 
 # Principales competidores a monitorear
 COMPETIDORES = [

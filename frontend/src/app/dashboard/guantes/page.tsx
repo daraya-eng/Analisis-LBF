@@ -486,15 +486,18 @@ function DrillDown({ prov, transacciones }: { prov: ProvResumen; transacciones: 
             <div style={{ fontSize: 11, fontWeight: 700, color: "#64748B", marginBottom: 8, textTransform: "uppercase", letterSpacing: 0.5 }}>
               Precio promedio por mes
             </div>
-            <ResponsiveContainer width="100%" height={160}>
-              <ComposedChart data={chartData} margin={{ top: 4, right: 40, left: 10, bottom: 0 }}>
+            <ResponsiveContainer width="100%" height={180}>
+              <ComposedChart data={chartData} margin={{ top: 20, right: 40, left: 10, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" />
                 <XAxis dataKey="mes" tick={{ fontSize: 10 }} />
                 <YAxis yAxisId="p" tick={{ fontSize: 10 }} tickFormatter={(v: number) => `$${v.toLocaleString("es-CL")}`} width={70} />
                 <YAxis yAxisId="m" orientation="right" tick={{ fontSize: 10, fill: "#94A3B8" }}
                   tickFormatter={(v: number) => v >= 1_000_000 ? `$${(v / 1_000_000).toFixed(0)}M` : `$${(v / 1_000).toFixed(0)}k`} width={50} />
                 <Tooltip formatter={(v: any, name: string) => [`$${Number(v).toLocaleString("es-CL")}`, name]} />
-                <Bar yAxisId="m" dataKey="monto" name="Monto" fill="#DDD6FE" stroke="#8B5CF6" strokeWidth={1} radius={[3, 3, 0, 0]} />
+                <Bar yAxisId="m" dataKey="monto" name="Monto" fill="#DDD6FE" stroke="#8B5CF6" strokeWidth={1} radius={[3, 3, 0, 0]}>
+                  <LabelList dataKey="monto" position="top" style={{ fontSize: 9, fill: "#7C3AED", fontWeight: 700 }}
+                    formatter={(v: number) => v >= 1_000_000 ? `$${(v / 1_000_000).toFixed(1)}M` : v >= 1_000 ? `$${(v / 1_000).toFixed(0)}k` : ""} />
+                </Bar>
                 <Line yAxisId="p" type="monotone" dataKey="precio_prom" name="Precio/u" stroke="#8B5CF6" strokeWidth={2} dot={{ r: 4 }} />
               </ComposedChart>
             </ResponsiveContainer>

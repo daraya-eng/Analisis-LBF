@@ -20,6 +20,7 @@ import {
   TrendingUp,
   Target,
   ShieldAlert,
+  LineChart,
 } from "lucide-react";
 import { useState } from "react";
 
@@ -35,6 +36,7 @@ const NAV_ITEMS = [
   { href: "/dashboard/stock", label: "Inventario", icon: Warehouse, module: "stock" },
   { href: "/dashboard/ma", label: "M&A Targets", icon: Target, module: "ma" },
   { href: "/dashboard/guantes", label: "Monitor Guantes", icon: ShieldAlert, module: "guantes" },
+  { href: "/dashboard/e1", label: "Plan de Ventas E1", icon: LineChart, module: "e1" },
   { href: "/dashboard/glosario", label: "Glosario", icon: BookOpen, module: "dashboard" },
 ];
 

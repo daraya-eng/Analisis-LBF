@@ -796,14 +796,17 @@ export default function DashboardPage() {
               <YAxis yAxisId="a" orientation="right" tick={{ fontSize: 10, fill: "#94A3B8" }} tickLine={false} axisLine={false} width={52}
                 tickFormatter={(v: number) => v >= 1e9 ? `$${(v/1e9).toFixed(1)}MM` : v >= 1e6 ? `$${(v/1e6).toFixed(0)}M` : ""} />
               <Tooltip
-                formatter={(v: any, name: string) => [fmtAbs(Number(v)), name]}
-                labelFormatter={(l) => `Día ${l}`}
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                formatter={(v: any, name: any) => [fmtAbs(Number(v)), name]}
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                labelFormatter={(l: any) => `Día ${l}`}
                 contentStyle={{ borderRadius: 8, fontSize: 12 }}
               />
               <Legend wrapperStyle={{ fontSize: 11 }} iconSize={10} />
               <Bar yAxisId="v" dataKey="venta_26" name="Venta 2026" fill="#3B82F6" radius={[3, 3, 0, 0]} maxBarSize={22}>
                 <LabelList dataKey="venta_26" position="top" style={{ fontSize: 8, fill: "#3B82F6", fontWeight: 700 }}
-                  formatter={(v: number) => v >= 1e8 ? `$${(v/1e6).toFixed(0)}M` : ""} />
+                  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                  formatter={(v: any) => v >= 1e8 ? `$${(v/1e6).toFixed(0)}M` : ""} />
               </Bar>
               <Bar yAxisId="v" dataKey="venta_25" name="Venta 2025" fill="#E2E8F0" radius={[3, 3, 0, 0]} maxBarSize={22} />
               <Line yAxisId="a" type="monotone" dataKey="acum_26" name="Acum. 2026" stroke="#10B981" strokeWidth={2} dot={false} />

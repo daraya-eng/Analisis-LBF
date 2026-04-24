@@ -6,7 +6,7 @@ import { fmt } from "@/lib/format";
 import { ExportButton } from "@/components/table-tools";
 import {
   ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, Legend,
+  ResponsiveContainer, Legend, LabelList,
 } from "recharts";
 
 /* ─── Styles ────────────────────────────────────────────────── */
@@ -493,10 +493,12 @@ function DrillDown({ prov, transacciones }: { prov: ProvResumen; transacciones: 
                 <YAxis yAxisId="p" tick={{ fontSize: 10 }} tickFormatter={(v: number) => `$${v.toLocaleString("es-CL")}`} width={70} />
                 <YAxis yAxisId="m" orientation="right" tick={{ fontSize: 10, fill: "#94A3B8" }}
                   tickFormatter={(v: number) => v >= 1_000_000 ? `$${(v / 1_000_000).toFixed(0)}M` : `$${(v / 1_000).toFixed(0)}k`} width={50} />
-                <Tooltip formatter={(v: any, name: string) => [`$${Number(v).toLocaleString("es-CL")}`, name]} />
+                {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+                <Tooltip formatter={(v: any, name: any) => [`$${Number(v).toLocaleString("es-CL")}`, name ?? ""]} />
                 <Bar yAxisId="m" dataKey="monto" name="Monto" fill="#DDD6FE" stroke="#8B5CF6" strokeWidth={1} radius={[3, 3, 0, 0]}>
                   <LabelList dataKey="monto" position="top" style={{ fontSize: 9, fill: "#7C3AED", fontWeight: 700 }}
-                    formatter={(v: number) => v >= 1_000_000 ? `$${(v / 1_000_000).toFixed(1)}M` : v >= 1_000 ? `$${(v / 1_000).toFixed(0)}k` : ""} />
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                    formatter={(v: any) => v >= 1_000_000 ? `$${(v / 1_000_000).toFixed(1)}M` : v >= 1_000 ? `$${(v / 1_000).toFixed(0)}k` : ""} />
                 </Bar>
                 <Line yAxisId="p" type="monotone" dataKey="precio_prom" name="Precio/u" stroke="#8B5CF6" strokeWidth={2} dot={{ r: 4 }} />
               </ComposedChart>

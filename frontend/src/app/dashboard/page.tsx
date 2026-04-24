@@ -140,6 +140,20 @@ interface DashData {
   error?: string;
 }
 
+interface DiaRow {
+  dia: number;
+  venta_26: number;
+  venta_25: number;
+  acum_26: number;
+  acum_25: number;
+}
+
+interface DailyData {
+  dias: DiaRow[];
+  mes: number;
+  ano: number;
+}
+
 /* ─── Stat Card ─────────────────────────────────────────────────────── */
 
 function StatCard({ label, value, sub, color, tooltip }: { label: string; value: string; sub?: string; color: string; tooltip?: string }) {
@@ -263,17 +277,23 @@ export default function DashboardPage() {
   const [expandedCat, setExpandedCat] = useState<string | null>(null);
   const [catDetailZonas, setCatDetailZonas] = useState<CatDetailZona[]>([]);
   const [catDetailLoading, setCatDetailLoading] = useState(false);
+  const [dailyData, setDailyData] = useState<DailyData | null>(null);
 
   const fetchDashboard = useCallback(async (periodo: string) => {
     setLoading(true);
     try {
       let queryParam = `?periodo=${periodo}`;
+      let mesNum = new Date().getMonth() + 1; // default: current month
       if (periodo.startsWith("mes-")) {
-        const mesNum = periodo.split("-")[1];
+        mesNum = parseInt(periodo.split("-")[1]);
         queryParam = `?periodo=mes&mes=${mesNum}`;
       }
-      const res = await api.get<DashData>(`/api/dashboard/all${queryParam}`);
+      const [res, daily] = await Promise.all([
+        api.get<DashData>(`/api/dashboard/all${queryParam}`),
+        api.get<DailyData>(`/api/dashboard/diario?mes=${mesNum}`),
+      ]);
       setData(res);
+      setDailyData(daily);
     } catch (e) {
       console.error("Failed to load dashboard", e);
     } finally {
@@ -751,6 +771,48 @@ export default function DashboardPage() {
           </div>
         </div>
       </div>
+
+      {/* ═══ CHART: Facturación diaria ═══ */}
+      {dailyData && dailyData.dias.length > 0 && (() => {
+        const MESES_NOMBRE_SHORT: Record<number, string> = {
+          1:"Ene",2:"Feb",3:"Mar",4:"Abr",5:"May",6:"Jun",
+          7:"Jul",8:"Ago",9:"Sep",10:"Oct",11:"Nov",12:"Dic",
+        };
+        const mesLabel = MESES_NOMBRE_SHORT[dailyData.mes] ?? "";
+        const maxVenta = Math.max(...dailyData.dias.map(d => Math.max(d.venta_26, d.venta_25)));
+        return (
+        <div style={{ background: "white", borderRadius: 10, border: "1px solid #E2E8F0", padding: "16px 20px 12px", marginBottom: 24 }}>
+          <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 10 }}>
+            <h3 style={{ fontSize: 14, fontWeight: 700, color: "#0F172A", margin: 0 }}>
+              Facturación Diaria — {mesLabel} 2026
+            </h3>
+            <span style={{ fontSize: 11, color: "#94A3B8" }}>vs {mesLabel} 2025</span>
+          </div>
+          <ResponsiveContainer width="100%" height={190}>
+            <ComposedChart data={dailyData.dias} margin={{ top: 18, right: 50, left: 10, bottom: 0 }} barCategoryGap="15%">
+              <CartesianGrid strokeDasharray="3 3" stroke="#F8FAFC" vertical={false} />
+              <XAxis dataKey="dia" tick={{ fontSize: 10 }} tickLine={false} axisLine={false} />
+              <YAxis yAxisId="v" hide domain={[0, maxVenta * 1.4]} />
+              <YAxis yAxisId="a" orientation="right" tick={{ fontSize: 10, fill: "#94A3B8" }} tickLine={false} axisLine={false} width={52}
+                tickFormatter={(v: number) => v >= 1e9 ? `$${(v/1e9).toFixed(1)}MM` : v >= 1e6 ? `$${(v/1e6).toFixed(0)}M` : ""} />
+              <Tooltip
+                formatter={(v: any, name: string) => [fmtAbs(Number(v)), name]}
+                labelFormatter={(l) => `Día ${l}`}
+                contentStyle={{ borderRadius: 8, fontSize: 12 }}
+              />
+              <Legend wrapperStyle={{ fontSize: 11 }} iconSize={10} />
+              <Bar yAxisId="v" dataKey="venta_26" name="Venta 2026" fill="#3B82F6" radius={[3, 3, 0, 0]} maxBarSize={22}>
+                <LabelList dataKey="venta_26" position="top" style={{ fontSize: 8, fill: "#3B82F6", fontWeight: 700 }}
+                  formatter={(v: number) => v >= 1e8 ? `$${(v/1e6).toFixed(0)}M` : ""} />
+              </Bar>
+              <Bar yAxisId="v" dataKey="venta_25" name="Venta 2025" fill="#E2E8F0" radius={[3, 3, 0, 0]} maxBarSize={22} />
+              <Line yAxisId="a" type="monotone" dataKey="acum_26" name="Acum. 2026" stroke="#10B981" strokeWidth={2} dot={false} />
+              <Line yAxisId="a" type="monotone" dataKey="acum_25" name="Acum. 2025" stroke="#94A3B8" strokeWidth={1.5} strokeDasharray="4 3" dot={false} />
+            </ComposedChart>
+          </ResponsiveContainer>
+        </div>
+        );
+      })()}
 
       {/* ═══ TABLA: Meta vs Venta por Categoria ═══ */}
       <div style={{ background: "white", borderRadius: 10, border: "1px solid #E2E8F0", marginBottom: 24, overflow: "hidden" }}>

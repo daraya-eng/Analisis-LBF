@@ -619,6 +619,73 @@ async def get_categoria_detail(
         return {"error": str(e), "zonas": [], "top_clientes": []}
 
 
+@router.get("/diario")
+async def get_dashboard_diario(
+    mes: Optional[int] = Query(None),
+    current_user: dict = Depends(get_current_user),
+):
+    """Facturación diaria del mes seleccionado vs mismo mes año anterior."""
+    try:
+        h = hoy()
+        _ANO = h["ano"]
+        _MES = mes or h["mes"]
+        _FG = filtro_guias()
+        cache_key = f"dash_diario:{_ANO}:{_MES}"
+        cached = mem_get(cache_key)
+        if cached:
+            return cached
+
+        conn = get_conn()
+        cur = conn.cursor()
+
+        cur.execute(f"""
+            SELECT DAY(DIA) AS dia, SUM(CAST(VENTA AS float)) AS venta
+            FROM BI_TOTAL_FACTURA
+            WHERE ANO = {_ANO} AND MES = {_MES}
+              AND {_EXCL_DW} AND {_FG}
+            GROUP BY DAY(DIA)
+            ORDER BY 1
+        """)
+        dias_26 = {int(r[0]): float(r[1] or 0) for r in cur.fetchall()}
+
+        cur.execute(f"""
+            SELECT DAY(DIA) AS dia, SUM(CAST(VENTA AS float)) AS venta
+            FROM BI_TOTAL_FACTURA
+            WHERE ANO = {_ANO - 1} AND MES = {_MES}
+              AND VENDEDOR NOT IN ({_VEND_EXCLUIR})
+              AND CODIGO NOT IN ('FLETE','NINV','SIN','')
+              AND {_FG}
+            GROUP BY DAY(DIA)
+            ORDER BY 1
+        """)
+        dias_25 = {int(r[0]): float(r[1] or 0) for r in cur.fetchall()}
+
+        conn.close()
+
+        all_dias = sorted(set(list(dias_26.keys()) + list(dias_25.keys())))
+        acum_26 = 0.0
+        acum_25 = 0.0
+        rows = []
+        for d in all_dias:
+            v26 = dias_26.get(d, 0)
+            v25 = dias_25.get(d, 0)
+            acum_26 += v26
+            acum_25 += v25
+            rows.append({
+                "dia": d,
+                "venta_26": round(v26),
+                "venta_25": round(v25),
+                "acum_26": round(acum_26),
+                "acum_25": round(acum_25),
+            })
+
+        result = {"dias": rows, "mes": _MES, "ano": _ANO}
+        mem_set(cache_key, result)
+        return result
+    except Exception as e:
+        return {"dias": [], "mes": mes or 0, "ano": 0, "error": str(e)}
+
+
 # Legacy endpoint
 @router.get("/kpis")
 async def get_kpis(current_user: dict = Depends(get_current_user)):

@@ -288,12 +288,12 @@ export default function DashboardPage() {
         mesNum = parseInt(periodo.split("-")[1]);
         queryParam = `?periodo=mes&mes=${mesNum}`;
       }
-      const [res, daily] = await Promise.all([
-        api.get<DashData>(`/api/dashboard/all${queryParam}`),
-        api.get<DailyData>(`/api/dashboard/diario?mes=${mesNum}`),
-      ]);
+      const res = await api.get<DashData>(`/api/dashboard/all${queryParam}`);
       setData(res);
-      setDailyData(daily);
+      // Daily chart — fetch independently so a failure doesn't break the page
+      api.get<DailyData>(`/api/dashboard/diario?mes=${mesNum}`)
+        .then(setDailyData)
+        .catch(() => setDailyData(null));
     } catch (e) {
       console.error("Failed to load dashboard", e);
     } finally {

@@ -667,6 +667,9 @@ async def get_dashboard_diario(
         acum_25 = 0.0
         rows = []
         for d in all_dias:
+            # Excluir fines de semana (sábado=5, domingo=6)
+            if datetime.date(_ANO, _MES, d).weekday() >= 5:
+                continue
             v26 = dias_26.get(d, 0)
             v25 = dias_25.get(d, 0)
             acum_26 += v26

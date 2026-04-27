@@ -29,7 +29,8 @@ const CATS = ["SQ", "MAH", "EQM", "EVA"];
 /* ─── Tipos ──────────────────────────────────────────────────── */
 interface MetricaSerie { meses: (number | null)[]; total: number | null; }
 interface CatKpis {
-  e1_total: number | null; ppto_total: number | null; cumpl_total: number | null;
+  e1_total: number | null; ppto_total: number | null; meta_ppto_total: number | null;
+  cumpl_total: number | null;
   margen_proy: number | null; margen_ppto: number | null; contrib_total: number | null;
   venta_real_ytd: number | null;
   cumpl_venta_e1: number | null;
@@ -52,7 +53,8 @@ interface TotalesData {
   mes_actual: number;
   meta_mensual: number[];   // Meta_Categoria mensual global (misma fuente que Panel Principal)
   global: {
-    e1_total: number; ppto_total: number; cumpl_total: number | null;
+    e1_total: number; ppto_total: number; meta_ppto_total: number | null;
+    cumpl_total: number | null;
     venta_real_ytd: number | null;
     cumpl_venta_e1: number | null;
     cumpl_venta_ppto: number | null;
@@ -285,14 +287,14 @@ export default function E1Page() {
       <div style={{ display: "flex", gap: 10, marginBottom: 20, flexWrap: "wrap" }}>
         <KpiCard
           label="Budget 2026"
-          value={fmt(g.ppto_total)}
-          sub="Presupuesto original"
+          value={fmt(g.meta_ppto_total)}
+          sub="Meta_Categoria (= Panel Principal)"
           color="#64748B"
         />
         <KpiCard
           label="E1 2026"
           value={fmt(g.e1_total)}
-          sub={`Budget: ${fmt(g.ppto_total)}`}
+          sub={`Dif. vs Budget: ${g.meta_ppto_total != null ? ((g.e1_total - g.meta_ppto_total) >= 0 ? "+" : "") + fmt(g.e1_total - (g.meta_ppto_total ?? 0)) : "—"}`}
           color="#3B82F6"
         />
         <KpiCard
@@ -334,6 +336,7 @@ export default function E1Page() {
                     <th style={thS}>Categoría</th>
                     <th style={thR}>Budget 2026</th>
                     <th style={thR}>E1 2026</th>
+                    <th style={{ ...thR, color: "#6366F1" }}>Dif. Budget vs E1</th>
                     <th style={thR}>Venta Real YTD</th>
                     <th style={thR}>Brecha vs Budget</th>
                     <th style={thR}>Brecha vs E1 2026</th>
@@ -346,17 +349,21 @@ export default function E1Page() {
                 </thead>
                 <tbody>
                   {catData.map((c, i) => {
+                    const budget = c.kpis.meta_ppto_total;
+                    const difBudgetE1 = budget != null && c.kpis.e1_total != null ? c.kpis.e1_total - budget : null;
                     const brechaBudget = (c.kpis.venta_real_ytd || 0) - (c.kpis.meta_ytd || 0);
                     const brechaE1 = (c.kpis.venta_real_ytd || 0) - (c.kpis.e1_ytd || 0);
-                    const nivel = riesgoNivel(c.kpis.cumpl_venta_e1, c.kpis.cumpl_venta_ppto);
                     return (
                       <tr key={c.categoria} style={{ background: rowBg(i) }}>
                         <td style={{ ...td, fontWeight: 700 }}>
                           <span style={{ display: "inline-block", width: 10, height: 10, borderRadius: 2, background: CAT_COLORS[c.categoria], marginRight: 6 }} />
                           {c.categoria}
                         </td>
-                        <td style={tdR}>{fmt(c.kpis.ppto_total)}</td>
+                        <td style={tdR}>{fmt(budget)}</td>
                         <td style={{ ...tdR, fontWeight: 700 }}>{fmt(c.kpis.e1_total)}</td>
+                        <td style={{ ...tdR, fontWeight: 700, color: difBudgetE1 == null ? "#94A3B8" : difBudgetE1 >= 0 ? "#10B981" : "#EF4444" }}>
+                          {difBudgetE1 != null ? (difBudgetE1 >= 0 ? "+" : "") + fmt(difBudgetE1) : "—"}
+                        </td>
                         <td style={{ ...tdR, color: "#10B981", fontWeight: 600 }}>{fmt(c.kpis.venta_real_ytd)}</td>
                         <td style={{ ...tdR, color: brechaBudget >= 0 ? "#10B981" : "#EF4444", fontWeight: 700 }}>
                           {brechaBudget >= 0 ? "+" : ""}{fmt(brechaBudget)}
@@ -378,8 +385,16 @@ export default function E1Page() {
                   })}
                   <tr style={{ background: "#F1F5F9", borderTop: "2px solid #E2E8F0" }}>
                     <td style={{ ...td, fontWeight: 800 }}>TOTAL</td>
-                    <td style={{ ...tdR, fontWeight: 800 }}>{fmt(g.ppto_total)}</td>
+                    <td style={{ ...tdR, fontWeight: 800 }}>{fmt(g.meta_ppto_total)}</td>
                     <td style={{ ...tdR, fontWeight: 800 }}>{fmt(g.e1_total)}</td>
+                    {(() => {
+                      const d = g.meta_ppto_total != null ? g.e1_total - g.meta_ppto_total : null;
+                      return (
+                        <td style={{ ...tdR, fontWeight: 800, color: d == null ? "#94A3B8" : d >= 0 ? "#10B981" : "#EF4444" }}>
+                          {d != null ? (d >= 0 ? "+" : "") + fmt(d) : "—"}
+                        </td>
+                      );
+                    })()}
                     <td style={{ ...tdR, fontWeight: 800, color: "#10B981" }}>{fmt(g.venta_real_ytd)}</td>
                     <td style={{ ...tdR, fontWeight: 800, color: ((g.venta_real_ytd || 0) - (g.meta_ytd || 0)) >= 0 ? "#10B981" : "#EF4444" }}>
                       {((g.venta_real_ytd || 0) - (g.meta_ytd || 0)) >= 0 ? "+" : ""}{fmt((g.venta_real_ytd || 0) - (g.meta_ytd || 0))}

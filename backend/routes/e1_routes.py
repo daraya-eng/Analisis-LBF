@@ -156,6 +156,7 @@ async def get_e1_totales(current_user: dict = Depends(get_current_user)):
         # KPIs anuales
         e1_total = metricas.get("e1", {}).get("total")
         ppto_total = metricas.get("ppto", {}).get("total")
+        meta_ppto_total = round(meta_total_cat) if meta_total_cat > 0 else None
         cumpl_total = (e1_total / ppto_total) if e1_total and ppto_total and ppto_total > 0 else None
         margen_proy = metricas.get("margen_proy", {}).get("total")
         margen_ppto = metricas.get("margen_ppto", {}).get("total")
@@ -177,6 +178,7 @@ async def get_e1_totales(current_user: dict = Depends(get_current_user)):
             "kpis": {
                 "e1_total": round(e1_total) if e1_total else None,
                 "ppto_total": round(ppto_total) if ppto_total else None,
+                "meta_ppto_total": meta_ppto_total,
                 "cumpl_total": round(cumpl_total * 100, 1) if cumpl_total else None,
                 "margen_proy": round(margen_proy * 100, 1) if margen_proy else None,
                 "margen_ppto": round(margen_ppto * 100, 1) if margen_ppto else None,
@@ -192,6 +194,7 @@ async def get_e1_totales(current_user: dict = Depends(get_current_user)):
     # ── Totales globales ────────────────────────────────────────────
     e1_global = sum(c["kpis"]["e1_total"] or 0 for c in result_cats)
     ppto_global = sum(c["kpis"]["ppto_total"] or 0 for c in result_cats)
+    meta_ppto_global = sum(c["kpis"]["meta_ppto_total"] or 0 for c in result_cats)
     cumpl_global = round(e1_global / ppto_global * 100, 1) if ppto_global > 0 else None
     vr_global = sum(c["kpis"]["venta_real_ytd"] or 0 for c in result_cats)
     e1_ytd_global = sum(c["kpis"]["e1_ytd"] or 0 for c in result_cats)
@@ -215,6 +218,7 @@ async def get_e1_totales(current_user: dict = Depends(get_current_user)):
         "global": {
             "e1_total": round(e1_global),
             "ppto_total": round(ppto_global),
+            "meta_ppto_total": round(meta_ppto_global) if meta_ppto_global else None,
             "cumpl_total": cumpl_global,
             "venta_real_ytd": round(vr_global) if vr_global else None,
             "cumpl_venta_e1": round(vr_global / e1_ytd_global * 100, 1) if e1_ytd_global > 0 and vr_global > 0 else None,

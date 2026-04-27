@@ -26,8 +26,9 @@ def _calc_crec(v26: float, v25: float) -> float:
 
 
 def _calc_dias_habiles(meses: list[int], ano: int) -> tuple[int, int, int]:
-    """Returns (habiles_transcurridos, habiles_restantes, habiles_totales)."""
-    today = datetime.date.today()
+    """Returns (habiles_transcurridos, habiles_restantes, habiles_totales).
+    Usa ayer como corte: SP corre a las 6am con datos de ayer."""
+    ref = datetime.date.today() - datetime.timedelta(days=1)
     habiles_transcurridos = 0
     habiles_totales = 0
     for m in meses:
@@ -36,7 +37,7 @@ def _calc_dias_habiles(meses: list[int], ano: int) -> tuple[int, int, int]:
             dt = datetime.date(ano, m, d)
             if dt.weekday() < 5:
                 habiles_totales += 1
-                if dt <= today:
+                if dt <= ref:
                     habiles_transcurridos += 1
     habiles_restantes = habiles_totales - habiles_transcurridos
     return habiles_transcurridos, habiles_restantes, habiles_totales

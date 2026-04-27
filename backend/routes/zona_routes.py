@@ -32,9 +32,10 @@ _CATS_VALIDAS = ('SQ', 'EVA', 'MAH', 'EQM')
 
 
 def _calc_ritmo_days(meses: list[int], ano: int) -> tuple[int, int, bool]:
-    """Returns (elapsed_days, total_days, periodo_completo)."""
-    today = datetime.date.today()
-    mes_actual = today.month if today.year == ano else (13 if today.year > ano else 0)
+    """Returns (elapsed_days, total_days, periodo_completo).
+    Usa ayer como corte: SP corre a las 6am con datos de ayer."""
+    ref = datetime.date.today() - datetime.timedelta(days=1)
+    mes_actual = ref.month if ref.year == ano else (13 if ref.year > ano else 0)
     total_days = 0
     elapsed_days = 0
     for m in meses:
@@ -43,13 +44,14 @@ def _calc_ritmo_days(meses: list[int], ano: int) -> tuple[int, int, bool]:
         if m < mes_actual:
             elapsed_days += days_in_m
         elif m == mes_actual:
-            elapsed_days += today.day
+            elapsed_days += ref.day
     return elapsed_days, total_days, elapsed_days >= total_days
 
 
 def _calc_dias_habiles(meses: list[int], ano: int) -> tuple[int, int, int]:
-    """Returns (habiles_transcurridos, habiles_restantes, habiles_totales)."""
-    today = datetime.date.today()
+    """Returns (habiles_transcurridos, habiles_restantes, habiles_totales).
+    Usa ayer como corte: SP corre a las 6am con datos de ayer."""
+    ref = datetime.date.today() - datetime.timedelta(days=1)
     habiles_transcurridos = 0
     habiles_totales = 0
     for m in meses:
@@ -58,7 +60,7 @@ def _calc_dias_habiles(meses: list[int], ano: int) -> tuple[int, int, int]:
             dt = datetime.date(ano, m, d)
             if dt.weekday() < 5:
                 habiles_totales += 1
-                if dt <= today:
+                if dt <= ref:
                     habiles_transcurridos += 1
     habiles_restantes = habiles_totales - habiles_transcurridos
     return habiles_transcurridos, habiles_restantes, habiles_totales
@@ -224,7 +226,7 @@ def _load_zona_data(meses: list[int]) -> dict:
         venta25_zona_mes_raw[zona_raw][mes] = venta25_zona_mes_raw[zona_raw].get(mes, 0) + v25
 
     # ═══ 4b. VENTA 2025 parcial por zona: hasta día X del mes actual ═══
-    today = datetime.date.today()
+    today = datetime.date.today() - datetime.timedelta(days=1)
     _MES_ACTUAL = hoy()["mes"]
     cur.execute(f"""
         SELECT VENDEDOR AS zona,

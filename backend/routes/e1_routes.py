@@ -134,6 +134,17 @@ async def get_e1_totales(current_user: dict = Depends(get_current_user)):
             "total": round(vr_total) if vr_total > 0 else None,
         }
 
+        # Para meses ya cerrados con datos reales: E1 = venta real (no estimado)
+        if "e1" in metricas:
+            e1_meses = list(metricas["e1"]["meses"])
+            for i in range(12):
+                mes_num = i + 1
+                vr = venta_real_map[cat].get(mes_num)
+                if mes_num < _MES and vr is not None:
+                    e1_meses[i] = vr
+            metricas["e1"]["meses"] = e1_meses
+            metricas["e1"]["total"] = sum(v for v in e1_meses if v is not None)
+
         # Meta_Categoria mensual (misma fuente que Panel Principal) → para cumplimiento
         meta_meses = [meta_cat_mes[cat].get(m + 1) for m in range(12)]
         meta_total_cat = sum(v for v in meta_meses if v is not None)

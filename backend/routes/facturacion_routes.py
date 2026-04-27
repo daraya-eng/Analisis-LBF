@@ -16,6 +16,7 @@ from db_mp import get_pg_conn
 from cache import mem_get, mem_set, _mem_cache
 
 _NOTAS_PATH = os.path.join(os.path.dirname(__file__), "..", "data", "notas_licitaciones.json")
+_EXCLUIDOS_PATH = os.path.join(os.path.dirname(__file__), "..", "data", "excluidos_licitaciones.json")
 
 
 def _load_notas() -> dict:
@@ -29,6 +30,19 @@ def _save_notas(notas: dict):
     os.makedirs(os.path.dirname(_NOTAS_PATH), exist_ok=True)
     with open(_NOTAS_PATH, "w", encoding="utf-8") as f:
         json.dump(notas, f, ensure_ascii=False, indent=2)
+
+
+def _load_excluidos() -> set:
+    if os.path.exists(_EXCLUIDOS_PATH):
+        with open(_EXCLUIDOS_PATH, "r", encoding="utf-8") as f:
+            return set(json.load(f))
+    return set()
+
+
+def _save_excluidos(excluidos: set):
+    os.makedirs(os.path.dirname(_EXCLUIDOS_PATH), exist_ok=True)
+    with open(_EXCLUIDOS_PATH, "w", encoding="utf-8") as f:
+        json.dump(sorted(excluidos), f, ensure_ascii=False, indent=2)
 
 router = APIRouter()
 
@@ -295,16 +309,19 @@ def _load_facturacion() -> dict:
 
     conn.close()
 
-    # Adjuntar notas existentes a cada licitación
+    # Adjuntar notas y estado irrecuperable a cada licitación
     notas = _load_notas()
+    excluidos = _load_excluidos()
     for l in licitaciones:
         n = notas.get(l["licitacion"])
         if n:
             l["nota"] = n
+        l["excluida"] = l["licitacion"] in excluidos
     for u in urgentes_reales:
         n = notas.get(u["licitacion"])
         if n:
             u["nota"] = n
+        u["excluida"] = u["licitacion"] in excluidos
 
     # Lista de KAMs únicos para filtro
     kams_set = sorted(set(l["kam"] for l in licitaciones))
@@ -758,4 +775,32 @@ async def delete_nota(
     _save_notas(notas)
     _mem_cache.pop("facturacion_vigentes", None)
     _mem_cache.pop(f"fac_det_{licitacion}", None)
+    return {"status": "ok"}
+
+
+class ExcluirBody(BaseModel):
+    licitacion: str
+
+
+@router.post("/excluir")
+async def excluir_licitacion(
+    body: ExcluirBody,
+    current_user: dict = Depends(get_current_user),
+):
+    excluidos = _load_excluidos()
+    excluidos.add(body.licitacion)
+    _save_excluidos(excluidos)
+    _mem_cache.pop("facturacion_vigentes", None)
+    return {"status": "ok"}
+
+
+@router.delete("/excluir")
+async def reactivar_licitacion(
+    licitacion: str = Query(...),
+    current_user: dict = Depends(get_current_user),
+):
+    excluidos = _load_excluidos()
+    excluidos.discard(licitacion)
+    _save_excluidos(excluidos)
+    _mem_cache.pop("facturacion_vigentes", None)
     return {"status": "ok"}

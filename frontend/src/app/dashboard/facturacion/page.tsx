@@ -218,37 +218,67 @@ const LicDetalle = memo(function LicDetalle({ licId, notaInicial, catFilter }: {
 });
 
 /* ─── Fila individual memoizada ──────── */
-const LicRow = memo(function LicRow({ l, i, isOpen, onToggle, colCount, catFilter }: {
-  l: any; i: number; isOpen: boolean; onToggle: (id: string) => void; colCount: number; catFilter?: string;
+const LicRow = memo(function LicRow({ l, i, isOpen, onToggle, colCount, catFilter, showCumpl, onToggleExcluir }: {
+  l: any; i: number; isOpen: boolean; onToggle: (id: string) => void; colCount: number; catFilter?: string; showCumpl?: boolean;
+  onToggleExcluir?: (licId: string, excluir: boolean) => void;
 }) {
   const gap = l.adjudicado - l.facturado;
+  const excluida = !!l.excluida;
+  const rowStyle: React.CSSProperties = {
+    borderBottom: "1px solid #F1F5F9",
+    background: excluida ? "#F9FAFB" : isOpen ? "#EFF6FF" : rowBg(i),
+    cursor: "pointer",
+    opacity: excluida ? 0.6 : 1,
+  };
   return (
     <Fragment>
-      <tr
-        onClick={() => onToggle(l.licitacion)}
-        style={{ borderBottom: "1px solid #F1F5F9", background: isOpen ? "#EFF6FF" : rowBg(i), cursor: "pointer" }}
-      >
+      <tr onClick={() => onToggle(l.licitacion)} style={rowStyle}>
         <td style={tdC}>
           <div style={{ display: "flex", alignItems: "center", gap: 2 }}>
             {isOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
             {l.nota && <MessageSquare size={11} style={{ color: "#D97706" }} />}
+            {excluida && <span title="Irrecuperable" style={{ fontSize: 9, color: "#94A3B8" }}>✕</span>}
           </div>
         </td>
-        <td style={{ ...td, fontSize: 12, fontWeight: 600, color: "#4338CA" }}>{l.kam}</td>
-        <td style={{ ...td, fontSize: 12, maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis" }} title={l.licitacion}>{l.licitacion}</td>
-        <td style={{ ...td, maxWidth: 160, overflow: "hidden", textOverflow: "ellipsis" }} title={l.nombre}>{l.nombre}</td>
-        <td style={{ ...tdR, fontWeight: 600 }}>
+        <td style={{ ...td, fontSize: 12, fontWeight: 600, color: excluida ? "#94A3B8" : "#4338CA" }}>{l.kam}</td>
+        <td style={{ ...td, fontSize: 12, maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis", color: excluida ? "#94A3B8" : undefined }} title={l.licitacion}>{l.licitacion}</td>
+        <td style={{ ...td, maxWidth: 160, overflow: "hidden", textOverflow: "ellipsis", color: excluida ? "#94A3B8" : undefined }} title={l.nombre}>{l.nombre}</td>
+        <td style={{ ...tdR, fontWeight: 600, color: excluida ? "#94A3B8" : undefined }}>
           {fmtAbs(l.adjudicado)}
           {l.monto_fuente === "OC" && (
             <span title="Monto obtenido desde Órdenes de Compra (licitación sin monto en ChileCompra)"
               style={{ fontSize: 9, fontWeight: 700, color: "#7C3AED", background: "#F5F3FF", padding: "1px 4px", borderRadius: 3, marginLeft: 4 }}>OC</span>
           )}
         </td>
-        <td style={{ ...tdR, color: "#10B981" }}>{fmtAbs(l.facturado)}</td>
-        <td style={{ ...tdR, fontWeight: 700, color: "#EF4444" }}>{fmtAbs(gap)}</td>
-        <td style={td}><CumplimientoBar pct={l.cumplimiento} w={60} /></td>
-        <td style={{ ...tdC, fontSize: 11, fontWeight: l.semaforo === "red" ? 700 : 400, color: l.semaforo === "red" ? "#EF4444" : "#1F2937" }}>{l.fecha_termino}</td>
-        <td style={{ ...tdC, fontWeight: 700, color: semColor(l.semaforo) }}>{l.dias_restantes}</td>
+        <td style={{ ...tdR, color: excluida ? "#94A3B8" : "#10B981" }}>{fmtAbs(l.facturado)}</td>
+        <td style={{ ...tdR, fontWeight: 700, color: excluida ? "#94A3B8" : "#EF4444" }}>{fmtAbs(gap)}</td>
+        <td style={td}>
+          {excluida
+            ? <span style={{ fontSize: 11, color: "#DC2626", fontWeight: 700 }}>Irrecuperable</span>
+            : showCumpl !== false
+              ? <CumplimientoBar pct={l.cumplimiento} w={60} />
+              : <span style={{ fontSize: 12, fontWeight: 700, color: l.cumplimiento >= 80 ? "#10B981" : l.cumplimiento >= 50 ? "#F59E0B" : "#EF4444" }}>{l.cumplimiento}%</span>
+          }
+        </td>
+        <td style={{ ...tdC, fontSize: 11, fontWeight: l.semaforo === "red" ? 700 : 400, color: excluida ? "#94A3B8" : l.semaforo === "red" ? "#EF4444" : "#1F2937" }}>{l.fecha_termino}</td>
+        <td style={{ ...tdC, fontWeight: 700, color: excluida ? "#94A3B8" : semColor(l.semaforo) }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+            <span>{l.dias_restantes}</span>
+            {onToggleExcluir && (
+              <button
+                onClick={e => { e.stopPropagation(); onToggleExcluir(l.licitacion, !excluida); }}
+                title={excluida ? "Reactivar licitación" : "Marcar como irrecuperable"}
+                style={{
+                  border: "none", borderRadius: 4, padding: "1px 5px", fontSize: 9, fontWeight: 700, cursor: "pointer",
+                  background: excluida ? "#D1FAE5" : "#FEE2E2",
+                  color: excluida ? "#059669" : "#DC2626",
+                }}
+              >
+                {excluida ? "↩ Reactivar" : "✕ Irrecup."}
+              </button>
+            )}
+          </div>
+        </td>
       </tr>
       {isOpen && (
         <tr><td colSpan={colCount} style={{ padding: 0 }}>
@@ -257,17 +287,22 @@ const LicRow = memo(function LicRow({ l, i, isOpen, onToggle, colCount, catFilte
       )}
     </Fragment>
   );
-}, (prev, next) => prev.isOpen === next.isOpen && prev.i === next.i && prev.l === next.l && prev.catFilter === next.catFilter);
+}, (prev, next) =>
+  prev.isOpen === next.isOpen && prev.i === next.i && prev.l === next.l &&
+  prev.catFilter === next.catFilter && prev.onToggleExcluir === next.onToggleExcluir);
 
 /* ─── Barra de totales (sobre el cuadro, reactiva al filtro) ── */
 function TotalsBar({ rows }: { rows: any[] }) {
-  const adj = rows.reduce((s, l) => s + (l.adjudicado || 0), 0);
-  const fac = rows.reduce((s, l) => s + (l.facturado || 0), 0);
+  const activas = rows.filter(l => !l.excluida);
+  const excluidas = rows.filter(l => l.excluida);
+  const adj = activas.reduce((s, l) => s + (l.adjudicado || 0), 0);
+  const fac = activas.reduce((s, l) => s + (l.facturado || 0), 0);
   const gap = adj - fac;
+  const gapExcluido = excluidas.reduce((s, l) => s + ((l.adjudicado || 0) - (l.facturado || 0)), 0);
   const cum = adj > 0 ? Math.round(fac / adj * 100) : 0;
   const cumColor = cum >= 80 ? "#10B981" : cum >= 50 ? "#F59E0B" : "#EF4444";
-  const item = (label: string, value: string, color?: string) => (
-    <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 1 }}>
+  const item = (label: string, value: string, color?: string, title?: string) => (
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 1 }} title={title}>
       <span style={{ fontSize: 10, color: "#94A3B8", textTransform: "uppercase", letterSpacing: "0.05em" }}>{label}</span>
       <span style={{ fontSize: 14, fontWeight: 700, color: color || "#0F172A" }}>{value}</span>
     </div>
@@ -279,11 +314,15 @@ function TotalsBar({ rows }: { rows: any[] }) {
       flexWrap: "wrap",
     }}>
       <span style={{ fontSize: 12, color: "#64748B", marginRight: "auto" }}>
-        <strong style={{ color: "#0F172A" }}>{rows.length}</strong> licitaciones
+        <strong style={{ color: "#0F172A" }}>{activas.length}</strong> licitaciones
+        {excluidas.length > 0 && (
+          <span style={{ color: "#94A3B8" }}> · <span style={{ color: "#DC2626" }}>{excluidas.length} irrecuperable{excluidas.length > 1 ? "s" : ""}</span> excluida{excluidas.length > 1 ? "s" : ""}</span>
+        )}
       </span>
       {item("Adjudicado", fmtAbs(adj))}
       {item("Facturado", fmtAbs(fac), "#10B981")}
-      {item("Gap", fmtAbs(gap), "#EF4444")}
+      {item("Gap recuperable", fmtAbs(gap), "#EF4444")}
+      {gapExcluido > 0 && item("Gap excluido", fmtAbs(gapExcluido), "#94A3B8", "Gap de licitaciones marcadas como irrecuperables")}
       {item("Cumpl.", `${cum}%`, cumColor)}
     </div>
   );
@@ -293,7 +332,7 @@ type SortKey = "adjudicado" | "facturado" | "gap" | "cumplimiento" | "dias_resta
 type SortDir = "asc" | "desc";
 
 /* ─── Tabla de licitaciones con filas expandibles y sorting ──────── */
-function LicTable({ rows, colCount, catFilter }: { rows: any[]; colCount: number; catFilter?: string }) {
+function LicTable({ rows, colCount, catFilter, showCumpl, onToggleExcluir }: { rows: any[]; colCount: number; catFilter?: string; showCumpl?: boolean; onToggleExcluir?: (licId: string, excluir: boolean) => void }) {
   const [sel, setSel] = useState<string | null>(null);
   const [sortKey, setSortKey] = useState<SortKey>(null);
   const [sortDir, setSortDir] = useState<SortDir>("desc");
@@ -339,7 +378,7 @@ function LicTable({ rows, colCount, catFilter }: { rows: any[]; colCount: number
       </thead>
       <tbody>
         {sorted.map((l: any, i: number) => (
-          <LicRow key={l.licitacion} l={l} i={i} isOpen={sel === l.licitacion} onToggle={toggle} colCount={colCount} catFilter={catFilter} />
+          <LicRow key={l.licitacion} l={l} i={i} isOpen={sel === l.licitacion} onToggle={toggle} colCount={colCount} catFilter={catFilter} showCumpl={showCumpl} onToggleExcluir={onToggleExcluir} />
         ))}
       </tbody>
     </table>
@@ -588,22 +627,46 @@ export default function FacturacionPage() {
   const [expandedClient, setExpandedClient] = useState<string | null>(null);
   const [expandedLicInClient, setExpandedLicInClient] = useState<string | null>(null);
   const [emailModal, setEmailModal] = useState<{ kam: string; lics: any[]; urgente: boolean } | null>(null);
+  const [showCumpl, setShowCumpl] = useState(true);
+  const [excluidos, setExcluidos] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     setLoading(true);
     api.get<any>("/api/facturacion/", { noCache: true })
-      .then(r => { setData(r); setLoading(false); })
+      .then(r => {
+        setData(r);
+        // Inicializar excluidos desde el estado persistido en backend
+        const excl = new Set<string>();
+        for (const l of (r.licitaciones || [])) { if (l.excluida) excl.add(l.licitacion); }
+        for (const u of (r.urgentes_reales || [])) { if (u.excluida) excl.add(u.licitacion); }
+        setExcluidos(excl);
+        setLoading(false);
+      })
       .catch(() => setLoading(false));
+  }, []);
+
+  const handleToggleExcluir = useCallback(async (licId: string, excluir: boolean) => {
+    setExcluidos(prev => {
+      const next = new Set(prev);
+      if (excluir) next.add(licId); else next.delete(licId);
+      return next;
+    });
+    if (excluir) {
+      await apiFetch("/api/facturacion/excluir", { method: "POST", body: { licitacion: licId } as any });
+    } else {
+      await apiFetch(`/api/facturacion/excluir?licitacion=${encodeURIComponent(licId)}`, { method: "DELETE" });
+    }
   }, []);
 
   if (loading) return <div style={{ padding: 40, textAlign: "center", color: "#94A3B8" }}>Cargando datos de facturación...</div>;
   if (!data || data.error) return <div style={{ padding: 40, color: "#EF4444" }}>Error: {data?.error || "sin datos"}</div>;
 
   const k = data.kpis;
-  const licitaciones: any[] = data.licitaciones || [];
+  // Sobreescribir excluida con estado local (reactivo a toggles)
+  const licitaciones: any[] = (data.licitaciones || []).map((l: any) => ({ ...l, excluida: excluidos.has(l.licitacion) }));
   const clientes = data.clientes || [];
   const canales = data.canales || [];
-  const urgentes = data.urgentes_reales || [];
+  const urgentes = (data.urgentes_reales || []).map((u: any) => ({ ...u, excluida: excluidos.has(u.licitacion) }));
   const mesNombre = data.mes_nombre || "Mes";
 
   // Extraer años y meses disponibles de fecha_termino
@@ -748,6 +811,15 @@ export default function FacturacionPage() {
             Mostrando: {filtroCat}
           </span>
         )}
+        <button onClick={() => setShowCumpl(v => !v)} style={{
+          ...selectStyle, marginLeft: "auto",
+          color: showCumpl ? "#64748B" : "#94A3B8",
+          borderColor: showCumpl ? "#E2E8F0" : "#F1F5F9",
+          background: showCumpl ? "white" : "#F8FAFC",
+          fontSize: 12,
+        }}>
+          {showCumpl ? "Ocultar Cumpl." : "Mostrar Cumpl."}
+        </button>
       </div>
 
       {/* Tabs */}
@@ -822,7 +894,7 @@ export default function FacturacionPage() {
               <span style={{ fontSize: 13, fontWeight: 700, color: "#991B1B" }}>Detalle — Licitaciones que vencen en {mesNombre} con facturación pendiente</span>
             </div>
             <TotalsBar rows={urgentesFiltradas} />
-            <LicTable rows={urgentesFiltradas} colCount={LIC_COLS} catFilter={filtroCat} />
+            <LicTable rows={urgentesFiltradas} colCount={LIC_COLS} catFilter={filtroCat} showCumpl={showCumpl} onToggleExcluir={handleToggleExcluir} />
           </div>
         </div>
       )}
@@ -876,7 +948,7 @@ export default function FacturacionPage() {
 
           <div style={{ ...card, padding: 0, overflow: "auto" }}>
             <TotalsBar rows={licFiltradas} />
-            <LicTable rows={licFiltradas} colCount={LIC_COLS} catFilter={filtroCat} />
+            <LicTable rows={licFiltradas} colCount={LIC_COLS} catFilter={filtroCat} showCumpl={showCumpl} onToggleExcluir={handleToggleExcluir} />
           </div>
         </div>
       )}
@@ -925,7 +997,7 @@ export default function FacturacionPage() {
                       <td style={{ ...td, fontWeight: 600, maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis" }} title={`${c.rut} — ${c.nombre}`}>{c.nombre}</td>
                       <td style={{ ...tdR, fontWeight: 600 }}>{fmtAbs(c.adjudicado)}</td>
                       <td style={{ ...tdR, color: "#10B981" }}>{fmtAbs(c.facturado)}</td>
-                      <td style={td}><CumplimientoBar pct={c.cumplimiento} w={70} /></td>
+                      <td style={td}>{showCumpl ? <CumplimientoBar pct={c.cumplimiento} w={70} /> : <span style={{ fontSize: 12, fontWeight: 700, color: c.cumplimiento >= 80 ? "#10B981" : c.cumplimiento >= 50 ? "#F59E0B" : "#EF4444" }}>{c.cumplimiento}%</span>}</td>
                       <td style={tdC}>{c.n_licitaciones}</td>
                       <td style={{ ...tdC, fontWeight: 700, color: c.dias_mas_pronto <= 30 ? "#EF4444" : c.dias_mas_pronto <= 90 ? "#F59E0B" : "#10B981" }}>{c.dias_mas_pronto}</td>
                     </tr>
@@ -968,7 +1040,7 @@ export default function FacturacionPage() {
                                           <td style={{ ...tdR, padding: "5px 8px", fontWeight: 600 }}>{fmtAbs(l.adjudicado)}</td>
                                           <td style={{ ...tdR, padding: "5px 8px", color: "#10B981" }}>{fmtAbs(l.facturado)}</td>
                                           <td style={{ ...tdR, padding: "5px 8px", fontWeight: 700, color: "#EF4444" }}>{fmtAbs(gap)}</td>
-                                          <td style={{ ...td, padding: "5px 8px" }}><CumplimientoBar pct={l.cumplimiento} w={55} /></td>
+                                          <td style={{ ...td, padding: "5px 8px" }}>{showCumpl ? <CumplimientoBar pct={l.cumplimiento} w={55} /> : <span style={{ fontSize: 12, fontWeight: 700, color: l.cumplimiento >= 80 ? "#10B981" : l.cumplimiento >= 50 ? "#F59E0B" : "#EF4444" }}>{l.cumplimiento}%</span>}</td>
                                           <td style={{ ...tdC, padding: "5px 8px", fontSize: 11 }}>{l.fecha_termino}</td>
                                           <td style={{ ...tdC, padding: "5px 8px", fontWeight: 700, color: semColor(l.semaforo) }}>{l.dias_restantes}</td>
                                         </tr>

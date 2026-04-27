@@ -662,7 +662,14 @@ async def get_dashboard_diario(
 
         conn.close()
 
-        all_dias = sorted(set(list(dias_26.keys()) + list(dias_25.keys())))
+        # Para el mes actual: incluir hasta el último día con datos reales (SP corre a las 6am con data de ayer)
+        today = datetime.date.today()
+        if _ANO == today.year and _MES == today.month:
+            last_day_with_data = max(dias_26.keys(), default=0)
+            candidate = range(1, last_day_with_data + 1)
+        else:
+            candidate = range(1, calendar.monthrange(_ANO, _MES)[1] + 1)
+        all_dias = sorted(set(list(dias_26.keys()) + list(dias_25.keys()) + list(candidate)))
         acum_26 = 0.0
         acum_25 = 0.0
         rows = []

@@ -344,7 +344,9 @@ export default function E1Page() {
                     <th style={thR}>Cumpl % E1 2026</th>
                     <th style={thR}>Margen Budget</th>
                     <th style={thR}>Margen E1 2026</th>
-                    <th style={thR}>Contrib. Macro</th>
+                    <th style={thR}>Contrib. Budget</th>
+                    <th style={thR}>Contrib. E1</th>
+                    <th style={{ ...thR, color: "#6366F1" }}>Dif. Contrib B vs E1</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -353,6 +355,9 @@ export default function E1Page() {
                     const difBudgetE1 = budget != null && c.kpis.e1_total != null ? c.kpis.e1_total - budget : null;
                     const brechaBudget = (c.kpis.venta_real_ytd || 0) - (c.kpis.meta_ytd || 0);
                     const brechaE1 = (c.kpis.venta_real_ytd || 0) - (c.kpis.e1_ytd || 0);
+                    const contribBudget = c.kpis.margen_ppto != null && budget != null ? Math.round(c.kpis.margen_ppto / 100 * budget) : null;
+                    const contribE1 = c.kpis.contrib_total;
+                    const difContrib = contribE1 != null && contribBudget != null ? contribE1 - contribBudget : null;
                     return (
                       <tr key={c.categoria} style={{ background: rowBg(i) }}>
                         <td style={{ ...td, fontWeight: 700 }}>
@@ -373,13 +378,13 @@ export default function E1Page() {
                         </td>
                         <td style={tdR}><CumplBadge v={c.kpis.cumpl_venta_ppto} /></td>
                         <td style={tdR}><CumplBadge v={c.kpis.cumpl_venta_e1} /></td>
-                        <td style={{ ...tdR, color: "#64748B" }}>
-                          {pct(c.kpis.margen_ppto)}
+                        <td style={{ ...tdR, color: "#64748B" }}>{pct(c.kpis.margen_ppto)}</td>
+                        <td style={{ ...tdR, fontWeight: 700, color: margenColor(c.kpis.margen_proy, c.kpis.margen_ppto) }}>{pct(c.kpis.margen_proy)}</td>
+                        <td style={{ ...tdR, color: "#64748B" }}>{fmt(contribBudget)}</td>
+                        <td style={{ ...tdR, fontWeight: 700 }}>{fmt(contribE1)}</td>
+                        <td style={{ ...tdR, fontWeight: 700, color: difContrib == null ? "#94A3B8" : difContrib >= 0 ? "#10B981" : "#EF4444" }}>
+                          {difContrib != null ? (difContrib >= 0 ? "+" : "") + fmt(difContrib) : "—"}
                         </td>
-                        <td style={{ ...tdR, fontWeight: 700, color: margenColor(c.kpis.margen_proy, c.kpis.margen_ppto) }}>
-                          {pct(c.kpis.margen_proy)}
-                        </td>
-                        <td style={tdR}>{fmt(c.kpis.contrib_total)}</td>
                       </tr>
                     );
                   })}
@@ -404,9 +409,28 @@ export default function E1Page() {
                     </td>
                     <td style={tdR}><CumplBadge v={g.cumpl_venta_ppto} /></td>
                     <td style={tdR}><CumplBadge v={g.cumpl_venta_e1} /></td>
-                    <td style={tdR}>—</td>
-                    <td style={tdR}>—</td>
-                    <td style={{ ...tdR, fontWeight: 800 }}>{fmt(catData.reduce((s, c) => s + (c.kpis.contrib_total || 0), 0))}</td>
+                    {(() => {
+                      // Margen ponderado Budget = sum(contrib_budget_est) / sum(meta_ppto_total)
+                      const totalBudget = g.meta_ppto_total || 0;
+                      const totalContribBudget = catData.reduce((s, c) => s + (c.kpis.margen_ppto != null && c.kpis.meta_ppto_total != null ? c.kpis.margen_ppto / 100 * c.kpis.meta_ppto_total : 0), 0);
+                      const margenBudgetTotal = totalBudget > 0 ? totalContribBudget / totalBudget * 100 : null;
+                      // Margen ponderado E1 = sum(contrib_e1) / sum(e1_total)
+                      const totalE1 = g.e1_total || 0;
+                      const totalContribE1 = catData.reduce((s, c) => s + (c.kpis.contrib_total || 0), 0);
+                      const margenE1Total = totalE1 > 0 ? totalContribE1 / totalE1 * 100 : null;
+                      const difContribTotal = totalContribE1 - totalContribBudget;
+                      return (
+                        <>
+                          <td style={{ ...tdR, fontWeight: 800 }}>{margenBudgetTotal != null ? `${margenBudgetTotal.toFixed(1)}%` : "—"}</td>
+                          <td style={{ ...tdR, fontWeight: 800, color: margenColor(margenE1Total, margenBudgetTotal) }}>{margenE1Total != null ? `${margenE1Total.toFixed(1)}%` : "—"}</td>
+                          <td style={{ ...tdR, fontWeight: 800, color: "#64748B" }}>{fmt(Math.round(totalContribBudget))}</td>
+                          <td style={{ ...tdR, fontWeight: 800 }}>{fmt(Math.round(totalContribE1))}</td>
+                          <td style={{ ...tdR, fontWeight: 800, color: difContribTotal >= 0 ? "#10B981" : "#EF4444" }}>
+                            {(difContribTotal >= 0 ? "+" : "") + fmt(Math.round(difContribTotal))}
+                          </td>
+                        </>
+                      );
+                    })()}
                   </tr>
                 </tbody>
               </table>
@@ -615,7 +639,36 @@ function CuadroE1Detalle({ catData, meses, mesActualIdx }: {
   catData: CatData[]; meses: string[]; mesActualIdx: number;
 }) {
   const [catSel, setCatSel] = useState<string>("SQ");
-  const cat = catData.find(c => c.categoria === catSel);
+
+  // Vista TOTAL: agrega todas las categorías sumando filas de dinero
+  const MONEY_KEYS = new Set(["e1", "ppto", "contrib"]);
+  const sumSerie = (key: keyof CatData["metricas"]): MetricaSerie => {
+    const mesesSum = Array.from({ length: 12 }, (_, i) =>
+      catData.reduce((s, c) => {
+        const v = (c.metricas[key] as MetricaSerie)?.meses[i];
+        return v != null ? s + v : s;
+      }, 0) || null
+    );
+    return { meses: mesesSum, total: mesesSum.reduce<number>((s, v) => s + (v ?? 0), 0) };
+  };
+  const nullSerie = (): MetricaSerie => ({ meses: Array(12).fill(null), total: null });
+  const totalCat: CatData = {
+    categoria: "TOTAL",
+    metricas: {
+      e1: sumSerie("e1"),
+      ppto: sumSerie("ppto"),
+      cumpl: nullSerie(),
+      margen_ppto: nullSerie(),
+      margen_proy: nullSerie(),
+      contrib: sumSerie("contrib"),
+      venta_real: sumSerie("venta_real"),
+      meta_ppto: sumSerie("meta_ppto"),
+    },
+    kpis: {} as CatKpis,
+  };
+
+  const cat = catSel === "TOTAL" ? totalCat : catData.find(c => c.categoria === catSel);
+  const catColor = catSel === "TOTAL" ? "#374151" : CAT_COLORS[catSel];
 
   return (
     <div style={{ ...card, marginBottom: 20, padding: 0, overflow: "hidden" }}>
@@ -625,16 +678,24 @@ function CuadroE1Detalle({ catData, meses, mesActualIdx }: {
           Cuadro E1 — Detalle por Categoría
         </h3>
         <div style={{ display: "flex", gap: 4 }}>
-          {CATS.map(cat => (
-            <button key={cat} onClick={() => setCatSel(cat)} style={{
+          {CATS.map(c => (
+            <button key={c} onClick={() => setCatSel(c)} style={{
               padding: "5px 14px", borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: "pointer",
-              border: catSel === cat ? `2px solid ${CAT_COLORS[cat]}` : "1px solid #E2E8F0",
-              background: catSel === cat ? `${CAT_COLORS[cat]}15` : "white",
-              color: catSel === cat ? CAT_COLORS[cat] : "#64748B",
+              border: catSel === c ? `2px solid ${CAT_COLORS[c]}` : "1px solid #E2E8F0",
+              background: catSel === c ? `${CAT_COLORS[c]}15` : "white",
+              color: catSel === c ? CAT_COLORS[c] : "#64748B",
             }}>
-              {cat}
+              {c}
             </button>
           ))}
+          <button onClick={() => setCatSel("TOTAL")} style={{
+            padding: "5px 14px", borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: "pointer",
+            border: catSel === "TOTAL" ? "2px solid #374151" : "1px solid #E2E8F0",
+            background: catSel === "TOTAL" ? "#F1F5F9" : "white",
+            color: catSel === "TOTAL" ? "#0F172A" : "#64748B",
+          }}>
+            Ver todo
+          </button>
         </div>
       </div>
 
@@ -666,15 +727,16 @@ function CuadroE1Detalle({ catData, meses, mesActualIdx }: {
                 const isPpto = key === "ppto";
                 return (
                   <tr key={key} style={{ background: rowBg(fi) }}>
-                    <td style={{ ...td, fontWeight: isE1 ? 800 : 500, color: isE1 ? CAT_COLORS[catSel] : "#374151" }}>
+                    <td style={{ ...td, fontWeight: isE1 ? 800 : 500, color: isE1 ? catColor : "#374151" }}>
                       {label}
                     </td>
                     {serie.meses.map((v, i) => (
                       <td key={i} style={{
                         ...tdR,
                         fontSize: 11,
-                        color: i > mesActualIdx ? "#94A3B8" :
-                          isE1 ? CAT_COLORS[catSel] :
+                        color: v == null ? "#94A3B8" :
+                          i > mesActualIdx ? "#94A3B8" :
+                          isE1 ? catColor :
                           isPpto ? "#374151" : "#1F2937",
                         fontStyle: i > mesActualIdx ? "italic" : "normal",
                         fontWeight: isE1 ? 700 : 400,
@@ -682,7 +744,7 @@ function CuadroE1Detalle({ catData, meses, mesActualIdx }: {
                         {fmtCelda(v, tipo)}
                       </td>
                     ))}
-                    <td style={{ ...tdR, fontWeight: 700, fontSize: 11, color: isE1 ? CAT_COLORS[catSel] : "#374151" }}>
+                    <td style={{ ...tdR, fontWeight: 700, fontSize: 11, color: isE1 ? catColor : "#374151" }}>
                       {fmtCelda(serie.total, tipo)}
                     </td>
                   </tr>
@@ -698,7 +760,7 @@ function CuadroE1Detalle({ catData, meses, mesActualIdx }: {
                     </td>
                   ))}
                   <td style={{ ...tdR, fontWeight: 700, fontSize: 11, color: "#10B981" }}>
-                    {cat.kpis.venta_real_ytd != null ? fmtAbs(cat.kpis.venta_real_ytd) : "—"}
+                    {cat.metricas.venta_real.total != null ? fmtAbs(cat.metricas.venta_real.total) : (cat.kpis.venta_real_ytd != null ? fmtAbs(cat.kpis.venta_real_ytd) : "—")}
                   </td>
                 </tr>
               )}

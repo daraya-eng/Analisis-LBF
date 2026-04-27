@@ -643,6 +643,7 @@ async def get_dashboard_diario(
             SELECT DAY(DIA) AS dia, SUM(CAST(VENTA AS float)) AS venta
             FROM BI_TOTAL_FACTURA
             WHERE ANO = {_ANO} AND MES = {_MES}
+              AND DOC_CODE <> 'GF'
               AND {_EXCL_DW} AND {_FG}
             GROUP BY DAY(DIA)
             ORDER BY 1
@@ -653,6 +654,7 @@ async def get_dashboard_diario(
             SELECT DAY(DIA) AS dia, SUM(CAST(VENTA AS float)) AS venta
             FROM BI_TOTAL_FACTURA
             WHERE ANO = {_ANO - 1} AND MES = {_MES}
+              AND DOC_CODE <> 'GF'
               AND VENDEDOR NOT IN ({_VEND_EXCLUIR})
               AND CODIGO NOT IN ('FLETE','NINV','SIN','')
               AND {_FG}

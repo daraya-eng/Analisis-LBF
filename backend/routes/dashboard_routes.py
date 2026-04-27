@@ -37,9 +37,10 @@ _CATS_VALIDAS = ('SQ', 'EVA', 'MAH', 'EQM')
 
 
 def _calc_ritmo_days(meses: list[int], ano: int) -> tuple[int, int, bool]:
-    """Returns (elapsed_days, total_days, periodo_completo)."""
-    today = datetime.date.today()
-    mes_actual = today.month if today.year == ano else (13 if today.year > ano else 0)
+    """Returns (elapsed_days, total_days, periodo_completo).
+    Usa ayer como corte: SP corre a las 6am con datos de ayer, hoy nunca tiene facturas."""
+    ref = datetime.date.today() - datetime.timedelta(days=1)
+    mes_actual = ref.month if ref.year == ano else (13 if ref.year > ano else 0)
     total_days = 0
     elapsed_days = 0
     for m in meses:
@@ -48,14 +49,14 @@ def _calc_ritmo_days(meses: list[int], ano: int) -> tuple[int, int, bool]:
         if m < mes_actual:
             elapsed_days += days_in_m
         elif m == mes_actual:
-            elapsed_days += today.day
+            elapsed_days += ref.day
     return elapsed_days, total_days, elapsed_days >= total_days
 
 
 def _calc_dias_habiles(meses: list[int], ano: int) -> tuple[int, int, int]:
     """Returns (habiles_transcurridos, habiles_restantes, habiles_totales).
-    Business days = Mon-Fri."""
-    today = datetime.date.today()
+    Business days = Mon-Fri. Usa ayer como corte (datos disponibles hasta ayer a las 6am)."""
+    ref = datetime.date.today() - datetime.timedelta(days=1)
     habiles_transcurridos = 0
     habiles_totales = 0
     for m in meses:
@@ -64,7 +65,7 @@ def _calc_dias_habiles(meses: list[int], ano: int) -> tuple[int, int, int]:
             dt = datetime.date(ano, m, d)
             if dt.weekday() < 5:  # Mon-Fri
                 habiles_totales += 1
-                if dt <= today:
+                if dt <= ref:
                     habiles_transcurridos += 1
     habiles_restantes = habiles_totales - habiles_transcurridos
     return habiles_transcurridos, habiles_restantes, habiles_totales
@@ -238,13 +239,13 @@ def _load_dashboard_raw() -> dict:
             guias_seg_mes[seg][mes] = {}
         guias_seg_mes[seg][mes][cat] = guias_seg_mes[seg][mes].get(cat, 0) + venta
 
-    # ═══ 6. VENTA 2025 parcial: hasta día X del mes actual ═══
-    today = datetime.date.today()
+    # ═══ 6. VENTA 2025 parcial: hasta día X del mes actual (mismo corte que ritmo: ayer) ═══
+    ref_dia = (datetime.date.today() - datetime.timedelta(days=1)).day
     cur.execute(f"""
         SELECT SUM(CAST(VENTA AS float))
         FROM BI_TOTAL_FACTURA
         WHERE ANO = {_ANO-1} AND MES = {_MES}
-          AND DAY(DIA) <= {today.day}
+          AND DAY(DIA) <= {ref_dia}
           AND VENDEDOR NOT IN ({_VEND_EXCLUIR})
           AND CODIGO NOT IN ('FLETE','NINV','SIN','')
           AND {_FG}

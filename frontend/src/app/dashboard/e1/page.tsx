@@ -106,20 +106,31 @@ function riesgoNivel(cumplVentaE1: number | null, cumplVentaPpto: number | null)
 function MainChartTooltip({ active, payload, label }: any) {
   if (!active || !payload?.length) return null;
   const row = payload[0]?.payload;
+  // Extraer valores de barras desde payload
+  const barItems = payload.filter((p: any) => ["PPTO","E1","Venta"].includes(p.dataKey));
+  const labelMap: Record<string, string> = { PPTO: "Budget 2026", E1: "LBE 2026", Venta: "Venta Real" };
   return (
     <div style={{ background: "white", border: "1px solid #E2E8F0", borderRadius: 8, padding: "10px 14px", fontSize: 12, boxShadow: "0 4px 12px rgba(0,0,0,0.1)" }}>
       <div style={{ fontWeight: 700, marginBottom: 6, color: "#374151" }}>{label}</div>
-      {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
-      {payload.map((p: any) => {
-        const isPct = p.dataKey === "CumplPPTO" || p.dataKey === "CumplE1";
-        const lbl = p.dataKey === "PPTO" ? "Budget 2026" : p.dataKey === "E1" ? "LBE 2026" : p.dataKey === "Venta" ? "Venta Real" : p.dataKey === "CumplPPTO" ? "Cumpl % Budget" : p.dataKey === "CumplE1" ? "Cumpl % LBE" : p.name;
-        const clr = p.fill && p.fill !== "none" ? p.fill : p.stroke;
-        return p.value != null && (
-          <div key={p.dataKey} style={{ color: clr, marginBottom: 2 }}>
-            {lbl}: <strong>{isPct ? `${Number(p.value).toFixed(1)}%` : fmtAbs(Number(p.value))}</strong>
-          </div>
-        );
-      })}
+      {barItems.map((p: any) => p.value != null && (
+        <div key={p.dataKey} style={{ color: p.fill && p.fill !== "none" ? p.fill : p.stroke, marginBottom: 2 }}>
+          {labelMap[p.dataKey]}: <strong>{fmtAbs(Number(p.value))}</strong>
+        </div>
+      ))}
+      {(row?.CumplPPTO != null || row?.CumplE1 != null) && (
+        <div style={{ marginTop: 6, paddingTop: 6, borderTop: "1px solid #F1F5F9" }}>
+          {row?.CumplPPTO != null && (
+            <div style={{ color: "#F59E0B", marginBottom: 2 }}>
+              Cumpl % Budget: <strong>{row.CumplPPTO.toFixed(1)}%</strong>
+            </div>
+          )}
+          {row?.CumplE1 != null && (
+            <div style={{ color: "#6366F1" }}>
+              Cumpl % LBE: <strong>{row.CumplE1.toFixed(1)}%</strong>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

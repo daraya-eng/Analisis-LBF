@@ -35,8 +35,8 @@ interface CatKpis {
   venta_real_ytd: number | null;
   cumpl_venta_e1: number | null;
   cumpl_venta_ppto: number | null;
-  e1_ytd: number | null;
-  meta_ytd: number | null;
+  e1_ytd: number | null; meta_ytd: number | null;
+  e1_ytg: number | null; meta_ytg: number | null;
 }
 interface CatData {
   categoria: string;
@@ -58,8 +58,8 @@ interface TotalesData {
     venta_real_ytd: number | null;
     cumpl_venta_e1: number | null;
     cumpl_venta_ppto: number | null;
-    e1_ytd: number;
-    meta_ytd: number;
+    e1_ytd: number; meta_ytd: number;
+    e1_ytg: number; meta_ytg: number;
   };
 }
 interface SubclaseRow {
@@ -317,6 +317,12 @@ export default function E1Page() {
           value={pct(g.cumpl_venta_e1)}
           color={cumplColor(g.cumpl_venta_e1)}
         />
+        <KpiCard
+          label={`YTG E1 2026 (${meses[mesActualIdx + 1] ?? ""}–Dic)`}
+          value={fmt(g.e1_ytg)}
+          sub={`Budget YTG: ${fmt(g.meta_ytg)}`}
+          color="#6366F1"
+        />
       </div>
 
       {tab === "resumen" && (
@@ -342,6 +348,8 @@ export default function E1Page() {
                     <th style={thR}>Brecha vs E1 2026</th>
                     <th style={thR}>Cumpl % Budget</th>
                     <th style={thR}>Cumpl % E1 2026</th>
+                    <th style={{ ...thR, color: "#6366F1" }}>E1 YTG</th>
+                    <th style={{ ...thR, color: "#64748B" }}>Budget YTG</th>
                     <th style={thR}>Margen Budget</th>
                     <th style={thR}>Margen E1 2026</th>
                     <th style={thR}>Contrib. Budget</th>
@@ -378,6 +386,8 @@ export default function E1Page() {
                         </td>
                         <td style={tdR}><CumplBadge v={c.kpis.cumpl_venta_ppto} /></td>
                         <td style={tdR}><CumplBadge v={c.kpis.cumpl_venta_e1} /></td>
+                        <td style={{ ...tdR, fontWeight: 700, color: "#6366F1" }}>{fmt(c.kpis.e1_ytg)}</td>
+                        <td style={{ ...tdR, color: "#64748B" }}>{fmt(c.kpis.meta_ytg)}</td>
                         <td style={{ ...tdR, color: "#64748B" }}>{pct(c.kpis.margen_ppto)}</td>
                         <td style={{ ...tdR, fontWeight: 700, color: margenColor(c.kpis.margen_proy, c.kpis.margen_ppto) }}>{pct(c.kpis.margen_proy)}</td>
                         <td style={{ ...tdR, color: "#64748B" }}>{fmt(contribBudget)}</td>
@@ -409,6 +419,8 @@ export default function E1Page() {
                     </td>
                     <td style={tdR}><CumplBadge v={g.cumpl_venta_ppto} /></td>
                     <td style={tdR}><CumplBadge v={g.cumpl_venta_e1} /></td>
+                    <td style={{ ...tdR, fontWeight: 800, color: "#6366F1" }}>{fmt(g.e1_ytg)}</td>
+                    <td style={{ ...tdR, fontWeight: 800, color: "#64748B" }}>{fmt(g.meta_ytg)}</td>
                     {(() => {
                       // Margen ponderado Budget = sum(contrib_budget_est) / sum(meta_ppto_total)
                       const totalBudget = g.meta_ppto_total || 0;

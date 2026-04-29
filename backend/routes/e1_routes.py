@@ -163,12 +163,12 @@ async def get_e1_totales(current_user: dict = Depends(get_current_user)):
         contrib_total = metricas.get("contrib", {}).get("total")
 
         # YTD: acumulado hasta mes actual (inclusive)
-        e1_ytd = sum(
-            v for v in (metricas.get("e1", {}).get("meses") or [])[:_MES]
-            if v is not None
-        )
-        # Usar Meta_Categoria como PPTO YTD (igual que Panel Principal)
+        e1_meses_list = metricas.get("e1", {}).get("meses") or []
+        e1_ytd = sum(v for v in e1_meses_list[:_MES] if v is not None)
+        e1_ytg = sum(v for v in e1_meses_list[_MES:] if v is not None)
+        # Usar Meta_Categoria como PPTO YTD/YTG (igual que Panel Principal)
         meta_ytd = sum(v for v in meta_meses[:_MES] if v is not None)
+        meta_ytg = sum(v for v in meta_meses[_MES:] if v is not None)
         cumpl_venta_e1 = round(vr_total / e1_ytd * 100, 1) if e1_ytd > 0 and vr_total > 0 else None
         cumpl_venta_ppto = round(vr_total / meta_ytd * 100, 1) if meta_ytd > 0 and vr_total > 0 else None
 
@@ -188,6 +188,8 @@ async def get_e1_totales(current_user: dict = Depends(get_current_user)):
                 "cumpl_venta_ppto": cumpl_venta_ppto,
                 "e1_ytd": round(e1_ytd) if e1_ytd else None,
                 "meta_ytd": round(meta_ytd) if meta_ytd else None,
+                "e1_ytg": round(e1_ytg) if e1_ytg else None,
+                "meta_ytg": round(meta_ytg) if meta_ytg else None,
             },
         })
 
@@ -198,8 +200,10 @@ async def get_e1_totales(current_user: dict = Depends(get_current_user)):
     cumpl_global = round(e1_global / ppto_global * 100, 1) if ppto_global > 0 else None
     vr_global = sum(c["kpis"]["venta_real_ytd"] or 0 for c in result_cats)
     e1_ytd_global = sum(c["kpis"]["e1_ytd"] or 0 for c in result_cats)
+    e1_ytg_global = sum(c["kpis"]["e1_ytg"] or 0 for c in result_cats)
     # Usar Meta_Categoria como PPTO global (igual que Panel Principal)
     meta_ytd_global = sum(c["kpis"]["meta_ytd"] or 0 for c in result_cats)
+    meta_ytg_global = sum(c["kpis"]["meta_ytg"] or 0 for c in result_cats)
     # Meta mensual global = suma por mes de todas las categorías
     meta_mensual_global = [
         sum(
@@ -225,6 +229,8 @@ async def get_e1_totales(current_user: dict = Depends(get_current_user)):
             "cumpl_venta_ppto": round(vr_global / meta_ytd_global * 100, 1) if meta_ytd_global > 0 and vr_global > 0 else None,
             "e1_ytd": round(e1_ytd_global),
             "meta_ytd": round(meta_ytd_global),
+            "e1_ytg": round(e1_ytg_global),
+            "meta_ytg": round(meta_ytg_global),
         },
     }
     mem_set("e1_totales", result)

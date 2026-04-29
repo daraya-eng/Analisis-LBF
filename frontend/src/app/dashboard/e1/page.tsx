@@ -112,7 +112,7 @@ function MainChartTooltip({ active, payload, label }: any) {
       {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
       {payload.map((p: any) => {
         const isPct = p.dataKey === "CumplPPTO" || p.dataKey === "CumplE1";
-        const lbl = p.dataKey === "PPTO" ? "Budget 2026" : p.dataKey === "E1" ? "E1 2026" : p.dataKey === "Venta" ? "Venta Real" : p.dataKey === "CumplPPTO" ? "Cumpl % Budget" : p.dataKey === "CumplE1" ? "Cumpl % E1" : p.name;
+        const lbl = p.dataKey === "PPTO" ? "Budget 2026" : p.dataKey === "E1" ? "LBE 2026" : p.dataKey === "Venta" ? "Venta Real" : p.dataKey === "CumplPPTO" ? "Cumpl % Budget" : p.dataKey === "CumplE1" ? "Cumpl % LBE" : p.name;
         const clr = p.fill && p.fill !== "none" ? p.fill : p.stroke;
         return p.value != null && (
           <div key={p.dataKey} style={{ color: clr, marginBottom: 2 }}>
@@ -148,7 +148,7 @@ function CatCardTooltip({ active, payload, label, color }: any) {
           )}
           {row?.CumplVE1 != null && (
             <div style={{ color: cumplColor(row.CumplVE1), fontWeight: 600 }}>
-              Cumpl % E1: {row.CumplVE1.toFixed(1)}%
+              Cumpl % LBE: {row.CumplVE1.toFixed(1)}%
             </div>
           )}
         </div>
@@ -219,7 +219,7 @@ export default function E1Page() {
     <div style={{ display: "flex", justifyContent: "center", alignItems: "center", height: "50vh" }}>
       <div style={{ textAlign: "center" }}>
         <div style={{ width: 32, height: 32, border: "3px solid #E2E8F0", borderTopColor: "#3B82F6", borderRadius: "50%", animation: "spin 1s linear infinite", margin: "0 auto 12px" }} />
-        <p style={{ color: "#64748B" }}>Cargando Plan de Ventas E1...</p>
+        <p style={{ color: "#64748B" }}>Cargando Plan de Ventas LBE...</p>
       </div>
     </div>
   );
@@ -263,10 +263,10 @@ export default function E1Page() {
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 20 }}>
         <div>
           <h1 style={{ fontSize: 22, fontWeight: 800, color: "#0F172A", margin: 0 }}>
-            Plan de Ventas E1 — 2026
+            Plan de Ventas LBE {mesNombre} — 2026
           </h1>
           <p style={{ fontSize: 12, color: "#64748B", margin: "4px 0 0" }}>
-            PPTO vs E1 vs Venta Real · Margen proyectado · Contribución Macro — SQ / MAH / EQM / EVA
+            Budget vs LBE vs Venta Real · Margen proyectado · Contribución Macro — SQ / MAH / EQM / EVA
           </p>
         </div>
         <div style={{ display: "flex", gap: 4, background: "#F1F5F9", borderRadius: 8, padding: 3 }}>
@@ -292,7 +292,7 @@ export default function E1Page() {
           color="#64748B"
         />
         <KpiCard
-          label="E1 2026"
+          label={`LBE ${mesNombre} 2026`}
           value={fmt(g.e1_total)}
           sub={`Dif. vs Budget: ${g.meta_ppto_total != null ? ((g.e1_total - g.meta_ppto_total) >= 0 ? "+" : "") + fmt(g.e1_total - (g.meta_ppto_total ?? 0)) : "—"}`}
           color="#3B82F6"
@@ -300,7 +300,7 @@ export default function E1Page() {
         <KpiCard
           label={`Venta Real YTD (Ene–${mesNombre})`}
           value={fmt(g.venta_real_ytd)}
-          sub={`YTD Budget 2026: ${fmt(g.meta_ytd)} · YTD E1 2026: ${fmt(g.e1_ytd)}`}
+          sub={`YTD Budget 2026: ${fmt(g.meta_ytd)} · YTD LBE: ${fmt(g.e1_ytd)}`}
           color="#10B981"
         />
         <KpiCard
@@ -313,12 +313,12 @@ export default function E1Page() {
           } : undefined}
         />
         <KpiCard
-          label="Cumpl. Venta / YTD E1 2026"
+          label={`Cumpl. Venta / YTD LBE ${mesNombre}`}
           value={pct(g.cumpl_venta_e1)}
           color={cumplColor(g.cumpl_venta_e1)}
         />
         <KpiCard
-          label={`YTG E1 2026 (${meses[mesActualIdx + 1] ?? ""}–Dic)`}
+          label={`YTG LBE (${meses[mesActualIdx + 1] ?? ""}–Dic)`}
           value={fmt(g.e1_ytg)}
           sub={`Budget YTG: ${fmt(g.meta_ytg)}`}
           color="#6366F1"
@@ -341,20 +341,20 @@ export default function E1Page() {
                   <tr>
                     <th style={thS}>Categoría</th>
                     <th style={thR}>Budget 2026</th>
-                    <th style={thR}>E1 2026</th>
-                    <th style={{ ...thR, color: "#6366F1" }}>Dif. Budget vs E1</th>
+                    <th style={thR}>LBE 2026</th>
+                    <th style={{ ...thR, color: "#6366F1" }}>Dif. Budget vs LBE</th>
                     <th style={thR}>Venta Real YTD</th>
                     <th style={thR}>Brecha vs Budget</th>
-                    <th style={thR}>Brecha vs E1 2026</th>
+                    <th style={thR}>Brecha vs LBE</th>
                     <th style={thR}>Cumpl % Budget</th>
-                    <th style={thR}>Cumpl % E1 2026</th>
-                    <th style={{ ...thR, color: "#6366F1" }}>E1 YTG</th>
+                    <th style={thR}>Cumpl % LBE</th>
+                    <th style={{ ...thR, color: "#6366F1" }}>LBE YTG</th>
                     <th style={{ ...thR, color: "#64748B" }}>Budget YTG</th>
                     <th style={thR}>Margen Budget</th>
-                    <th style={thR}>Margen E1 2026</th>
+                    <th style={thR}>Margen LBE</th>
                     <th style={thR}>Contrib. Budget</th>
-                    <th style={thR}>Contrib. E1</th>
-                    <th style={{ ...thR, color: "#6366F1" }}>Dif. Contrib B vs E1</th>
+                    <th style={thR}>Contrib. LBE</th>
+                    <th style={{ ...thR, color: "#6366F1" }}>Dif. Contrib B vs LBE</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -452,7 +452,7 @@ export default function E1Page() {
           {/* ── Gráfico PPTO vs E1 vs Venta Real ───────────────── */}
           <div style={{ ...card, marginBottom: 20 }}>
             <h3 style={{ fontSize: 14, fontWeight: 700, color: "#0F172A", margin: "0 0 14px" }}>
-              Evolución mensual — Budget 2026 vs E1 2026 vs Venta Real
+              Evolución mensual — Budget 2026 vs LBE 2026 vs Venta Real
             </h3>
             <ResponsiveContainer width="100%" height={300}>
               <ComposedChart data={chartData} margin={{ top: 22, right: 20, left: 4, bottom: 0 }} barCategoryGap="28%">
@@ -466,10 +466,10 @@ export default function E1Page() {
                 <Legend wrapperStyle={{ fontSize: 11 }}
                   formatter={(value) =>
                     value === "PPTO" ? "Budget 2026" :
-                    value === "E1" ? "E1 2026" :
+                    value === "E1" ? "LBE 2026" :
                     value === "Venta" ? "Venta Real" :
                     value === "CumplPPTO" ? "Cumpl % Budget" :
-                    value === "CumplE1" ? "Cumpl % E1" : value
+                    value === "CumplE1" ? "Cumpl % LBE" : value
                   }
                 />
                 {/* Línea de referencia 100% — ancla visual */}
@@ -611,7 +611,7 @@ function MesActualSection({ totales, meses, mesIdx, mesNombre }: {
               {e1Mes != null && (
                 <div>
                   <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, color: "#64748B", marginBottom: 2 }}>
-                    <span>vs E1 2026: {fmt(e1Mes)}</span>
+                    <span>vs LBE: {fmt(e1Mes)}</span>
                     <span style={{ fontWeight: 700, color: cumplE1 ? cumplColor(cumplE1) : "#94A3B8" }}>{pct(cumplE1, 0)}</span>
                   </div>
                   <div style={{ height: 5, background: "#F1F5F9", borderRadius: 3, overflow: "hidden" }}>
@@ -631,7 +631,7 @@ function MesActualSection({ totales, meses, mesIdx, mesNombre }: {
 
 /* ─── Cuadro E1 detallado por categoría ──────────────────────── */
 const FILAS_E1 = [
-  { key: "e1",         label: "E1 2026",              tipo: "money" },
+  { key: "e1",         label: "LBE 2026",             tipo: "money" },
   { key: "ppto",       label: "Budget 2026",          tipo: "money" },
   { key: "cumpl",      label: "Cumplimiento %",       tipo: "pct"   },
   { key: "margen_ppto",label: "PPTO Margen 2026",     tipo: "pct"   },
@@ -687,7 +687,7 @@ function CuadroE1Detalle({ catData, meses, mesActualIdx }: {
       {/* Header con selector */}
       <div style={{ padding: "12px 20px", borderBottom: "1px solid #E2E8F0", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
         <h3 style={{ fontSize: 14, fontWeight: 700, color: "#0F172A", margin: 0 }}>
-          Cuadro E1 — Detalle por Categoría
+          Cuadro LBE — Detalle por Categoría
         </h3>
         <div style={{ display: "flex", gap: 4 }}>
           {CATS.map(c => (
@@ -836,11 +836,11 @@ function CatMensualCard({ cat, meses, mesActualIdx }: { cat: CatData; meses: str
                 </span>
               )}
               <span style={{ fontSize: 11, color: cumplColor(cat.kpis.cumpl_venta_e1), fontWeight: 700 }}>
-                V/E1: <CumplBadge v={cat.kpis.cumpl_venta_e1} />
+                V/LBE: <CumplBadge v={cat.kpis.cumpl_venta_e1} />
               </span>
             </div>
             <div style={{ fontSize: 11, color: "#64748B" }}>
-              Margen E1:{" "}
+              Margen LBE:{" "}
               <strong style={{ color: margenColor(cat.kpis.margen_proy, cat.kpis.margen_ppto) }}>
                 {pct(cat.kpis.margen_proy)}
               </strong>
@@ -859,7 +859,7 @@ function CatMensualCard({ cat, meses, mesActualIdx }: { cat: CatData; meses: str
           </span>
           <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
             <span style={{ width: 10, height: 10, background: e1Color, borderRadius: 2, display: "inline-block" }} />
-            E1 2026
+            LBE 2026
           </span>
           <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
             <span style={{ width: 10, height: 10, background: "#10B981", borderRadius: 2, display: "inline-block" }} />
@@ -877,7 +877,7 @@ function CatMensualCard({ cat, meses, mesActualIdx }: { cat: CatData; meses: str
             <Bar dataKey="PPTO" name="Budget 2026" fill="#94A3B8" radius={[2, 2, 0, 0]} isAnimationActive={false}>
               <LabelList formatter={fmtLabel} position="top" style={{ fontSize: 8, fill: "#64748B", fontWeight: 600 }} />
             </Bar>
-            <Bar dataKey="E1" name="E1 2026" fill={e1Color} radius={[2, 2, 0, 0]} isAnimationActive={false}>
+            <Bar dataKey="E1" name="LBE 2026" fill={e1Color} radius={[2, 2, 0, 0]} isAnimationActive={false}>
               <LabelList formatter={fmtLabel} position="top" style={{ fontSize: 8, fill: e1Color, fontWeight: 700 }} />
             </Bar>
             <Bar dataKey="Venta" name="Venta Real" fill="#10B981" radius={[2, 2, 0, 0]} isAnimationActive={false}>

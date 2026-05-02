@@ -87,8 +87,23 @@ export default function IncentivosPage() {
     load(newQ);
   };
 
-  if (!data && loading) return <div style={{ padding: 60, textAlign: "center", color: "#94A3B8" }}>Cargando incentivos...</div>;
-  if (data?.error) return <div style={{ ...card, padding: 20, color: "#EF4444" }}>Error: {data.error}</div>;
+  if (loading) return <div style={{ padding: 60, textAlign: "center", color: "#94A3B8" }}>Cargando incentivos...</div>;
+  if (!data) return (
+    <div style={{ ...card, padding: 32, color: "#64748B", textAlign: "center" }}>
+      <div style={{ fontSize: 18, fontWeight: 700, color: "#0F172A", marginBottom: 8 }}>Tablas no encontradas</div>
+      <div style={{ fontSize: 13 }}>Conecta la VPN y ejecuta en el backend:</div>
+      <pre style={{ background: "#F1F5F9", padding: "10px 16px", borderRadius: 6, display: "inline-block", marginTop: 10, fontSize: 13 }}>
+        python setup_incentivos.py
+      </pre>
+    </div>
+  );
+  if (data?.error) return (
+    <div style={{ ...card, padding: 32, textAlign: "center" }}>
+      <div style={{ fontSize: 15, fontWeight: 700, color: "#EF4444", marginBottom: 8 }}>Error al cargar datos</div>
+      <div style={{ fontSize: 12, color: "#64748B", marginBottom: 16 }}>{data.error}</div>
+      <div style={{ fontSize: 12, color: "#94A3B8" }}>Si la tabla no existe, conecta la VPN y ejecuta: <code>python setup_incentivos.py</code></div>
+    </div>
+  );
 
   const vendedores: any[] = data?.vendedores || [];
   const totales = data?.totales || {};

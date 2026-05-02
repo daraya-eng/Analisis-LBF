@@ -1,0 +1,87 @@
+{
+  "daraya": {
+    "requests": {
+      "2026-04-18": {
+        "dashboard": 4,
+        "zona": 1
+      },
+      "2026-04-19": {
+        "dashboard": 6,
+        "stock": 37,
+        "ma": 4,
+        "televentas": 9
+      },
+      "2026-04-20": {
+        "zona": 92,
+        "dashboard": 22,
+        "televentas": 1,
+        "facturacion": 8,
+        "ma": 11
+      },
+      "2026-04-21": {
+        "dashboard": 70,
+        "zona": 45,
+        "ma": 41,
+        "televentas": 1,
+        "clientes": 74
+      },
+      "2026-04-22": {
+        "dashboard": 13,
+        "facturacion": 83,
+        "zona": 5
+      },
+      "2026-04-23": {
+        "dashboard": 3,
+        "mercado_publico": 8
+      },
+      "2026-04-24": {
+        "dashboard": 54,
+        "zona": 8
+      },
+      "2026-04-25": {
+        "dashboard": 24,
+        "zona": 2
+      },
+      "2026-04-26": {
+        "dashboard": 12,
+        "facturacion": 22
+      },
+      "2026-04-27": {
+        "dashboard": 36,
+        "facturacion": 17,
+        "televentas": 2,
+        "zona": 10
+      },
+      "2026-04-28": {
+        "dashboard": 4,
+        "zona": 3,
+        "ma": 8
+      },
+      "2026-04-29": {
+        "dashboard": 16,
+        "ma": 4
+      },
+      "2026-04-30": {
+        "dashboard": 23,
+        "stock": 2,
+        "zona": 34,
+        "facturacion": 12
+      },
+      "2026-05-01": {
+        "dashboard": 12,
+        "zona": 5,
+        "clientes": 2,
+        "mercado_publico": 4,
+        "facturacion": 2
+      },
+      "2026-05-02": {
+        "dashboard": 8,
+        "mercado_publico": 35,
+        "televentas": 6,
+        "zona": 8
+      }
+    },
+    "last_active": "2026-05-02 14:54:26",
+    "total": 913
+  }
+}

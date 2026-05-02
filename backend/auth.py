@@ -29,6 +29,7 @@ ALL_MODULES = [
     "ma",
     "guantes",
     "e1",
+    "incentivos",
 ]
 
 MODULE_LABELS = {
@@ -42,6 +43,7 @@ MODULE_LABELS = {
     "mercado_publico": "Mercado Publico",
     "ma": "M&A Targets",
     "guantes": "Monitor Guantes EQM",
+    "incentivos": "Incentivos",
     "e1": "Plan de Ventas E1",
 }
 

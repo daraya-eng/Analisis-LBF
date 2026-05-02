@@ -959,10 +959,7 @@ export default function MercadoPublicoPage() {
       {tab === "ag" ? (
         <CompraAgilTab ano={ano} />
       ) : tab === "cm" ? (
-        <>
-          <ChannelOverview canal="cm" ano={ano} />
-          <LicitacionAnalisis codigo="2239-21-LR23" />
-        </>
+        <LicitacionAnalisis codigo="2239-21-LR23" />
       ) : (
         <ChannelOverview canal={tab} ano={ano} />
       )}

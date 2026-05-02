@@ -621,6 +621,291 @@ function CompraAgilTab({ ano }: { ano: number }) {
 }
 
 /* ════════════════════════════════════════════════════════
+   Licitacion Analisis — 2239-21-LR23
+   ════════════════════════════════════════════════════════ */
+const PROV_COLORS = ["#EF4444","#F59E0B","#8B5CF6","#10B981","#EC4899","#06B6D4","#84CC16","#F97316","#6366F1","#14B8A6"];
+const LBF_COLOR = "#3B82F6";
+
+function LicitacionAnalisis({ codigo }: { codigo: string }) {
+  const [data, setData] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [searchProd, setSearchProd] = useState("");
+  const [searchComp, setSearchComp] = useState("");
+
+  useEffect(() => {
+    setLoading(true);
+    api.get<any>(`/api/mercado-publico/licitacion-analisis?codigo=${encodeURIComponent(codigo)}`, { noCache: true })
+      .then(r => { setData(r); setLoading(false); })
+      .catch(() => setLoading(false));
+  }, [codigo]);
+
+  const filteredProd = useMemo(() => {
+    const list = data?.productos || [];
+    if (!searchProd.trim()) return list;
+    const q = searchProd.toLowerCase();
+    return list.filter((p: any) => (p.producto || "").toLowerCase().includes(q) || (p.proveedor || "").toLowerCase().includes(q));
+  }, [data, searchProd]);
+
+  const filteredComp = useMemo(() => {
+    const list = data?.compradores || [];
+    if (!searchComp.trim()) return list;
+    const q = searchComp.toLowerCase();
+    return list.filter((c: any) => (c.organismo || "").toLowerCase().includes(q) || (c.unidad || "").toLowerCase().includes(q));
+  }, [data, searchComp]);
+
+  if (loading) return <div style={{ padding: 40, textAlign: "center", color: "#94A3B8" }}>Cargando analisis licitacion...</div>;
+  if (!data || data.error) return <div style={{ ...card, padding: 20, color: "#EF4444" }}>Error cargando analisis: {data?.error || "sin datos"}</div>;
+
+  const k = data.kpis || {};
+  const ranking: any[] = data.ranking || [];
+  const tendencia: any[] = data.tendencia || [];
+  const proveedoresList: string[] = data.proveedores_lista || [];
+
+  // Build color map: LBF first, rest by order
+  const colorMap: Record<string, string> = {};
+  let colorIdx = 0;
+  for (const p of proveedoresList) {
+    if (p.toLowerCase().includes("lbf") || p.toLowerCase().includes("comercial lbf")) {
+      colorMap[p] = LBF_COLOR;
+    }
+  }
+  for (const p of proveedoresList) {
+    if (!colorMap[p]) {
+      colorMap[p] = PROV_COLORS[colorIdx % PROV_COLORS.length];
+      colorIdx++;
+    }
+  }
+
+  // Top 5 providers for stacked chart (others grouped)
+  const TOP_N = 5;
+  const topProvs = proveedoresList.slice(0, TOP_N);
+  const chartData = tendencia.map((row: any) => {
+    const out: any = { mes: row.mes, mes_nombre: row.mes_nombre };
+    let otrosSum = 0;
+    for (const p of proveedoresList) {
+      const v = row[p] || 0;
+      if (topProvs.includes(p)) out[p] = v;
+      else otrosSum += v;
+    }
+    if (otrosSum > 0) out["Otros"] = otrosSum;
+    return out;
+  });
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+      {/* Section header */}
+      <div style={{ borderTop: "2px solid #E2E8F0", paddingTop: 20 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 4 }}>
+          <span style={{ fontSize: 18, fontWeight: 800, color: "#0F172A" }}>Analisis Licitacion</span>
+          <span style={{ fontSize: 13, fontWeight: 700, color: "white", background: "#6366F1", borderRadius: 6, padding: "2px 10px" }}>{codigo}</span>
+        </div>
+        <p style={{ fontSize: 12, color: "#64748B", margin: 0 }}>
+          Todas las ordenes de compra asociadas a esta licitacion de Convenio Marco — Participacion, ranking de proveedores y competencia directa.
+        </p>
+      </div>
+
+      {/* KPI cards */}
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+        <KpiCard title="Mercado Total" value={fmt(k.monto_total)} sub={`${(k.n_ocs || 0).toLocaleString()} OCs`} />
+        <KpiCard title="Venta LBF" value={fmt(k.lbf_monto)} color={LBF_COLOR} sub={`MS ${k.ms_lbf ?? "--"}%`} />
+        <KpiCard title="Market Share LBF" value={`${k.ms_lbf ?? "--"}%`} color="#8B5CF6" />
+        <KpiCard title="Proveedores" value={`${k.n_proveedores || 0}`} color="#F59E0B" sub="en esta licitacion" />
+        <KpiCard title="Compradores" value={`${k.n_compradores || 0}`} color="#10B981" sub="instituciones" />
+        {k.fecha_inicio && <KpiCard title="Periodo" value={k.fecha_inicio} sub={`ultimo: ${k.fecha_ultimo || "--"}`} />}
+      </div>
+
+      {/* Ranking table */}
+      <div style={card}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+          <h3 style={{ fontSize: 14, fontWeight: 700, color: "#0F172A", margin: 0 }}>Ranking de Proveedores</h3>
+          <ExportButton
+            data={ranking}
+            columns={[
+              { key: "rank", label: "#" },
+              { key: "proveedor", label: "Proveedor" },
+              { key: "n_ocs", label: "OCs" },
+              { key: "monto", label: "Monto" },
+              { key: "ms_pct", label: "MS %" },
+              { key: "n_compradores", label: "Compradores" },
+            ]}
+            filename={`lic_${codigo}_ranking`}
+          />
+        </div>
+        <div style={{ overflowX: "auto" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse" }}>
+            <thead>
+              <tr>
+                <th style={{ ...thS, width: 40 }}>#</th>
+                <th style={thS}>Proveedor</th>
+                <th style={thR}>Monto</th>
+                <th style={thR}>MS %</th>
+                <th style={thR}>OCs</th>
+                <th style={thR}>Compradores</th>
+              </tr>
+            </thead>
+            <tbody>
+              {ranking.map((r: any, i: number) => {
+                const isLbf = r.es_lbf || r.proveedor?.toLowerCase().includes("lbf");
+                return (
+                  <tr key={i} style={{ background: isLbf ? "#EFF6FF" : rowBg(i), fontWeight: isLbf ? 700 : 400 }}>
+                    <td style={{ ...td, fontWeight: 800, color: i === 0 ? "#F59E0B" : "#64748B" }}>{r.rank}</td>
+                    <td style={{ ...td, color: isLbf ? LBF_COLOR : "#1F2937", maxWidth: 280, overflow: "hidden", textOverflow: "ellipsis" }}>
+                      {r.proveedor}
+                      {isLbf && <span style={{ fontSize: 10, background: "#DBEAFE", color: "#1D4ED8", padding: "1px 6px", borderRadius: 4, marginLeft: 6 }}>LBF</span>}
+                    </td>
+                    <td style={{ ...tdR, fontWeight: 700 }}>{fmt(r.monto)}</td>
+                    <td style={tdR}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, justifyContent: "flex-end" }}>
+                        <div style={{ width: 60, background: "#F1F5F9", borderRadius: 4, height: 12, overflow: "hidden" }}>
+                          <div style={{ width: `${Math.min(r.ms_pct || 0, 100)}%`, height: "100%", background: isLbf ? LBF_COLOR : "#94A3B8", borderRadius: 4 }} />
+                        </div>
+                        <span style={{ color: isLbf ? LBF_COLOR : "#374151", fontWeight: 600, fontSize: 12 }}>{r.ms_pct}%</span>
+                      </div>
+                    </td>
+                    <td style={tdR}>{(r.n_ocs || 0).toLocaleString()}</td>
+                    <td style={tdR}>{(r.n_compradores || 0).toLocaleString()}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Productos breakdown */}
+      <div style={card}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+          <h3 style={{ fontSize: 14, fontWeight: 700, color: "#0F172A", margin: 0 }}>Participacion por Producto</h3>
+          <ExportButton
+            data={filteredProd}
+            columns={[
+              { key: "producto", label: "Producto" },
+              { key: "proveedor", label: "Proveedor" },
+              { key: "n_ocs", label: "OCs" },
+              { key: "monto", label: "Monto" },
+              { key: "precio_prom", label: "Precio Prom" },
+              { key: "cantidad_total", label: "Cantidad" },
+            ]}
+            filename={`lic_${codigo}_productos`}
+          />
+        </div>
+        <TableToolbar>
+          <SearchInput value={searchProd} onChange={setSearchProd} placeholder="Buscar producto o proveedor..." width={260} />
+          {searchProd && <span style={{ fontSize: 12, color: "#64748B" }}>{filteredProd.length} de {(data.productos || []).length}</span>}
+        </TableToolbar>
+        <div style={{ overflowX: "auto" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse" }}>
+            <thead>
+              <tr>
+                <th style={thS}>Producto</th>
+                <th style={thS}>Proveedor</th>
+                <th style={thR}>Monto</th>
+                <th style={thR}>OCs</th>
+                <th style={thR}>Precio Prom</th>
+                <th style={thR}>Cantidad</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredProd.map((p: any, i: number) => {
+                const isLbf = p.proveedor?.toLowerCase().includes("lbf");
+                return (
+                  <tr key={i} style={{ background: isLbf ? "#EFF6FF" : rowBg(i) }}>
+                    <td style={{ ...td, maxWidth: 320, overflow: "hidden", textOverflow: "ellipsis" }}>{p.producto}</td>
+                    <td style={{ ...td, color: isLbf ? LBF_COLOR : "#374151", fontWeight: isLbf ? 700 : 400, maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis" }}>{p.proveedor}</td>
+                    <td style={{ ...tdR, fontWeight: 600 }}>{fmt(p.monto)}</td>
+                    <td style={tdR}>{(p.n_ocs || 0).toLocaleString()}</td>
+                    <td style={tdR}>{fmt(p.precio_prom)}</td>
+                    <td style={tdR}>{(p.cantidad_total || 0).toLocaleString()}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Tendencia mensual stacked bar */}
+      {chartData.length > 0 && (
+        <div style={card}>
+          <h3 style={{ fontSize: 14, fontWeight: 700, color: "#0F172A", marginBottom: 16 }}>Tendencia Mensual por Proveedor</h3>
+          <ResponsiveContainer width="100%" height={360}>
+            <ComposedChart data={chartData}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" />
+              <XAxis dataKey="mes_nombre" tick={{ fill: "#64748B", fontSize: 11 }} />
+              <YAxis tickFormatter={(v: number) => fmt(v)} tick={{ fill: "#64748B", fontSize: 11 }} />
+              <Tooltip
+                contentStyle={{ background: "white", border: "1px solid #E2E8F0", borderRadius: 8, fontSize: 12 }}
+                formatter={(value: any, name: any) => [fmt(value), name]}
+              />
+              <Legend wrapperStyle={{ fontSize: 11 }} />
+              {topProvs.map((p) => (
+                <Bar key={p} dataKey={p} stackId="a" fill={colorMap[p]} name={p.length > 30 ? p.slice(0, 28) + "…" : p} radius={[0, 0, 0, 0]} />
+              ))}
+              {chartData.some((d: any) => d["Otros"] > 0) && (
+                <Bar dataKey="Otros" stackId="a" fill="#CBD5E1" name="Otros" radius={[4, 4, 0, 0]} />
+              )}
+            </ComposedChart>
+          </ResponsiveContainer>
+        </div>
+      )}
+
+      {/* Compradores */}
+      <div style={card}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+          <h3 style={{ fontSize: 14, fontWeight: 700, color: "#0F172A", margin: 0 }}>Instituciones Compradoras</h3>
+          <ExportButton
+            data={filteredComp}
+            columns={[
+              { key: "organismo", label: "Organismo" },
+              { key: "unidad", label: "Unidad" },
+              { key: "n_ocs", label: "OCs" },
+              { key: "monto", label: "Monto" },
+              { key: "ms_pct", label: "MS LBF %" },
+              { key: "n_proveedores", label: "Proveedores" },
+            ]}
+            filename={`lic_${codigo}_compradores`}
+          />
+        </div>
+        <TableToolbar>
+          <SearchInput value={searchComp} onChange={setSearchComp} placeholder="Buscar organismo..." width={240} />
+          {searchComp && <span style={{ fontSize: 12, color: "#64748B" }}>{filteredComp.length} de {(data.compradores || []).length}</span>}
+        </TableToolbar>
+        <div style={{ overflowX: "auto" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse" }}>
+            <thead>
+              <tr>
+                <th style={thS}>Organismo</th>
+                <th style={thS}>Unidad</th>
+                <th style={thR}>Monto</th>
+                <th style={thR}>MS LBF</th>
+                <th style={thR}>OCs</th>
+                <th style={thR}>Proveedores</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredComp.map((c: any, i: number) => (
+                <tr key={i} style={{ background: rowBg(i) }}>
+                  <td style={{ ...td, maxWidth: 280, overflow: "hidden", textOverflow: "ellipsis", fontWeight: 600 }}>{c.organismo}</td>
+                  <td style={{ ...td, maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis", color: "#475569" }}>{c.unidad || "—"}</td>
+                  <td style={{ ...tdR, fontWeight: 600 }}>{fmt(c.monto)}</td>
+                  <td style={tdR}>
+                    {c.ms_pct != null ? (
+                      <span style={{ color: c.ms_pct >= 50 ? "#10B981" : c.ms_pct >= 20 ? "#F59E0B" : "#64748B", fontWeight: 600 }}>{c.ms_pct}%</span>
+                    ) : "—"}
+                  </td>
+                  <td style={tdR}>{(c.n_ocs || 0).toLocaleString()}</td>
+                  <td style={tdR}>{(c.n_proveedores || 0).toLocaleString()}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ════════════════════════════════════════════════════════
    Main Page
    ════════════════════════════════════════════════════════ */
 export default function MercadoPublicoPage() {
@@ -673,6 +958,11 @@ export default function MercadoPublicoPage() {
       {/* Content */}
       {tab === "ag" ? (
         <CompraAgilTab ano={ano} />
+      ) : tab === "cm" ? (
+        <>
+          <ChannelOverview canal="cm" ano={ano} />
+          <LicitacionAnalisis codigo="2239-21-LR23" />
+        </>
       ) : (
         <ChannelOverview canal={tab} ano={ano} />
       )}

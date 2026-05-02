@@ -626,25 +626,54 @@ function CompraAgilTab({ ano }: { ano: number }) {
 const PROV_COLORS = ["#EF4444","#F59E0B","#8B5CF6","#10B981","#EC4899","#06B6D4","#84CC16","#F97316","#6366F1","#14B8A6"];
 const LBF_COLOR = "#3B82F6";
 
+function MsBar({ pct, isLbf, width = 80 }: { pct: number; isLbf?: boolean; width?: number }) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+      <div style={{ width, background: "#F1F5F9", borderRadius: 4, height: 12, overflow: "hidden", flexShrink: 0 }}>
+        <div style={{ width: `${Math.min(pct, 100)}%`, height: "100%", background: isLbf ? LBF_COLOR : "#94A3B8", borderRadius: 4 }} />
+      </div>
+      <span style={{ color: isLbf ? LBF_COLOR : "#374151", fontWeight: 600, fontSize: 12 }}>{pct}%</span>
+    </div>
+  );
+}
+
 function LicitacionAnalisis({ codigo }: { codigo: string }) {
-  const [data, setData] = useState<any>(null);
+  const [base, setBase] = useState<any>(null);           // datos sin filtrar (meses disponibles, proveedores)
+  const [data, setData] = useState<any>(null);           // datos con filtros aplicados
   const [loading, setLoading] = useState(true);
-  const [searchProd, setSearchProd] = useState("");
+  const [filtering, setFiltering] = useState(false);
+
+  // Filtros
+  const [desde, setDesde] = useState("");
+  const [hasta, setHasta] = useState("");
+  const [provFiltro, setProvFiltro] = useState("");
+  const [expandedCat, setExpandedCat] = useState<string | null>(null);
   const [searchComp, setSearchComp] = useState("");
 
+  // Carga inicial (sin filtros)
   useEffect(() => {
     setLoading(true);
     api.get<any>(`/api/mercado-publico/licitacion-analisis?codigo=${encodeURIComponent(codigo)}`, { noCache: true })
-      .then(r => { setData(r); setLoading(false); })
+      .then(r => { setBase(r); setData(r); setLoading(false); })
       .catch(() => setLoading(false));
   }, [codigo]);
 
-  const filteredProd = useMemo(() => {
-    const list = data?.productos || [];
-    if (!searchProd.trim()) return list;
-    const q = searchProd.toLowerCase();
-    return list.filter((p: any) => (p.producto || "").toLowerCase().includes(q) || (p.proveedor || "").toLowerCase().includes(q));
-  }, [data, searchProd]);
+  // Aplicar filtros
+  const applyFilters = useCallback(() => {
+    let url = `/api/mercado-publico/licitacion-analisis?codigo=${encodeURIComponent(codigo)}`;
+    if (desde) url += `&desde=${desde}`;
+    if (hasta) url += `&hasta=${hasta}`;
+    if (provFiltro) url += `&proveedor=${encodeURIComponent(provFiltro)}`;
+    setFiltering(true);
+    api.get<any>(url, { noCache: true })
+      .then(r => { setData(r); setFiltering(false); })
+      .catch(() => setFiltering(false));
+  }, [codigo, desde, hasta, provFiltro]);
+
+  const resetFilters = useCallback(() => {
+    setDesde(""); setHasta(""); setProvFiltro("");
+    setData(base);
+  }, [base]);
 
   const filteredComp = useMemo(() => {
     const list = data?.compradores || [];
@@ -657,212 +686,263 @@ function LicitacionAnalisis({ codigo }: { codigo: string }) {
   if (!data || data.error) return <div style={{ ...card, padding: 20, color: "#EF4444" }}>Error cargando analisis: {data?.error || "sin datos"}</div>;
 
   const k = data.kpis || {};
+  const categorias: any[] = data.categorias || [];
   const ranking: any[] = data.ranking || [];
   const tendencia: any[] = data.tendencia || [];
-  const proveedoresList: string[] = data.proveedores_lista || [];
+  const top5: string[] = data.proveedores_top5 || [];
+  const mesesDisp: string[] = base?.meses_disponibles || [];
+  const proveedoresDisp: string[] = (base?.ranking || []).map((r: any) => r.proveedor);
 
-  // Build color map: LBF first, rest by order
+  // Color map por proveedor
   const colorMap: Record<string, string> = {};
-  let colorIdx = 0;
-  for (const p of proveedoresList) {
-    if (p.toLowerCase().includes("lbf") || p.toLowerCase().includes("comercial lbf")) {
-      colorMap[p] = LBF_COLOR;
-    }
+  let ci = 0;
+  for (const r of ranking) {
+    colorMap[r.proveedor] = r.es_lbf ? LBF_COLOR : PROV_COLORS[ci++ % PROV_COLORS.length];
   }
-  for (const p of proveedoresList) {
-    if (!colorMap[p]) {
-      colorMap[p] = PROV_COLORS[colorIdx % PROV_COLORS.length];
-      colorIdx++;
-    }
-  }
+  const hasOtros = tendencia.some((d: any) => (d["Otros"] || 0) > 0);
 
-  // Top 5 providers for stacked chart (others grouped)
-  const TOP_N = 5;
-  const topProvs = proveedoresList.slice(0, TOP_N);
-  const chartData = tendencia.map((row: any) => {
-    const out: any = { mes: row.mes, mes_nombre: row.mes_nombre };
-    let otrosSum = 0;
-    for (const p of proveedoresList) {
-      const v = row[p] || 0;
-      if (topProvs.includes(p)) out[p] = v;
-      else otrosSum += v;
-    }
-    if (otrosSum > 0) out["Otros"] = otrosSum;
-    return out;
-  });
+  const hayFiltros = desde || hasta || provFiltro;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-      {/* Section header */}
-      <div style={{ borderTop: "2px solid #E2E8F0", paddingTop: 20 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 4 }}>
-          <span style={{ fontSize: 18, fontWeight: 800, color: "#0F172A" }}>Analisis Licitacion</span>
-          <span style={{ fontSize: 13, fontWeight: 700, color: "white", background: "#6366F1", borderRadius: 6, padding: "2px 10px" }}>{codigo}</span>
+      {/* Header */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
+        <div>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 4 }}>
+            <span style={{ fontSize: 18, fontWeight: 800, color: "#0F172A" }}>Licitacion</span>
+            <span style={{ fontSize: 13, fontWeight: 700, color: "white", background: "#6366F1", borderRadius: 6, padding: "3px 12px" }}>{codigo}</span>
+            {hayFiltros && <span style={{ fontSize: 11, color: "#F59E0B", fontWeight: 600 }}>FILTROS ACTIVOS</span>}
+          </div>
+          <p style={{ fontSize: 12, color: "#64748B", margin: 0 }}>
+            Convenio Marco — {k.fecha_inicio} a {k.fecha_ultimo} · {k.n_ocs} OCs · {k.n_proveedores} proveedores · {k.n_compradores} instituciones
+          </p>
         </div>
-        <p style={{ fontSize: 12, color: "#64748B", margin: 0 }}>
-          Todas las ordenes de compra asociadas a esta licitacion de Convenio Marco — Participacion, ranking de proveedores y competencia directa.
-        </p>
       </div>
 
-      {/* KPI cards */}
+      {/* ── Filtros ─────────────────────────────────────── */}
+      <div style={{ ...card, background: "#F8FAFC", padding: "14px 18px" }}>
+        <div style={{ display: "flex", alignItems: "flex-end", gap: 12, flexWrap: "wrap" }}>
+          <div>
+            <div style={{ fontSize: 11, color: "#64748B", marginBottom: 4, fontWeight: 600 }}>Desde</div>
+            <select
+              value={desde}
+              onChange={e => setDesde(e.target.value)}
+              style={{ padding: "6px 10px", borderRadius: 6, border: "1px solid #CBD5E1", fontSize: 13, background: "white", minWidth: 120 }}
+            >
+              <option value="">Todo</option>
+              {mesesDisp.map(m => <option key={m} value={m}>{m}</option>)}
+            </select>
+          </div>
+          <div>
+            <div style={{ fontSize: 11, color: "#64748B", marginBottom: 4, fontWeight: 600 }}>Hasta</div>
+            <select
+              value={hasta}
+              onChange={e => setHasta(e.target.value)}
+              style={{ padding: "6px 10px", borderRadius: 6, border: "1px solid #CBD5E1", fontSize: 13, background: "white", minWidth: 120 }}
+            >
+              <option value="">Todo</option>
+              {mesesDisp.map(m => <option key={m} value={m}>{m}</option>)}
+            </select>
+          </div>
+          <div>
+            <div style={{ fontSize: 11, color: "#64748B", marginBottom: 4, fontWeight: 600 }}>Proveedor</div>
+            <select
+              value={provFiltro}
+              onChange={e => setProvFiltro(e.target.value)}
+              style={{ padding: "6px 10px", borderRadius: 6, border: "1px solid #CBD5E1", fontSize: 13, background: "white", minWidth: 180 }}
+            >
+              <option value="">Todos</option>
+              {proveedoresDisp.map(p => <option key={p} value={p}>{p.length > 35 ? p.slice(0, 33) + "…" : p}</option>)}
+            </select>
+          </div>
+          <button
+            onClick={applyFilters}
+            disabled={filtering}
+            style={{ padding: "7px 18px", borderRadius: 6, border: "none", background: "#3B82F6", color: "white", fontWeight: 700, fontSize: 13, cursor: "pointer" }}
+          >
+            {filtering ? "Filtrando…" : "Aplicar"}
+          </button>
+          {hayFiltros && (
+            <button
+              onClick={resetFilters}
+              style={{ padding: "7px 14px", borderRadius: 6, border: "1px solid #CBD5E1", background: "white", color: "#64748B", fontSize: 13, cursor: "pointer" }}
+            >
+              Limpiar
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* ── KPIs ─────────────────────────────────────────── */}
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
         <KpiCard title="Mercado Total" value={fmt(k.monto_total)} sub={`${(k.n_ocs || 0).toLocaleString()} OCs`} />
-        <KpiCard title="Venta LBF" value={fmt(k.lbf_monto)} color={LBF_COLOR} sub={`MS ${k.ms_lbf ?? "--"}%`} />
+        <KpiCard title="Venta LBF" value={fmt(k.lbf_monto)} color={LBF_COLOR} />
         <KpiCard title="Market Share LBF" value={`${k.ms_lbf ?? "--"}%`} color="#8B5CF6" />
-        <KpiCard title="Proveedores" value={`${k.n_proveedores || 0}`} color="#F59E0B" sub="en esta licitacion" />
+        <KpiCard title="Proveedores" value={`${k.n_proveedores || 0}`} color="#F59E0B" />
         <KpiCard title="Compradores" value={`${k.n_compradores || 0}`} color="#10B981" sub="instituciones" />
-        {k.fecha_inicio && <KpiCard title="Periodo" value={k.fecha_inicio} sub={`ultimo: ${k.fecha_ultimo || "--"}`} />}
       </div>
 
-      {/* Ranking table */}
+      {/* ── Por Categoría (acordeón) ──────────────────────── */}
       <div style={card}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
-          <h3 style={{ fontSize: 14, fontWeight: 700, color: "#0F172A", margin: 0 }}>Ranking de Proveedores</h3>
+          <h3 style={{ fontSize: 14, fontWeight: 700, color: "#0F172A", margin: 0 }}>Categorias del Contrato Marco</h3>
+          <ExportButton
+            data={categorias.map(c => ({ categoria: c.categoria, monto: c.monto, lbf_monto: c.lbf_monto, ms_lbf: c.ms_lbf, n_ocs: c.n_ocs, n_proveedores: c.n_proveedores }))}
+            columns={[
+              { key: "categoria", label: "Categoria" },
+              { key: "monto", label: "Mercado" },
+              { key: "lbf_monto", label: "LBF" },
+              { key: "ms_lbf", label: "MS LBF %" },
+              { key: "n_ocs", label: "OCs" },
+              { key: "n_proveedores", label: "Proveedores" },
+            ]}
+            filename={`lic_${codigo}_categorias`}
+          />
+        </div>
+        <table style={{ width: "100%", borderCollapse: "collapse" }}>
+          <thead>
+            <tr>
+              <th style={thS}>Categoria</th>
+              <th style={thR}>Mercado</th>
+              <th style={thR}>LBF</th>
+              <th style={thR}>MS LBF</th>
+              <th style={thR}>OCs</th>
+              <th style={thR}>Proveedores</th>
+              <th style={{ ...thS, width: 80 }}></th>
+            </tr>
+          </thead>
+          <tbody>
+            {categorias.map((cat: any, i: number) => {
+              const isOpen = expandedCat === cat.categoria_full;
+              return (
+                <>
+                  <tr
+                    key={cat.categoria_full}
+                    style={{ background: cat.tiene_lbf ? "#EFF6FF" : rowBg(i), cursor: "pointer", borderLeft: cat.tiene_lbf ? `3px solid ${LBF_COLOR}` : "3px solid transparent" }}
+                    onClick={() => setExpandedCat(isOpen ? null : cat.categoria_full)}
+                  >
+                    <td style={{ ...td, fontWeight: cat.tiene_lbf ? 700 : 400 }}>
+                      {cat.categoria}
+                      {cat.tiene_lbf && <span style={{ fontSize: 10, background: "#DBEAFE", color: "#1D4ED8", padding: "1px 6px", borderRadius: 4, marginLeft: 6 }}>LBF</span>}
+                      <div style={{ fontSize: 11, color: "#94A3B8", fontWeight: 400 }}>{cat.categoria_grupo}</div>
+                    </td>
+                    <td style={tdR}>{fmt(cat.monto)}</td>
+                    <td style={{ ...tdR, color: LBF_COLOR, fontWeight: cat.tiene_lbf ? 700 : 400 }}>{cat.tiene_lbf ? fmt(cat.lbf_monto) : "—"}</td>
+                    <td style={tdR}><MsBar pct={cat.ms_lbf} isLbf={cat.tiene_lbf} width={60} /></td>
+                    <td style={tdR}>{cat.n_ocs}</td>
+                    <td style={tdR}>{cat.n_proveedores}</td>
+                    <td style={{ ...td, textAlign: "center", color: "#94A3B8", fontSize: 12 }}>
+                      {isOpen ? "▲ Cerrar" : "▼ Ver productos"}
+                    </td>
+                  </tr>
+                  {isOpen && cat.productos.length > 0 && (
+                    <tr key={`prod-${cat.categoria_full}`}>
+                      <td colSpan={7} style={{ padding: 0, background: "#F8FAFC" }}>
+                        <div style={{ padding: "10px 16px 14px 32px" }}>
+                          <div style={{ fontSize: 11, fontWeight: 700, color: "#64748B", marginBottom: 8, textTransform: "uppercase", letterSpacing: 0.5 }}>
+                            Productos × Proveedor
+                          </div>
+                          <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                            <thead>
+                              <tr>
+                                <th style={{ ...thS, fontSize: 11, padding: "5px 10px" }}>Producto</th>
+                                <th style={{ ...thS, fontSize: 11, padding: "5px 10px" }}>Proveedor</th>
+                                <th style={{ ...thR, fontSize: 11, padding: "5px 10px" }}>Monto</th>
+                                <th style={{ ...thR, fontSize: 11, padding: "5px 10px" }}>OCs</th>
+                                <th style={{ ...thR, fontSize: 11, padding: "5px 10px" }}>Precio Prom</th>
+                                <th style={{ ...thR, fontSize: 11, padding: "5px 10px" }}>Cantidad</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {cat.productos.map((p: any, pi: number) => (
+                                <tr key={pi} style={{ background: p.es_lbf ? "#EFF6FF" : rowBg(pi) }}>
+                                  <td style={{ ...td, fontSize: 12, padding: "5px 10px", maxWidth: 300, overflow: "hidden", textOverflow: "ellipsis" }}>{p.producto}</td>
+                                  <td style={{ ...td, fontSize: 12, padding: "5px 10px", color: p.es_lbf ? LBF_COLOR : "#374151", fontWeight: p.es_lbf ? 700 : 400, maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis" }}>{p.proveedor}</td>
+                                  <td style={{ ...tdR, fontSize: 12, padding: "5px 10px", fontWeight: 600 }}>{fmt(p.monto)}</td>
+                                  <td style={{ ...tdR, fontSize: 12, padding: "5px 10px" }}>{p.n_ocs}</td>
+                                  <td style={{ ...tdR, fontSize: 12, padding: "5px 10px" }}>{p.precio_prom.toLocaleString("es-CL")}</td>
+                                  <td style={{ ...tdR, fontSize: 12, padding: "5px 10px" }}>{p.cantidad.toLocaleString("es-CL")}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      {/* ── Ranking proveedores ────────────────────────────── */}
+      <div style={card}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+          <h3 style={{ fontSize: 14, fontWeight: 700, color: "#0F172A", margin: 0 }}>Ranking Proveedores</h3>
           <ExportButton
             data={ranking}
-            columns={[
-              { key: "rank", label: "#" },
-              { key: "proveedor", label: "Proveedor" },
-              { key: "n_ocs", label: "OCs" },
-              { key: "monto", label: "Monto" },
-              { key: "ms_pct", label: "MS %" },
-              { key: "n_compradores", label: "Compradores" },
-            ]}
+            columns={[{ key: "rank", label: "#" }, { key: "proveedor", label: "Proveedor" }, { key: "n_ocs", label: "OCs" }, { key: "monto", label: "Monto" }, { key: "ms_pct", label: "MS %" }, { key: "n_compradores", label: "Compradores" }]}
             filename={`lic_${codigo}_ranking`}
           />
         </div>
-        <div style={{ overflowX: "auto" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse" }}>
-            <thead>
-              <tr>
-                <th style={{ ...thS, width: 40 }}>#</th>
-                <th style={thS}>Proveedor</th>
-                <th style={thR}>Monto</th>
-                <th style={thR}>MS %</th>
-                <th style={thR}>OCs</th>
-                <th style={thR}>Compradores</th>
+        <table style={{ width: "100%", borderCollapse: "collapse" }}>
+          <thead>
+            <tr>
+              <th style={{ ...thS, width: 40 }}>#</th>
+              <th style={thS}>Proveedor</th>
+              <th style={thR}>Monto</th>
+              <th style={thR}>MS %</th>
+              <th style={thR}>OCs</th>
+              <th style={thR}>Instituciones</th>
+            </tr>
+          </thead>
+          <tbody>
+            {ranking.map((r: any, i: number) => (
+              <tr key={i} style={{ background: r.es_lbf ? "#EFF6FF" : rowBg(i), fontWeight: r.es_lbf ? 700 : 400 }}>
+                <td style={{ ...td, fontWeight: 800, color: i === 0 ? "#F59E0B" : "#64748B" }}>{r.rank}</td>
+                <td style={{ ...td, color: r.es_lbf ? LBF_COLOR : "#1F2937", maxWidth: 280, overflow: "hidden", textOverflow: "ellipsis" }}>
+                  {r.proveedor}
+                  {r.es_lbf && <span style={{ fontSize: 10, background: "#DBEAFE", color: "#1D4ED8", padding: "1px 6px", borderRadius: 4, marginLeft: 6 }}>LBF</span>}
+                </td>
+                <td style={{ ...tdR, fontWeight: 700 }}>{fmt(r.monto)}</td>
+                <td style={tdR}><MsBar pct={r.ms_pct} isLbf={r.es_lbf} width={70} /></td>
+                <td style={tdR}>{r.n_ocs}</td>
+                <td style={tdR}>{r.n_compradores}</td>
               </tr>
-            </thead>
-            <tbody>
-              {ranking.map((r: any, i: number) => {
-                const isLbf = r.es_lbf || r.proveedor?.toLowerCase().includes("lbf");
-                return (
-                  <tr key={i} style={{ background: isLbf ? "#EFF6FF" : rowBg(i), fontWeight: isLbf ? 700 : 400 }}>
-                    <td style={{ ...td, fontWeight: 800, color: i === 0 ? "#F59E0B" : "#64748B" }}>{r.rank}</td>
-                    <td style={{ ...td, color: isLbf ? LBF_COLOR : "#1F2937", maxWidth: 280, overflow: "hidden", textOverflow: "ellipsis" }}>
-                      {r.proveedor}
-                      {isLbf && <span style={{ fontSize: 10, background: "#DBEAFE", color: "#1D4ED8", padding: "1px 6px", borderRadius: 4, marginLeft: 6 }}>LBF</span>}
-                    </td>
-                    <td style={{ ...tdR, fontWeight: 700 }}>{fmt(r.monto)}</td>
-                    <td style={tdR}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 6, justifyContent: "flex-end" }}>
-                        <div style={{ width: 60, background: "#F1F5F9", borderRadius: 4, height: 12, overflow: "hidden" }}>
-                          <div style={{ width: `${Math.min(r.ms_pct || 0, 100)}%`, height: "100%", background: isLbf ? LBF_COLOR : "#94A3B8", borderRadius: 4 }} />
-                        </div>
-                        <span style={{ color: isLbf ? LBF_COLOR : "#374151", fontWeight: 600, fontSize: 12 }}>{r.ms_pct}%</span>
-                      </div>
-                    </td>
-                    <td style={tdR}>{(r.n_ocs || 0).toLocaleString()}</td>
-                    <td style={tdR}>{(r.n_compradores || 0).toLocaleString()}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+            ))}
+          </tbody>
+        </table>
       </div>
 
-      {/* Productos breakdown */}
-      <div style={card}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
-          <h3 style={{ fontSize: 14, fontWeight: 700, color: "#0F172A", margin: 0 }}>Participacion por Producto</h3>
-          <ExportButton
-            data={filteredProd}
-            columns={[
-              { key: "producto", label: "Producto" },
-              { key: "proveedor", label: "Proveedor" },
-              { key: "n_ocs", label: "OCs" },
-              { key: "monto", label: "Monto" },
-              { key: "precio_prom", label: "Precio Prom" },
-              { key: "cantidad_total", label: "Cantidad" },
-            ]}
-            filename={`lic_${codigo}_productos`}
-          />
-        </div>
-        <TableToolbar>
-          <SearchInput value={searchProd} onChange={setSearchProd} placeholder="Buscar producto o proveedor..." width={260} />
-          {searchProd && <span style={{ fontSize: 12, color: "#64748B" }}>{filteredProd.length} de {(data.productos || []).length}</span>}
-        </TableToolbar>
-        <div style={{ overflowX: "auto" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse" }}>
-            <thead>
-              <tr>
-                <th style={thS}>Producto</th>
-                <th style={thS}>Proveedor</th>
-                <th style={thR}>Monto</th>
-                <th style={thR}>OCs</th>
-                <th style={thR}>Precio Prom</th>
-                <th style={thR}>Cantidad</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredProd.map((p: any, i: number) => {
-                const isLbf = p.proveedor?.toLowerCase().includes("lbf");
-                return (
-                  <tr key={i} style={{ background: isLbf ? "#EFF6FF" : rowBg(i) }}>
-                    <td style={{ ...td, maxWidth: 320, overflow: "hidden", textOverflow: "ellipsis" }}>{p.producto}</td>
-                    <td style={{ ...td, color: isLbf ? LBF_COLOR : "#374151", fontWeight: isLbf ? 700 : 400, maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis" }}>{p.proveedor}</td>
-                    <td style={{ ...tdR, fontWeight: 600 }}>{fmt(p.monto)}</td>
-                    <td style={tdR}>{(p.n_ocs || 0).toLocaleString()}</td>
-                    <td style={tdR}>{fmt(p.precio_prom)}</td>
-                    <td style={tdR}>{(p.cantidad_total || 0).toLocaleString()}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {/* Tendencia mensual stacked bar */}
-      {chartData.length > 0 && (
+      {/* ── Tendencia mensual ──────────────────────────────── */}
+      {tendencia.length > 0 && (
         <div style={card}>
           <h3 style={{ fontSize: 14, fontWeight: 700, color: "#0F172A", marginBottom: 16 }}>Tendencia Mensual por Proveedor</h3>
-          <ResponsiveContainer width="100%" height={360}>
-            <ComposedChart data={chartData}>
+          <ResponsiveContainer width="100%" height={340}>
+            <ComposedChart data={tendencia}>
               <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" />
-              <XAxis dataKey="mes_nombre" tick={{ fill: "#64748B", fontSize: 11 }} />
+              <XAxis dataKey="mes" tick={{ fill: "#64748B", fontSize: 11 }} />
               <YAxis tickFormatter={(v: number) => fmt(v)} tick={{ fill: "#64748B", fontSize: 11 }} />
-              <Tooltip
-                contentStyle={{ background: "white", border: "1px solid #E2E8F0", borderRadius: 8, fontSize: 12 }}
-                formatter={(value: any, name: any) => [fmt(value), name]}
-              />
-              <Legend wrapperStyle={{ fontSize: 11 }} />
-              {topProvs.map((p) => (
-                <Bar key={p} dataKey={p} stackId="a" fill={colorMap[p]} name={p.length > 30 ? p.slice(0, 28) + "…" : p} radius={[0, 0, 0, 0]} />
+              <Tooltip contentStyle={{ background: "white", border: "1px solid #E2E8F0", borderRadius: 8, fontSize: 12 }} formatter={(v: any, n: any) => [fmt(v), n]} />
+              <Legend wrapperStyle={{ fontSize: 11 }} formatter={(v: string) => v.length > 28 ? v.slice(0, 26) + "…" : v} />
+              {top5.map((p, idx) => (
+                <Bar key={p} dataKey={p} stackId="a" fill={colorMap[p] || PROV_COLORS[idx % PROV_COLORS.length]} radius={idx === top5.length - 1 && !hasOtros ? [4, 4, 0, 0] : [0, 0, 0, 0]} />
               ))}
-              {chartData.some((d: any) => d["Otros"] > 0) && (
-                <Bar dataKey="Otros" stackId="a" fill="#CBD5E1" name="Otros" radius={[4, 4, 0, 0]} />
-              )}
+              {hasOtros && <Bar dataKey="Otros" stackId="a" fill="#CBD5E1" radius={[4, 4, 0, 0]} />}
             </ComposedChart>
           </ResponsiveContainer>
         </div>
       )}
 
-      {/* Compradores */}
+      {/* ── Instituciones compradoras ──────────────────────── */}
       <div style={card}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
           <h3 style={{ fontSize: 14, fontWeight: 700, color: "#0F172A", margin: 0 }}>Instituciones Compradoras</h3>
           <ExportButton
             data={filteredComp}
-            columns={[
-              { key: "organismo", label: "Organismo" },
-              { key: "unidad", label: "Unidad" },
-              { key: "n_ocs", label: "OCs" },
-              { key: "monto", label: "Monto" },
-              { key: "ms_pct", label: "MS LBF %" },
-              { key: "n_proveedores", label: "Proveedores" },
-            ]}
+            columns={[{ key: "organismo", label: "Organismo" }, { key: "unidad", label: "Unidad" }, { key: "n_ocs", label: "OCs" }, { key: "monto", label: "Monto" }, { key: "ms_lbf", label: "MS LBF %" }, { key: "n_proveedores", label: "Proveedores" }]}
             filename={`lic_${codigo}_compradores`}
           />
         </div>
@@ -870,36 +950,32 @@ function LicitacionAnalisis({ codigo }: { codigo: string }) {
           <SearchInput value={searchComp} onChange={setSearchComp} placeholder="Buscar organismo..." width={240} />
           {searchComp && <span style={{ fontSize: 12, color: "#64748B" }}>{filteredComp.length} de {(data.compradores || []).length}</span>}
         </TableToolbar>
-        <div style={{ overflowX: "auto" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse" }}>
-            <thead>
-              <tr>
-                <th style={thS}>Organismo</th>
-                <th style={thS}>Unidad</th>
-                <th style={thR}>Monto</th>
-                <th style={thR}>MS LBF</th>
-                <th style={thR}>OCs</th>
-                <th style={thR}>Proveedores</th>
+        <table style={{ width: "100%", borderCollapse: "collapse" }}>
+          <thead>
+            <tr>
+              <th style={thS}>Organismo</th>
+              <th style={thS}>Unidad</th>
+              <th style={thR}>Monto Total</th>
+              <th style={thR}>Venta LBF</th>
+              <th style={thR}>MS LBF</th>
+              <th style={thR}>OCs</th>
+              <th style={thR}>Proveedores</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filteredComp.map((c: any, i: number) => (
+              <tr key={i} style={{ background: c.lbf_monto > 0 ? "#EFF6FF" : rowBg(i) }}>
+                <td style={{ ...td, fontWeight: 600, maxWidth: 260, overflow: "hidden", textOverflow: "ellipsis" }}>{c.organismo}</td>
+                <td style={{ ...td, color: "#475569", maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis" }}>{c.unidad || "—"}</td>
+                <td style={{ ...tdR, fontWeight: 600 }}>{fmt(c.monto)}</td>
+                <td style={{ ...tdR, color: LBF_COLOR, fontWeight: c.lbf_monto > 0 ? 700 : 400 }}>{c.lbf_monto > 0 ? fmt(c.lbf_monto) : "—"}</td>
+                <td style={tdR}><MsBar pct={c.ms_lbf} isLbf={c.lbf_monto > 0} width={60} /></td>
+                <td style={tdR}>{c.n_ocs}</td>
+                <td style={tdR}>{c.n_proveedores}</td>
               </tr>
-            </thead>
-            <tbody>
-              {filteredComp.map((c: any, i: number) => (
-                <tr key={i} style={{ background: rowBg(i) }}>
-                  <td style={{ ...td, maxWidth: 280, overflow: "hidden", textOverflow: "ellipsis", fontWeight: 600 }}>{c.organismo}</td>
-                  <td style={{ ...td, maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis", color: "#475569" }}>{c.unidad || "—"}</td>
-                  <td style={{ ...tdR, fontWeight: 600 }}>{fmt(c.monto)}</td>
-                  <td style={tdR}>
-                    {c.ms_pct != null ? (
-                      <span style={{ color: c.ms_pct >= 50 ? "#10B981" : c.ms_pct >= 20 ? "#F59E0B" : "#64748B", fontWeight: 600 }}>{c.ms_pct}%</span>
-                    ) : "—"}
-                  </td>
-                  <td style={tdR}>{(c.n_ocs || 0).toLocaleString()}</td>
-                  <td style={tdR}>{(c.n_proveedores || 0).toLocaleString()}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+            ))}
+          </tbody>
+        </table>
       </div>
     </div>
   );

@@ -534,6 +534,275 @@ def _load_compra_agil(ano: int) -> dict:
 # Endpoints
 # ═══════════════════════════════════════════════════════════════════
 
+@router.get("/licitacion-analisis")
+async def get_licitacion_analisis(
+    codigo: str = Query("2239-21-LR23"),
+    desde: str = Query(None),   # YYYY-MM
+    hasta: str = Query(None),   # YYYY-MM
+    proveedor: str = Query(None),
+    current_user: dict = Depends(get_current_user),
+):
+    """Análisis completo de un contrato marco por categoría, con filtros de período y proveedor."""
+    # No cachear si vienen filtros
+    if not desde and not hasta and not proveedor:
+        ck = f"mp_lic_analisis:{codigo}"
+        cached = mem_get(ck)
+        if cached:
+            return cached
+        try:
+            data = _load_licitacion_analisis(codigo)
+            mem_set(ck, data)
+            return data
+        except Exception as e:
+            return {"error": str(e)}
+    try:
+        return _load_licitacion_analisis(codigo, desde, hasta, proveedor)
+    except Exception as e:
+        return {"error": str(e)}
+
+
+def _load_licitacion_analisis(
+    codigo: str,
+    desde: str = None,
+    hasta: str = None,
+    proveedor: str = None,
+) -> dict:
+    LBF_RUT_NORM = "93366000-1".replace(".", "").replace("-", "")
+    _MONTO = "COALESCE(oi.monto_total, oi.cantidad * oi.precio_unitario, 0)"
+
+    conn = get_pg_conn()
+    cur = conn.cursor()
+
+    # ── Meses disponibles (sin filtro) ────────────────────────────
+    cur.execute("""
+        SELECT DISTINCT TO_CHAR(fecha_envio, 'YYYY-MM') AS mes
+        FROM ordenes_compra WHERE codigo_licitacion = %s ORDER BY mes
+    """, (codigo,))
+    meses_disponibles = [r[0] for r in cur.fetchall()]
+
+    # ── Filtro de período ─────────────────────────────────────────
+    fecha_cond = ""
+    params_base = [codigo]
+    if desde:
+        fecha_cond += " AND TO_CHAR(oc.fecha_envio,'YYYY-MM') >= %s"
+        params_base.append(desde)
+    if hasta:
+        fecha_cond += " AND TO_CHAR(oc.fecha_envio,'YYYY-MM') <= %s"
+        params_base.append(hasta)
+
+    prov_cond = ""
+    if proveedor:
+        prov_cond = " AND oc.proveedor_nombre_empresa = %s"
+        params_base.append(proveedor)
+
+    where = f"oc.codigo_licitacion = %s{fecha_cond}"
+
+    # ── 1. KPIs generales ─────────────────────────────────────────
+    cur.execute(f"""
+        SELECT COUNT(DISTINCT oc.id), COUNT(DISTINCT oc.proveedor_rut),
+               COUNT(DISTINCT oc.comprador_nombre_unidad),
+               SUM({_MONTO}),
+               MIN(oc.fecha_envio::date), MAX(oc.fecha_envio::date)
+        FROM ordenes_compra oc
+        JOIN ordenes_compra_items oi ON oi.orden_compra_id = oc.id
+        WHERE {where}
+    """, params_base)
+    r = cur.fetchone()
+    n_ocs, n_proveedores, n_compradores, monto_total, fecha_inicio, fecha_ultimo = r
+    monto_total = float(monto_total or 0)
+
+    cur.execute(f"""
+        SELECT SUM({_MONTO})
+        FROM ordenes_compra oc
+        JOIN ordenes_compra_items oi ON oi.orden_compra_id = oc.id
+        WHERE {where}
+          AND REPLACE(REPLACE(oc.proveedor_rut,'.',''),'-','') = %s
+    """, params_base + [LBF_RUT_NORM])
+    lbf_monto = float((cur.fetchone()[0] or 0))
+    ms_lbf = round(lbf_monto / monto_total * 100, 1) if monto_total > 0 else 0
+
+    # ── 2. Categorías con MS% LBF ─────────────────────────────────
+    cur.execute(f"""
+        SELECT
+            oi.categoria,
+            SUM({_MONTO})                                       AS monto_cat,
+            COUNT(DISTINCT oc.id)                               AS n_ocs,
+            COUNT(DISTINCT oc.proveedor_rut)                    AS n_proveedores,
+            SUM(CASE WHEN REPLACE(REPLACE(oc.proveedor_rut,'.',''),'-','') = %s
+                     THEN {_MONTO} ELSE 0 END)                  AS lbf_monto
+        FROM ordenes_compra oc
+        JOIN ordenes_compra_items oi ON oi.orden_compra_id = oc.id
+        WHERE {where}
+        GROUP BY oi.categoria
+        ORDER BY monto_cat DESC
+    """, [LBF_RUT_NORM] + params_base)
+
+    cats_raw = cur.fetchall()
+
+    # ── 3. Productos por categoría × proveedor ────────────────────
+    cur.execute(f"""
+        SELECT
+            oi.categoria,
+            oi.nombre                                           AS producto,
+            oc.proveedor_nombre_empresa,
+            REPLACE(REPLACE(oc.proveedor_rut,'.',''),'-','')   AS rut_norm,
+            COUNT(DISTINCT oc.id)                              AS n_ocs,
+            SUM({_MONTO})                                      AS monto,
+            AVG(oi.precio_unitario)                            AS precio_prom,
+            SUM(oi.cantidad)                                   AS cantidad
+        FROM ordenes_compra oc
+        JOIN ordenes_compra_items oi ON oi.orden_compra_id = oc.id
+        WHERE {where}
+        GROUP BY oi.categoria, oi.nombre, oc.proveedor_nombre_empresa, rut_norm
+        ORDER BY oi.categoria, monto DESC
+    """, params_base)
+
+    prod_raw = cur.fetchall()
+
+    # Agrupar productos por categoría
+    from collections import defaultdict
+    prod_by_cat: dict = defaultdict(list)
+    for r in prod_raw:
+        cat, prod, prov, rut_norm, n, monto, precio, cant = r
+        prod_by_cat[cat or ""].append({
+            "producto": prod or "",
+            "proveedor": prov or "",
+            "es_lbf": rut_norm == LBF_RUT_NORM,
+            "n_ocs": int(n or 0),
+            "monto": round(float(monto or 0)),
+            "precio_prom": round(float(precio or 0)),
+            "cantidad": round(float(cant or 0)),
+        })
+
+    # Construir lista de categorías
+    categorias = []
+    for r in cats_raw:
+        cat_full = r[0] or ""
+        # Nombre corto: última parte del path separado por " / "
+        partes = [p.strip() for p in cat_full.split("/")]
+        cat_corta = partes[-1] if partes else cat_full
+        cat_grupo = partes[1] if len(partes) > 1 else ""
+        m_cat = float(r[1] or 0)
+        lbf_m = float(r[4] or 0)
+        categorias.append({
+            "categoria": cat_corta,
+            "categoria_grupo": cat_grupo,
+            "categoria_full": cat_full,
+            "monto": round(m_cat),
+            "ms_lbf": round(lbf_m / m_cat * 100, 1) if m_cat > 0 else 0,
+            "lbf_monto": round(lbf_m),
+            "n_ocs": int(r[2] or 0),
+            "n_proveedores": int(r[3] or 0),
+            "tiene_lbf": lbf_m > 0,
+            "productos": prod_by_cat.get(cat_full, []),
+        })
+
+    # ── 4. Ranking proveedores ─────────────────────────────────────
+    cur.execute(f"""
+        SELECT oc.proveedor_nombre_empresa, oc.proveedor_rut,
+               COUNT(DISTINCT oc.id), SUM({_MONTO}),
+               COUNT(DISTINCT oc.comprador_nombre_unidad)
+        FROM ordenes_compra oc
+        JOIN ordenes_compra_items oi ON oi.orden_compra_id = oc.id
+        WHERE {where}
+        GROUP BY oc.proveedor_nombre_empresa, oc.proveedor_rut
+        ORDER BY SUM({_MONTO}) DESC
+    """, params_base)
+    ranking = []
+    for i, r in enumerate(cur.fetchall(), 1):
+        m = float(r[3] or 0)
+        rut_n = (r[1] or "").replace(".", "").replace("-", "")
+        ranking.append({
+            "rank": i,
+            "proveedor": r[0] or "",
+            "rut": r[1] or "",
+            "n_ocs": int(r[2] or 0),
+            "monto": round(m),
+            "ms_pct": round(m / monto_total * 100, 1) if monto_total > 0 else 0,
+            "n_compradores": int(r[4] or 0),
+            "es_lbf": rut_n == LBF_RUT_NORM,
+        })
+
+    # ── 5. Compradores ────────────────────────────────────────────
+    cur.execute(f"""
+        SELECT oc.comprador_nombre_unidad, oc.comprador_nombre_organismo,
+               COUNT(DISTINCT oc.id), SUM({_MONTO}),
+               COUNT(DISTINCT oc.proveedor_rut),
+               SUM(CASE WHEN REPLACE(REPLACE(oc.proveedor_rut,'.',''),'-','') = %s
+                        THEN {_MONTO} ELSE 0 END)
+        FROM ordenes_compra oc
+        JOIN ordenes_compra_items oi ON oi.orden_compra_id = oc.id
+        WHERE {where}
+        GROUP BY oc.comprador_nombre_unidad, oc.comprador_nombre_organismo
+        ORDER BY SUM({_MONTO}) DESC
+    """, [LBF_RUT_NORM] + params_base)
+    compradores = []
+    for r in cur.fetchall():
+        m = float(r[3] or 0)
+        lbf_m_c = float(r[5] or 0)
+        compradores.append({
+            "unidad": r[0] or "",
+            "organismo": r[1] or "",
+            "n_ocs": int(r[2] or 0),
+            "monto": round(m),
+            "n_proveedores": int(r[4] or 0),
+            "lbf_monto": round(lbf_m_c),
+            "ms_lbf": round(lbf_m_c / m * 100, 1) if m > 0 else 0,
+        })
+
+    # ── 6. Tendencia mensual por proveedor (top 5) ────────────────
+    provs_top5 = [r["proveedor"] for r in ranking[:5]]
+    cur.execute(f"""
+        SELECT TO_CHAR(oc.fecha_envio,'YYYY-MM') AS mes,
+               oc.proveedor_nombre_empresa,
+               SUM({_MONTO}) AS monto
+        FROM ordenes_compra oc
+        JOIN ordenes_compra_items oi ON oi.orden_compra_id = oc.id
+        WHERE {where}
+        GROUP BY mes, oc.proveedor_nombre_empresa
+        ORDER BY mes, monto DESC
+    """, params_base)
+    tend_raw = cur.fetchall()
+    meses_tend = sorted(set(r[0] for r in tend_raw))
+    tendencia = []
+    for mes in meses_tend:
+        entry: dict = {"mes": mes, "mes_nombre": mes}
+        for p in provs_top5:
+            entry[p] = 0
+        entry["Otros"] = 0
+        for r in tend_raw:
+            if r[0] == mes:
+                p = r[1]
+                v = round(float(r[2] or 0))
+                if p in provs_top5:
+                    entry[p] = v
+                else:
+                    entry["Otros"] = entry.get("Otros", 0) + v
+        tendencia.append(entry)
+
+    conn.close()
+
+    return {
+        "codigo": codigo,
+        "meses_disponibles": meses_disponibles,
+        "kpis": {
+            "monto_total": round(monto_total),
+            "lbf_monto": round(lbf_monto),
+            "ms_lbf": ms_lbf,
+            "n_ocs": int(n_ocs or 0),
+            "n_proveedores": int(n_proveedores or 0),
+            "n_compradores": int(n_compradores or 0),
+            "fecha_inicio": str(fecha_inicio) if fecha_inicio else None,
+            "fecha_ultimo": str(fecha_ultimo) if fecha_ultimo else None,
+        },
+        "categorias": categorias,
+        "ranking": ranking,
+        "compradores": compradores,
+        "tendencia": tendencia,
+        "proveedores_top5": provs_top5,
+    }
+
+
 @router.get("/overview")
 async def get_overview(
     ano: int = Query(2026),

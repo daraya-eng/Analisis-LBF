@@ -1,6 +1,6 @@
 """
 Incentivos — Cálculo de bonos trimestrales por vendedor.
-Fuentes: Incentivos_Config (metas + bonos), BI_TOTAL_FACTURA (venta + contribucion real).
+Fuentes: Targets_Config (metas + bonos), BI_TOTAL_FACTURA (venta + contribucion real).
 
 Reglas:
   Bono venta  = (cumpl_venta - 0.80) × bono_venta_100   [VENDEDOR normal]
@@ -64,17 +64,24 @@ async def get_incentivos_trimestre(
     if q is None:
         q = q_actual if ano == ano_actual else 1
 
+    import time
     ck = f"incentivos:{ano}:q{q}"
-    # No cachear trimestre activo (datos cambian diariamente)
-    if not (ano == ano_actual and q == q_actual):
-        cached = mem_get(ck)
-        if cached:
+    # Trimestres cerrados: cache 15 min (igual que el resto del sistema)
+    # Trimestre activo: cache 5 min (datos cambian por día, no por minuto)
+    cached = mem_get(ck)
+    if cached:
+        # Para el trimestre activo respetar TTL corto de 5 min
+        if ano == ano_actual and q == q_actual:
+            ts = cached.get("_ts", 0)
+            if time.time() - ts < 300:  # 5 minutos
+                return {k: v for k, v in cached.items() if k != "_ts"}
+        else:
             return cached
 
     try:
         data = _calcular(q, ano, mes_actual, ano_actual, q_actual)
-        if not (ano == ano_actual and q == q_actual):
-            mem_set(ck, data)
+        # Guardar con timestamp interno para control de TTL corto
+        mem_set(ck, {**data, "_ts": time.time()})
         return data
     except Exception as e:
         import traceback
@@ -115,7 +122,7 @@ def _calcular(q: int, ano: int, mes_actual: int, ano_actual: int, q_actual: int)
                META_VENTA_JUL,META_VENTA_AGO,META_VENTA_SEP,
                META_VENTA_OCT,META_VENTA_NOV,META_VENTA_DIC,
                META_MARGEN_Q1,META_MARGEN_Q2,META_MARGEN_Q3,META_MARGEN_Q4
-        FROM Incentivos_Config
+        FROM Targets_Config
         WHERE ANO = ?
         ORDER BY ID
     """, (ano,))
@@ -125,7 +132,7 @@ def _calcular(q: int, ano: int, mes_actual: int, ano_actual: int, q_actual: int)
     # ── Anticipos pagados ───────────────────────────────────────────────────
     cur.execute("""
         SELECT VENDEDOR, ANTICIPO_VENTA, PAGADO, FECHA_PAGO
-        FROM Incentivos_Anticipos
+        FROM Targets_Pagos
         WHERE ANO = ? AND TRIMESTRE = ?
     """, (ano, q))
     anticipos_db = {r[0]: {"anticipo_venta": _float(r[1]), "pagado": bool(r[2]), "fecha_pago": str(r[3]) if r[3] else None}
@@ -207,13 +214,13 @@ def _calcular(q: int, ano: int, mes_actual: int, ano_actual: int, q_actual: int)
         cumpl_v = venta_real_q / meta_v_q if meta_v_q and meta_v_q > 0 else None
         cumpl_m = contrib_real_q / meta_m_q if meta_m_q and meta_m_q > 0 else None
 
-        # Bono venta
+        # Bono venta = cumpl × bono_100 para todos (SUBGERENTE igual)
+        # Anticipo = 80% × bono_100 fijo pagado mes 1 del Q
+        # Saldo = bono_real − anticipo (puede ser negativo → descuento)
         if tipo == "MERCADO_PUBLICO":
             bono_v = 0.0
-        elif tipo == "SUBGERENTE":
-            bono_v = (cumpl_v * bv100) if cumpl_v is not None else 0.0
         else:
-            bono_v = ((cumpl_v - 0.80) * bv100) if cumpl_v is not None else 0.0
+            bono_v = (cumpl_v * bv100) if cumpl_v is not None else 0.0
 
         # Bono margen (solo si cumpl_venta >= 100% Y cumpl_margen > 100%)
         bono_m = 0.0

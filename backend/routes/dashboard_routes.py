@@ -470,10 +470,15 @@ def _build_for_period(raw: dict, meses: list[int]) -> dict:
     }
 
 
-def _parse_periodo(periodo: str, mes: int | None) -> tuple[list[int], str]:
+def _parse_periodo(periodo: str, mes: int | None, desde: int | None = None, hasta: int | None = None) -> tuple[list[int], str]:
     """Parse period string to list of months and label."""
     _MES = hoy()["mes"]
-    if periodo == "ytd":
+    if periodo == "rango" and desde and hasta:
+        meses = list(range(desde, hasta + 1))
+        d_name = MESES_NOMBRE.get(desde, str(desde))
+        h_name = MESES_NOMBRE.get(hasta, str(hasta))
+        return meses, f"{d_name} - {h_name}"
+    elif periodo == "ytd":
         return list(range(1, _MES + 1)), f"YTD (Ene - {MESES_NOMBRE.get(_MES, '')})"
     elif periodo == "q1":
         return [1, 2, 3], "Q1 (Ene - Mar)"
@@ -494,16 +499,18 @@ def _parse_periodo(periodo: str, mes: int | None) -> tuple[list[int], str]:
 async def get_dashboard_all(
     periodo: str = Query("ytd"),
     mes: Optional[int] = Query(None),
+    desde: Optional[int] = Query(None),
+    hasta: Optional[int] = Query(None),
     current_user: dict = Depends(get_current_user),
 ):
     """Main dashboard endpoint. Accepts periodo filter to recalculate everything."""
     try:
-        cache_key = f"dashboard:{periodo}:{mes}"
+        cache_key = f"dashboard:{periodo}:{mes}:{desde}:{hasta}"
         cached = mem_get(cache_key)
         if cached:
             return cached
         raw = _load_dashboard_raw()
-        meses, label = _parse_periodo(periodo, mes)
+        meses, label = _parse_periodo(periodo, mes, desde, hasta)
         result = _build_for_period(raw, meses)
         result["periodo"] = periodo
         result["label"] = label
@@ -519,18 +526,20 @@ async def get_categoria_detail(
     categoria: str = Query(...),
     periodo: str = Query("ytd"),
     mes: Optional[int] = Query(None),
+    desde: Optional[int] = Query(None),
+    hasta: Optional[int] = Query(None),
     current_user: dict = Depends(get_current_user),
 ):
     """Zone-level breakdown for a specific category — used by dashboard drill-down."""
     try:
         if categoria not in _CATS_VALIDAS:
             return {"error": "Categoria invalida", "zonas": []}
-        cache_key = f"dash_catdet:{categoria}:{periodo}:{mes}"
+        cache_key = f"dash_catdet:{categoria}:{periodo}:{mes}:{desde}:{hasta}"
         cached = mem_get(cache_key)
         if cached:
             return cached
 
-        meses, label = _parse_periodo(periodo, mes)
+        meses, label = _parse_periodo(periodo, mes, desde, hasta)
         h = hoy()
         _ANO = h["ano"]
         mes_list = ",".join(str(m) for m in meses)

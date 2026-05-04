@@ -274,23 +274,27 @@ export default function DashboardPage() {
   const [data, setData] = useState<DashData | null>(null);
   const [loading, setLoading] = useState(true);
   const [period, setPeriod] = useState(`mes-${new Date().getMonth() + 1}`);
+  const [rangoDesde, setRangoDesde] = useState("");
+  const [rangoHasta, setRangoHasta] = useState("");
   const [expandedCat, setExpandedCat] = useState<string | null>(null);
   const [catDetailZonas, setCatDetailZonas] = useState<CatDetailZona[]>([]);
   const [catDetailLoading, setCatDetailLoading] = useState(false);
   const [dailyData, setDailyData] = useState<DailyData | null>(null);
 
-  const fetchDashboard = useCallback(async (periodo: string) => {
+  const fetchDashboard = useCallback(async (periodo: string, desde?: string, hasta?: string) => {
     setLoading(true);
     try {
       let queryParam = `?periodo=${periodo}`;
-      let mesNum = new Date().getMonth() + 1; // default: current month
-      if (periodo.startsWith("mes-")) {
+      let mesNum = new Date().getMonth() + 1;
+      if (periodo === "rango" && desde && hasta) {
+        queryParam = `?periodo=rango&desde=${desde}&hasta=${hasta}`;
+        mesNum = parseInt(hasta);
+      } else if (periodo.startsWith("mes-")) {
         mesNum = parseInt(periodo.split("-")[1]);
         queryParam = `?periodo=mes&mes=${mesNum}`;
       }
       const res = await api.get<DashData>(`/api/dashboard/all${queryParam}`);
       setData(res);
-      // Daily chart — fetch independently so a failure doesn't break the page
       api.get<DailyData>(`/api/dashboard/diario?mes=${mesNum}`)
         .then(setDailyData)
         .catch(() => setDailyData(null));
@@ -301,17 +305,30 @@ export default function DashboardPage() {
     }
   }, []);
 
-  useEffect(() => { fetchDashboard(period); }, [fetchDashboard, period]);
+  useEffect(() => {
+    if (period === "rango") {
+      if (rangoDesde && rangoHasta) fetchDashboard("rango", rangoDesde, rangoHasta);
+    } else {
+      fetchDashboard(period);
+    }
+  }, [fetchDashboard, period, rangoDesde, rangoHasta]);
 
   const handlePeriod = useCallback((val: string) => {
+    setRangoDesde("");
+    setRangoHasta("");
     setPeriod(val);
   }, []);
+
+  const handleAplicarRango = useCallback(() => {
+    if (rangoDesde && rangoHasta) setPeriod("rango");
+  }, [rangoDesde, rangoHasta]);
 
   const handleRefresh = useCallback(() => {
     clearClientCache();
     api.post("/api/refresh").catch(() => {});
-    fetchDashboard(period);
-  }, [fetchDashboard, period]);
+    if (period === "rango" && rangoDesde && rangoHasta) fetchDashboard("rango", rangoDesde, rangoHasta);
+    else fetchDashboard(period);
+  }, [fetchDashboard, period, rangoDesde, rangoHasta]);
 
   const handleCatClick = useCallback((cat: string) => {
     if (cat === "Total") return;
@@ -324,7 +341,9 @@ export default function DashboardPage() {
     setCatDetailLoading(true);
     setCatDetailZonas([]);
     let queryParam = `?periodo=${period}`;
-    if (period.startsWith("mes-")) {
+    if (period === "rango" && rangoDesde && rangoHasta) {
+      queryParam = `?periodo=rango&desde=${rangoDesde}&hasta=${rangoHasta}`;
+    } else if (period.startsWith("mes-")) {
       const mesNum = period.split("-")[1];
       queryParam = `?periodo=mes&mes=${mesNum}`;
     }
@@ -447,6 +466,55 @@ export default function DashboardPage() {
               <option key={opt.value} value={opt.value}>{opt.label}</option>
             ))}
           </select>
+          {/* Rango de meses */}
+          <div style={{ display: "flex", alignItems: "center", gap: 4, background: "#F1F5F9", borderRadius: 8, padding: "3px 6px" }}>
+            <span style={{ fontSize: 11, color: "#64748B", fontWeight: 600 }}>Rango</span>
+            <select
+              value={rangoDesde}
+              onChange={(e) => { setRangoDesde(e.target.value); if (period === "rango") setPeriod(""); }}
+              style={{
+                padding: "4px 6px", borderRadius: 6, fontSize: 12, fontWeight: 600,
+                border: period === "rango" ? "2px solid #8B5CF6" : "1px solid #E2E8F0",
+                background: period === "rango" ? "#F5F3FF" : "white",
+                color: period === "rango" ? "#6D28D9" : "#374151",
+                cursor: "pointer", outline: "none",
+              }}
+            >
+              <option value="" disabled>Desde</option>
+              {MONTH_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value.replace("mes-", "")}>{opt.label}</option>
+              ))}
+            </select>
+            <span style={{ fontSize: 11, color: "#94A3B8" }}>→</span>
+            <select
+              value={rangoHasta}
+              onChange={(e) => { setRangoHasta(e.target.value); if (period === "rango") setPeriod(""); }}
+              style={{
+                padding: "4px 6px", borderRadius: 6, fontSize: 12, fontWeight: 600,
+                border: period === "rango" ? "2px solid #8B5CF6" : "1px solid #E2E8F0",
+                background: period === "rango" ? "#F5F3FF" : "white",
+                color: period === "rango" ? "#6D28D9" : "#374151",
+                cursor: "pointer", outline: "none",
+              }}
+            >
+              <option value="" disabled>Hasta</option>
+              {MONTH_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value.replace("mes-", "")}>{opt.label}</option>
+              ))}
+            </select>
+            <button
+              onClick={handleAplicarRango}
+              disabled={!rangoDesde || !rangoHasta}
+              style={{
+                padding: "4px 10px", borderRadius: 6, fontSize: 12, fontWeight: 600,
+                border: "none", cursor: rangoDesde && rangoHasta ? "pointer" : "not-allowed",
+                background: period === "rango" ? "#8B5CF6" : (rangoDesde && rangoHasta ? "#7C3AED" : "#E2E8F0"),
+                color: rangoDesde && rangoHasta ? "white" : "#94A3B8",
+              }}
+            >
+              Aplicar
+            </button>
+          </div>
           <button onClick={handleRefresh} style={{
             display: "flex", alignItems: "center", gap: 6,
             padding: "6px 14px", borderRadius: 8, border: "1px solid #E2E8F0",

@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, Fragment } from "react";
 import { api } from "@/lib/api";
-import { fmt } from "@/lib/format";
+import { fmt, fmtAbs } from "@/lib/format";
 
 /* ─── Styles ──────────────────────────────────────────────────────────── */
 const card: React.CSSProperties = { background: "white", border: "1px solid #E2E8F0", borderRadius: 10, padding: 20 };
@@ -56,7 +56,7 @@ function MontoSaldo({ value }: { value: number | null }) {
   if (value === null) return <span style={{ color: "#94A3B8" }}>—</span>;
   const color = value >= 0 ? "#10B981" : "#EF4444";
   const sign = value >= 0 ? "+" : "";
-  return <span style={{ color, fontWeight: 700 }}>{sign}{fmt(value)}</span>;
+  return <span style={{ color, fontWeight: 700 }}>{sign}{fmtAbs(value)}</span>;
 }
 
 export default function IncentivosPage() {
@@ -227,7 +227,7 @@ export default function IncentivosPage() {
                     <th style={thR}>Bono Venta</th>
                     <th style={thR}>Bono Margen</th>
                     <th style={thR}>Bono Total</th>
-                    <th style={thR}>Saldo Est.</th>
+                    <th style={thR}>Liquidación</th>
                     <th style={{ ...thS, width: 70 }}></th>
                   </tr>
                 </thead>
@@ -242,9 +242,8 @@ export default function IncentivosPage() {
                       : "#FEF2F2";
 
                     return (
-                      <>
+                      <Fragment key={v.vendedor}>
                         <tr
-                          key={v.vendedor}
                           style={{ background: rowColor, cursor: "pointer" }}
                           onClick={() => setExpanded(isOpen ? null : v.vendedor)}
                         >
@@ -252,20 +251,20 @@ export default function IncentivosPage() {
                             <div style={{ fontWeight: 600 }}>{v.nombre}</div>
                             <div style={{ fontSize: 11, color: "#94A3B8" }}>{v.vendedor}</div>
                           </td>
-                          <td style={tdR}>{v.meta_venta_q ? fmt(v.meta_venta_q) : "—"}</td>
-                          <td style={{ ...tdR, fontWeight: 600 }}>{fmt(v.venta_real_q)}</td>
+                          <td style={tdR}>{v.meta_venta_q ? fmtAbs(v.meta_venta_q) : "—"}</td>
+                          <td style={{ ...tdR, fontWeight: 600 }}>{fmtAbs(v.venta_real_q)}</td>
                           <td style={tdR}>
                             <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end" }}>
                               <span style={{ marginRight: 6 }}>{semaforo(v.cumpl_venta)}</span>
                               <CumplBar pct={v.cumpl_venta} />
                             </div>
                           </td>
-                          <td style={{ ...tdR, color: "#6366F1" }}>{fmt(v.anticipo_calc)}</td>
-                          <td style={tdR}>{fmt(v.bono_venta)}</td>
+                          <td style={{ ...tdR, color: "#6366F1" }}>{fmtAbs(v.anticipo_calc)}</td>
+                          <td style={tdR}>{fmtAbs(v.bono_venta)}</td>
                           <td style={{ ...tdR, color: v.bono_margen > 0 ? "#10B981" : "#94A3B8" }}>
-                            {v.bono_margen > 0 ? fmt(v.bono_margen) : "—"}
+                            {v.bono_margen > 0 ? fmtAbs(v.bono_margen) : "—"}
                           </td>
-                          <td style={{ ...tdR, fontWeight: 700 }}>{fmt(v.bono_total)}</td>
+                          <td style={{ ...tdR, fontWeight: 700 }}>{fmtAbs(v.bono_total)}</td>
                           <td style={tdR}><MontoSaldo value={saldo} /></td>
                           <td style={{ ...td, textAlign: "center", color: "#94A3B8", fontSize: 11 }}>
                             {isOpen ? "▲" : "▼"}
@@ -273,7 +272,7 @@ export default function IncentivosPage() {
                         </tr>
 
                         {isOpen && (
-                          <tr key={`det-${v.vendedor}`}>
+                          <tr>
                             <td colSpan={10} style={{ padding: 0, background: "#F8FAFC" }}>
                               <div style={{ padding: "12px 20px 16px 40px" }}>
                                 <div style={{ display: "flex", gap: 20, flexWrap: "wrap", marginBottom: 12 }}>
@@ -317,13 +316,13 @@ export default function IncentivosPage() {
                                             {MESES_NOMBRE[d.mes - 1]}
                                           </td>
                                           <td style={{ ...tdR, fontSize: 12, padding: "4px 10px" }}>
-                                            {d.meta_venta ? fmt(d.meta_venta) : "—"}
+                                            {d.meta_venta ? fmtAbs(d.meta_venta) : "—"}
                                           </td>
                                           <td style={{ ...tdR, fontSize: 12, padding: "4px 10px", fontWeight: 600 }}>
-                                            {fmt(d.venta_real)}
+                                            {fmtAbs(d.venta_real)}
                                           </td>
                                           <td style={{ ...tdR, fontSize: 12, padding: "4px 10px", color: "#10B981" }}>
-                                            {fmt(d.contrib_real)}
+                                            {fmtAbs(d.contrib_real)}
                                           </td>
                                           <td style={{ ...tdR, fontSize: 12, padding: "4px 10px" }}>
                                             <CumplBar pct={d.cumpl_venta} />
@@ -337,7 +336,7 @@ export default function IncentivosPage() {
                             </td>
                           </tr>
                         )}
-                      </>
+                      </Fragment>
                     );
                   })}
                 </tbody>
@@ -352,19 +351,19 @@ export default function IncentivosPage() {
                 Subgerencia de Ventas — {subgerente.nombre}
               </h3>
               <div style={{ display: "flex", gap: 24, flexWrap: "wrap", fontSize: 13, color: "#374151" }}>
-                <div><span style={{ color: "#64748B" }}>Meta empresa Q{q}:</span> <strong>{subgerente.meta_venta_q ? fmt(subgerente.meta_venta_q) : "—"}</strong></div>
-                <div><span style={{ color: "#64748B" }}>Venta real:</span> <strong>{fmt(subgerente.venta_real_q)}</strong></div>
+                <div><span style={{ color: "#64748B" }}>Meta empresa Q{q}:</span> <strong>{subgerente.meta_venta_q ? fmtAbs(subgerente.meta_venta_q) : "—"}</strong></div>
+                <div><span style={{ color: "#64748B" }}>Venta real:</span> <strong>{fmtAbs(subgerente.venta_real_q)}</strong></div>
                 <div><span style={{ color: "#64748B" }}>Cumplimiento:</span> <strong style={{ color: pctColor(subgerente.cumpl_venta) }}>{subgerente.cumpl_venta ?? "—"}%</strong></div>
-                <div><span style={{ color: "#64748B" }}>Bono 100%:</span> <strong>{fmt(subgerente.bono_venta_100)}</strong></div>
-                <div><span style={{ color: "#64748B" }}>Anticipo (80%):</span> <strong style={{ color: "#6366F1" }}>{fmt(subgerente.anticipo_calc)}</strong></div>
-                <div><span style={{ color: "#64748B" }}>Bono proyectado:</span> <strong style={{ color: "#8B5CF6" }}>{fmt(subgerente.bono_total)}</strong></div>
+                <div><span style={{ color: "#64748B" }}>Bono 100%:</span> <strong>{fmtAbs(subgerente.bono_venta_100)}</strong></div>
+                <div><span style={{ color: "#64748B" }}>Anticipo (80%):</span> <strong style={{ color: "#6366F1" }}>{fmtAbs(subgerente.anticipo_calc)}</strong></div>
+                <div><span style={{ color: "#64748B" }}>Bono proyectado:</span> <strong style={{ color: "#8B5CF6" }}>{fmtAbs(subgerente.bono_total)}</strong></div>
                 <div>
                   <span style={{ color: "#64748B" }}>Saldo:</span>{" "}
                   <MontoSaldo value={subgerente.bono_total - subgerente.anticipo_calc} />
                 </div>
               </div>
               <div style={{ fontSize: 11, color: "#94A3B8", marginTop: 8 }}>
-                Fórmula: cumplimiento × bono_100% (sin descuento del 80%) — evaluada sobre venta total empresa
+                Bono real = Cumpl% × Bono_100% — evaluado sobre venta total empresa · Saldo = Bono real − Anticipo
               </div>
             </div>
           )}
@@ -372,8 +371,8 @@ export default function IncentivosPage() {
           {/* Leyenda */}
           <div style={{ ...card, padding: "12px 18px", background: "#F8FAFC", fontSize: 12, color: "#475569" }}>
             <strong>Lógica de cálculo:</strong>{" "}
-            Bono venta = (Cumpl% − 80%) × Bono_100% · Anticipo = Bono_100% × 80% pagado mes 1 del trimestre ·
-            Liquidación = Bono real − Anticipo (negativo = descuento en remuneración) ·
+            Bono real = Cumpl% × Bono_100% · Anticipo = Bono_100% × 80% pagado mes 1 del trimestre ·
+            Saldo = Bono real − Anticipo (positivo = pago adicional · negativo = descuento en remuneración) ·
             Bono margen aplica solo si Cumpl. venta ≥ 100% Y Cumpl. margen &gt; 100%
           </div>
         </>

@@ -91,11 +91,14 @@ def setup():
     conn = get_conn()
     cur = conn.cursor()
 
+    cur.execute("IF OBJECT_ID('Targets_Config','U') IS NOT NULL DROP TABLE Targets_Config")
+    cur.execute("IF OBJECT_ID('Targets_Pagos','U') IS NOT NULL DROP TABLE Targets_Pagos")
+    # Limpiar tablas antiguas si existen
     cur.execute("IF OBJECT_ID('Incentivos_Config','U') IS NOT NULL DROP TABLE Incentivos_Config")
     cur.execute("IF OBJECT_ID('Incentivos_Anticipos','U') IS NOT NULL DROP TABLE Incentivos_Anticipos")
 
     cur.execute("""
-        CREATE TABLE Incentivos_Config (
+        CREATE TABLE Targets_Config (
             ID               INT IDENTITY PRIMARY KEY,
             ANO              INT NOT NULL,
             VENDEDOR         VARCHAR(50) NOT NULL,
@@ -113,7 +116,7 @@ def setup():
     """)
 
     cur.execute("""
-        CREATE TABLE Incentivos_Anticipos (
+        CREATE TABLE Targets_Pagos (
             ID              INT IDENTITY PRIMARY KEY,
             ANO             INT NOT NULL,
             TRIMESTRE       INT NOT NULL,
@@ -130,7 +133,7 @@ def setup():
         mv = [m if m is not None else "NULL" for m in metas_v]
         mm = [m if m is not None else "NULL" for m in metas_m]
         cur.execute(f"""
-            INSERT INTO Incentivos_Config
+            INSERT INTO Targets_Config
             (ANO, VENDEDOR, NOMBRE, TIPO, BONO_VENTA_100, BONO_MARGEN_100,
              META_VENTA_ENE,META_VENTA_FEB,META_VENTA_MAR,META_VENTA_ABR,
              META_VENTA_MAY,META_VENTA_JUN,META_VENTA_JUL,META_VENTA_AGO,

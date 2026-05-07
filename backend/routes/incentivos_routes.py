@@ -10,7 +10,8 @@ Reglas:
               → cumpl_venta 95-99.9%: factor 50%
               → cumpl_venta < 95%: no aplica
               → Requiere cumpl_margen >= 100%
-  Anticipo    = bono_venta_100 × 0.80 (pagado mes 1 del trimestre)
+  Anticipo    = bono_venta_100 × 0.80 (pagado mes 1 del trimestre) [VENDEDOR]
+              = 0                                                    [SUBGERENTE]
   Liquidacion = bono_total_real - anticipo (puede ser negativo → descuento)
 
   venta_bono  = SUM(VENTA) para 101 productos elegibles (sin guías)
@@ -274,8 +275,8 @@ def _calcular(q: int, ano: int, mes_actual: int, ano_actual: int, q_actual: int)
 
         bono_total = bono_v + bono_m
 
-        # Anticipo
-        anticipo_calc = round(bv100 * 0.80)
+        # Anticipo — SUBGERENTE no recibe anticipo
+        anticipo_calc = 0 if tipo == "SUBGERENTE" else round(bv100 * 0.80)
         anticipo_db = anticipos_db.get(code, {})
         anticipo_pagado = anticipo_db.get("anticipo_venta", 0)
         anticipo_marcado = anticipo_db.get("pagado", False)

@@ -1241,8 +1241,8 @@ export default function FacturacionPage() {
       {tab === "competitividad" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
           {/* Year selector */}
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <span style={{ fontSize: 13, fontWeight: 600, color: "#374151" }}>Año:</span>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+            <span style={{ fontSize: 13, fontWeight: 600, color: "#374151" }}>Año publicación:</span>
             {[2024, 2025, 2026].map(a => (
               <button key={a} onClick={() => setCompetividadAno(a)} style={{
                 padding: "6px 16px", borderRadius: 6, border: "1px solid",
@@ -1252,6 +1252,9 @@ export default function FacturacionPage() {
                 color: competividadAno === a ? "#1D4ED8" : "#374151",
               }}>{a}</button>
             ))}
+            <span style={{ fontSize: 11, color: "#94A3B8", marginLeft: 4 }}>
+              Filtro por AnioMes (año publicación). Los montos solo incluyen licitaciones adjudicadas — el monto de ofertas no adjudicadas no está disponible en la fuente.
+            </span>
           </div>
 
           {competividadLoading && (
@@ -1288,19 +1291,23 @@ export default function FacturacionPage() {
                 {/* LBF Summary card */}
                 {lbf && (
                   <div style={{ ...card, background: "#EFF6FF", borderColor: "#BFDBFE" }}>
-                    <div style={{ fontSize: 13, fontWeight: 700, color: "#1D4ED8", marginBottom: 12 }}>
-                      LBF — Resumen {competividadAno}
+                    <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 12 }}>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: "#1D4ED8" }}>
+                        LBF — Resumen {competividadAno}
+                      </div>
+                      <div style={{ fontSize: 11, color: "#94A3B8" }}>
+                        % Efectividad = IDs Adjudicadas / IDs Participadas · Mercado total adj.: {fmtAbs(competividadData.total_mercado_adj ?? 0)}
+                      </div>
                     </div>
                     <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
                       {[
                         { label: "Market Share Adj.", value: `${lbf.pct_participado ?? 0}%`, color: "#1D4ED8" },
-                        { label: "Efectividad", value: `${lbf.pct_efectividad ?? 0}%`, color: lbf.pct_efectividad >= 50 ? "#059669" : lbf.pct_efectividad >= 30 ? "#D97706" : "#DC2626" },
-                        { label: "Total Participado", value: fmt(lbf.total_participado ?? 0) },
+                        { label: "% Efectividad (IDs)", value: `${lbf.pct_efectividad ?? 0}%`, color: lbf.pct_efectividad >= 50 ? "#059669" : lbf.pct_efectividad >= 30 ? "#D97706" : "#DC2626" },
                         { label: "Total Adjudicado", value: fmt(lbf.total_adjudicado ?? 0), color: "#059669" },
-                        { label: "Ofertas Realizadas", value: (lbf.ofertas_realizadas ?? 0).toLocaleString("es-CL") },
-                        { label: "Ofertas Adjudicadas", value: (lbf.ofertas_adjudicadas ?? 0).toLocaleString("es-CL"), color: "#059669" },
                         { label: "IDs Participadas", value: (lbf.ids_participadas ?? 0).toLocaleString("es-CL") },
                         { label: "IDs Adjudicadas", value: (lbf.ids_adjudicadas ?? 0).toLocaleString("es-CL"), color: "#059669" },
+                        { label: "Ofertas Realizadas", value: (lbf.ofertas_realizadas ?? 0).toLocaleString("es-CL") },
+                        { label: "Ofertas Adjudicadas", value: (lbf.ofertas_adjudicadas ?? 0).toLocaleString("es-CL"), color: "#059669" },
                       ].map(({ label, value, color }) => (
                         <div key={label} style={{ flex: "1 1 120px", minWidth: 110, padding: "10px 14px", background: "white", border: "1px solid #DBEAFE", borderRadius: 8 }}>
                           <div style={{ fontSize: 10, color: "#64748B", textTransform: "uppercase", marginBottom: 3 }}>{label}</div>

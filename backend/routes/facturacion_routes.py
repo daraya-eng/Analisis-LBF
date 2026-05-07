@@ -497,27 +497,44 @@ def _load_historico(ano: int) -> dict:
 
 
 def _load_competitividad(ano: int) -> dict:
+    """
+    Cada licitacion tiene N filas en la vista (una por item x empresa).
+    monto_licitacion es el monto total de la licitacion, no por item.
+    Para no inflar los montos, primero deduplicamos a nivel (empresa, licitacion)
+    usando MAX(monto) por par, luego agregamos.
+    ofertas_realizadas = filas (items ofertados), ids_participadas = licitaciones unicas.
+    """
     conn = get_conn()
     cur = conn.cursor()
 
     # ── 1. Resumen por empresa (mercado completo) ────────────────────────────
+    # CTE: una fila por (empresa, licitacion) con monto y flag adjudicado
     cur.execute(f"""
+        WITH base AS (
+            SELECT
+                LTRIM(RTRIM(ISNULL(nombre_empresa,''))) AS empresa,
+                licitacion,
+                MAX(CASE WHEN EsLBF=1 THEN 1 ELSE 0 END) AS es_lbf,
+                MAX(TRY_CAST(NULLIF(LTRIM(RTRIM(monto_licitacion)),'') AS bigint)) AS monto,
+                MAX(CASE WHEN estado='Adjudicado' THEN 1 ELSE 0 END) AS adjudicado,
+                COUNT(*) AS n_items
+            FROM vw_LICITACIONES_CATEGORIZADAS
+            WHERE LEFT(AnioMes, 4) = '{ano}'
+              AND LTRIM(RTRIM(ISNULL(nombre_empresa,''))) != ''
+            GROUP BY LTRIM(RTRIM(ISNULL(nombre_empresa,''))), licitacion
+        )
         SELECT
-            LTRIM(RTRIM(ISNULL(nombre_empresa,''))) AS empresa,
-            MAX(CASE WHEN EsLBF=1 THEN 1 ELSE 0 END) AS es_lbf,
-            SUM(TRY_CAST(ISNULL(monto_licitacion,'0') AS bigint)) AS total_participado,
-            SUM(CASE WHEN estado='Adjudicado'
-                THEN TRY_CAST(ISNULL(monto_licitacion,'0') AS bigint) ELSE 0 END) AS total_adjudicado,
-            COUNT(*) AS ofertas_realizadas,
-            SUM(CASE WHEN estado='Adjudicado' THEN 1 ELSE 0 END) AS ofertas_adjudicadas,
-            COUNT(DISTINCT licitacion) AS ids_participadas,
-            COUNT(DISTINCT CASE WHEN estado='Adjudicado' THEN licitacion END) AS ids_adjudicadas
-        FROM vw_LICITACIONES_CATEGORIZADAS
-        WHERE LEFT(AnioMes, 4) = '{ano}'
-          AND LTRIM(RTRIM(ISNULL(nombre_empresa,''))) != ''
-        GROUP BY LTRIM(RTRIM(ISNULL(nombre_empresa,'')))
-        ORDER BY SUM(CASE WHEN estado='Adjudicado'
-            THEN TRY_CAST(ISNULL(monto_licitacion,'0') AS bigint) ELSE 0 END) DESC
+            empresa,
+            MAX(es_lbf) AS es_lbf,
+            SUM(ISNULL(monto, 0)) AS total_participado,
+            SUM(CASE WHEN adjudicado=1 THEN ISNULL(monto, 0) ELSE 0 END) AS total_adjudicado,
+            SUM(n_items) AS ofertas_realizadas,
+            SUM(CASE WHEN adjudicado=1 THEN n_items ELSE 0 END) AS ofertas_adjudicadas,
+            COUNT(*) AS ids_participadas,
+            SUM(adjudicado) AS ids_adjudicadas
+        FROM base
+        GROUP BY empresa
+        ORDER BY SUM(CASE WHEN adjudicado=1 THEN ISNULL(monto, 0) ELSE 0 END) DESC
     """)
     empresas_raw = cur.fetchall()
 
@@ -536,7 +553,8 @@ def _load_competitividad(ano: int) -> dict:
         ids_p  = int(r[6] or 0)
         ids_a  = int(r[7] or 0)
         pct_part = round(t_adj / total_mercado_adj * 100, 2) if total_mercado_adj > 0 else 0
-        pct_efec = round(t_adj / t_part * 100, 2) if t_part > 0 else 0
+        # Efectividad por IDs (montos no disponibles para no-adjudicadas)
+        pct_efec = round(ids_a / ids_p * 100, 1) if ids_p > 0 else 0
         row = {
             "empresa": emp, "es_lbf": es_lbf,
             "total_participado": t_part, "total_adjudicado": t_adj,
@@ -550,21 +568,29 @@ def _load_competitividad(ano: int) -> dict:
 
     # ── 2. Por zona (solo LBF) ───────────────────────────────────────────────
     cur.execute(f"""
+        WITH base AS (
+            SELECT
+                LTRIM(RTRIM(ISNULL(FFVV_ZONA,'Sin Zona'))) AS zona,
+                licitacion,
+                MAX(TRY_CAST(NULLIF(LTRIM(RTRIM(monto_licitacion)),'') AS bigint)) AS monto,
+                MAX(CASE WHEN estado='Adjudicado' THEN 1 ELSE 0 END) AS adjudicado,
+                COUNT(*) AS n_items
+            FROM vw_LICITACIONES_CATEGORIZADAS
+            WHERE EsLBF = 1 AND LEFT(AnioMes, 4) = '{ano}'
+              AND LTRIM(RTRIM(ISNULL(FFVV_ZONA,''))) != ''
+            GROUP BY LTRIM(RTRIM(ISNULL(FFVV_ZONA,'Sin Zona'))), licitacion
+        )
         SELECT
-            LTRIM(RTRIM(ISNULL(FFVV_ZONA,'Sin Zona'))) AS zona,
-            SUM(TRY_CAST(ISNULL(monto_licitacion,'0') AS bigint)) AS total_participado,
-            SUM(CASE WHEN estado='Adjudicado'
-                THEN TRY_CAST(ISNULL(monto_licitacion,'0') AS bigint) ELSE 0 END) AS total_adjudicado,
-            COUNT(DISTINCT licitacion) AS ids_participadas,
-            COUNT(DISTINCT CASE WHEN estado='Adjudicado' THEN licitacion END) AS ids_adjudicadas,
-            COUNT(*) AS ofertas_realizadas,
-            SUM(CASE WHEN estado='Adjudicado' THEN 1 ELSE 0 END) AS ofertas_adjudicadas
-        FROM vw_LICITACIONES_CATEGORIZADAS
-        WHERE EsLBF = 1 AND LEFT(AnioMes, 4) = '{ano}'
-          AND LTRIM(RTRIM(ISNULL(FFVV_ZONA,''))) != ''
-        GROUP BY LTRIM(RTRIM(ISNULL(FFVV_ZONA,'Sin Zona')))
-        ORDER BY SUM(CASE WHEN estado='Adjudicado'
-            THEN TRY_CAST(ISNULL(monto_licitacion,'0') AS bigint) ELSE 0 END) DESC
+            zona,
+            SUM(ISNULL(monto, 0)) AS total_participado,
+            SUM(CASE WHEN adjudicado=1 THEN ISNULL(monto, 0) ELSE 0 END) AS total_adjudicado,
+            COUNT(*) AS ids_participadas,
+            SUM(adjudicado) AS ids_adjudicadas,
+            SUM(n_items) AS ofertas_realizadas,
+            SUM(CASE WHEN adjudicado=1 THEN n_items ELSE 0 END) AS ofertas_adjudicadas
+        FROM base
+        GROUP BY zona
+        ORDER BY SUM(CASE WHEN adjudicado=1 THEN ISNULL(monto, 0) ELSE 0 END) DESC
     """)
     por_zona = []
     for r in cur.fetchall():
@@ -575,27 +601,36 @@ def _load_competitividad(ano: int) -> dict:
             "total_participado": t_part, "total_adjudicado": t_adj,
             "ids_participadas": int(r[3] or 0), "ids_adjudicadas": int(r[4] or 0),
             "ofertas_realizadas": int(r[5] or 0), "ofertas_adjudicadas": int(r[6] or 0),
-            "pct_efectividad": round(t_adj / t_part * 100, 1) if t_part > 0 else 0,
+            "pct_efectividad": round(int(r[4] or 0) / int(r[3] or 1) * 100, 1),
         })
 
     # ── 3. Top hospitales (LBF) ──────────────────────────────────────────────
     cur.execute(f"""
+        WITH base AS (
+            SELECT
+                LTRIM(RTRIM(ISNULL(nombre_cliente,''))) AS cliente,
+                MAX(LTRIM(RTRIM(ISNULL(rut_cliente,'')))) AS rut,
+                licitacion,
+                MAX(TRY_CAST(NULLIF(LTRIM(RTRIM(monto_licitacion)),'') AS bigint)) AS monto,
+                MAX(CASE WHEN estado='Adjudicado' THEN 1 ELSE 0 END) AS adjudicado,
+                COUNT(*) AS n_items
+            FROM vw_LICITACIONES_CATEGORIZADAS
+            WHERE EsLBF = 1 AND LEFT(AnioMes, 4) = '{ano}'
+              AND LTRIM(RTRIM(ISNULL(nombre_cliente,''))) != ''
+            GROUP BY LTRIM(RTRIM(ISNULL(nombre_cliente,''))), licitacion
+        )
         SELECT TOP 20
-            LTRIM(RTRIM(ISNULL(nombre_cliente,''))) AS cliente,
-            MAX(LTRIM(RTRIM(ISNULL(rut_cliente,'')))) AS rut,
-            SUM(TRY_CAST(ISNULL(monto_licitacion,'0') AS bigint)) AS total_participado,
-            SUM(CASE WHEN estado='Adjudicado'
-                THEN TRY_CAST(ISNULL(monto_licitacion,'0') AS bigint) ELSE 0 END) AS total_adjudicado,
-            COUNT(*) AS ofertas_realizadas,
-            SUM(CASE WHEN estado='Adjudicado' THEN 1 ELSE 0 END) AS ofertas_adjudicadas,
-            COUNT(DISTINCT licitacion) AS ids_participadas,
-            COUNT(DISTINCT CASE WHEN estado='Adjudicado' THEN licitacion END) AS ids_adjudicadas
-        FROM vw_LICITACIONES_CATEGORIZADAS
-        WHERE EsLBF = 1 AND LEFT(AnioMes, 4) = '{ano}'
-          AND LTRIM(RTRIM(ISNULL(nombre_cliente,''))) != ''
-        GROUP BY LTRIM(RTRIM(ISNULL(nombre_cliente,'')))
-        ORDER BY SUM(CASE WHEN estado='Adjudicado'
-            THEN TRY_CAST(ISNULL(monto_licitacion,'0') AS bigint) ELSE 0 END) DESC
+            cliente,
+            MAX(rut) AS rut,
+            SUM(ISNULL(monto, 0)) AS total_participado,
+            SUM(CASE WHEN adjudicado=1 THEN ISNULL(monto, 0) ELSE 0 END) AS total_adjudicado,
+            SUM(n_items) AS ofertas_realizadas,
+            SUM(CASE WHEN adjudicado=1 THEN n_items ELSE 0 END) AS ofertas_adjudicadas,
+            COUNT(*) AS ids_participadas,
+            SUM(adjudicado) AS ids_adjudicadas
+        FROM base
+        GROUP BY cliente
+        ORDER BY SUM(CASE WHEN adjudicado=1 THEN ISNULL(monto, 0) ELSE 0 END) DESC
     """)
     top_hospitales = []
     for r in cur.fetchall():
@@ -606,7 +641,7 @@ def _load_competitividad(ano: int) -> dict:
             "total_participado": t_part, "total_adjudicado": t_adj,
             "ofertas_realizadas": int(r[4] or 0), "ofertas_adjudicadas": int(r[5] or 0),
             "ids_participadas": int(r[6] or 0), "ids_adjudicadas": int(r[7] or 0),
-            "pct_efectividad": round(t_adj / t_part * 100, 1) if t_part > 0 else 0,
+            "pct_efectividad": round(int(r[7] or 0) / int(r[6] or 1) * 100, 1),
             "total_no_adj": t_part - t_adj,
         })
 

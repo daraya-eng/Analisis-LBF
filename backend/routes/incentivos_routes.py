@@ -138,24 +138,33 @@ def _calcular(q: int, ano: int, mes_actual: int, ano_actual: int, q_actual: int)
     anticipos_db = {r[0]: {"anticipo_venta": _float(r[1]), "pagado": bool(r[2]), "fecha_pago": str(r[3]) if r[3] else None}
                     for r in cur.fetchall()}
 
-    # ── Venta real y contribucion por VENDEDOR × MES ─────────────────────
+    # ── Venta real por VENDEDOR × MES (incluye guías del mes actual) ──────
     cur.execute(f"""
-        SELECT VENDEDOR, MES,
-               SUM(CAST(VENTA AS float))        AS venta,
-               SUM(CAST(CONTRIBUCION AS float))  AS contrib
+        SELECT VENDEDOR, MES, SUM(CAST(VENTA AS float)) AS venta
         FROM BI_TOTAL_FACTURA
         WHERE ANO = ? AND MES IN ({mes_list})
           AND {_EXCL} AND {_FG}
         GROUP BY VENDEDOR, MES
     """, (ano,))
     venta_map: dict[str, dict[int, float]] = {}
+    for row in cur.fetchall():
+        vend, mes, v = row[0] or "", int(row[1]), _float(row[2])
+        venta_map.setdefault(vend, {})[mes] = v
+
+    # ── Contribucion por VENDEDOR × MES (solo facturas, nunca guías) ─────
+    cur.execute(f"""
+        SELECT VENDEDOR, MES, SUM(CAST(CONTRIBUCION AS float)) AS contrib
+        FROM BI_TOTAL_FACTURA
+        WHERE ANO = ? AND MES IN ({mes_list})
+          AND {_EXCL} AND DOC_CODE <> 'GF'
+        GROUP BY VENDEDOR, MES
+    """, (ano,))
     contrib_map: dict[str, dict[int, float]] = {}
     for row in cur.fetchall():
-        vend, mes, v, c = row[0] or "", int(row[1]), _float(row[2]), _float(row[3])
-        venta_map.setdefault(vend, {})[mes] = v
+        vend, mes, c = row[0] or "", int(row[1]), _float(row[2])
         contrib_map.setdefault(vend, {})[mes] = c
 
-    # Total empresa (para Subgerente)
+    # Total empresa (para Subgerente) — venta con guías, contrib sin guías
     venta_total_q: dict[int, float] = {}
     contrib_total_q: dict[int, float] = {}
     for vend_data in venta_map.values():

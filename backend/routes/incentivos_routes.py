@@ -222,11 +222,19 @@ def _calcular(q: int, ano: int, mes_actual: int, ano_actual: int, q_actual: int)
         else:
             bono_v = (cumpl_v * bv100) if cumpl_v is not None else 0.0
 
-        # Bono margen (solo si cumpl_venta >= 100% Y cumpl_margen > 100%)
+        # Bono margen:
+        #   cumpl_venta >= 100% Y cumpl_margen >= 100% → 100% del bono margen
+        #   cumpl_venta >= 95%  Y cumpl_margen >= 100% → 50% del bono margen
+        #   cumpl_venta < 95%                          → no aplica
         bono_m = 0.0
-        if (bm100 and cumpl_v is not None and cumpl_m is not None
-                and cumpl_v >= 1.0 and cumpl_m > 1.0):
-            bono_m = cumpl_m * bm100
+        bono_m_factor = 0.0
+        if bm100 and cumpl_v is not None and cumpl_m is not None and cumpl_m >= 1.0:
+            if cumpl_v >= 1.0:
+                bono_m = cumpl_m * bm100
+                bono_m_factor = 1.0
+            elif cumpl_v >= 0.95:
+                bono_m = 0.5 * cumpl_m * bm100
+                bono_m_factor = 0.5
 
         bono_total = bono_v + bono_m
 
@@ -256,6 +264,7 @@ def _calcular(q: int, ano: int, mes_actual: int, ano_actual: int, q_actual: int)
             "bono_margen_100": round(bm100) if bm100 else None,
             "bono_venta": round(bono_v),
             "bono_margen": round(bono_m),
+            "bono_margen_factor": bono_m_factor,
             "bono_total": round(bono_total),
             "anticipo_calc": anticipo_calc,
             "anticipo_pagado": round(anticipo_pagado) if anticipo_marcado else None,

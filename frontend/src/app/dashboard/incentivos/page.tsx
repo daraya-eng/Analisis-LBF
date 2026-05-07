@@ -262,7 +262,14 @@ export default function IncentivosPage() {
                           <td style={{ ...tdR, color: "#6366F1" }}>{fmtAbs(v.anticipo_calc)}</td>
                           <td style={tdR}>{fmtAbs(v.bono_venta)}</td>
                           <td style={{ ...tdR, color: v.bono_margen > 0 ? "#10B981" : "#94A3B8" }}>
-                            {v.bono_margen > 0 ? fmtAbs(v.bono_margen) : "—"}
+                            {v.bono_margen > 0 ? (
+                              <span>
+                                {fmtAbs(v.bono_margen)}
+                                {v.bono_margen_factor === 0.5 && (
+                                  <span style={{ fontSize: 10, color: "#F59E0B", fontWeight: 700, marginLeft: 4 }}>50%</span>
+                                )}
+                              </span>
+                            ) : "—"}
                           </td>
                           <td style={{ ...tdR, fontWeight: 700 }}>{fmtAbs(v.bono_total)}</td>
                           <td style={tdR}><MontoSaldo value={saldo} /></td>
@@ -287,7 +294,9 @@ export default function IncentivosPage() {
                                     {v.cumpl_margen !== null && (
                                       <><strong>Cumpl. margen:</strong> {v.cumpl_margen}%
                                         {v.bono_margen > 0
-                                          ? <span style={{ color: "#10B981", marginLeft: 6 }}>✓ Aplica bono margen</span>
+                                          ? <span style={{ color: v.bono_margen_factor === 0.5 ? "#F59E0B" : "#10B981", marginLeft: 6 }}>
+                                              ✓ Aplica bono margen {v.bono_margen_factor === 0.5 ? "(50% — cumpl. venta 95–99.9%)" : "(100%)"}
+                                            </span>
                                           : <span style={{ color: "#94A3B8", marginLeft: 6 }}>— No aplica</span>}
                                         <br /></>
                                     )}
@@ -373,7 +382,7 @@ export default function IncentivosPage() {
             <strong>Lógica de cálculo:</strong>{" "}
             Bono real = Cumpl% × Bono_100% · Anticipo = Bono_100% × 80% pagado mes 1 del trimestre ·
             Saldo = Bono real − Anticipo (positivo = pago adicional · negativo = descuento en remuneración) ·
-            Bono margen aplica solo si Cumpl. venta ≥ 100% Y Cumpl. margen &gt; 100%
+            Bono margen: Cumpl. venta ≥ 100% → 100% · Cumpl. venta 95–99.9% → 50% · &lt; 95% → no aplica · Requiere Cumpl. margen ≥ 100%
           </div>
         </>
       )}

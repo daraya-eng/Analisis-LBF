@@ -496,6 +496,151 @@ def _load_historico(ano: int) -> dict:
     }
 
 
+def _load_competitividad(ano: int) -> dict:
+    conn = get_conn()
+    cur = conn.cursor()
+
+    # ── 1. Resumen por empresa (mercado completo) ────────────────────────────
+    cur.execute(f"""
+        SELECT
+            LTRIM(RTRIM(ISNULL(nombre_empresa,''))) AS empresa,
+            MAX(CASE WHEN EsLBF=1 THEN 1 ELSE 0 END) AS es_lbf,
+            SUM(TRY_CAST(ISNULL(monto_licitacion,'0') AS bigint)) AS total_participado,
+            SUM(CASE WHEN estado='Adjudicado'
+                THEN TRY_CAST(ISNULL(monto_licitacion,'0') AS bigint) ELSE 0 END) AS total_adjudicado,
+            COUNT(*) AS ofertas_realizadas,
+            SUM(CASE WHEN estado='Adjudicado' THEN 1 ELSE 0 END) AS ofertas_adjudicadas,
+            COUNT(DISTINCT licitacion) AS ids_participadas,
+            COUNT(DISTINCT CASE WHEN estado='Adjudicado' THEN licitacion END) AS ids_adjudicadas
+        FROM vw_LICITACIONES_CATEGORIZADAS
+        WHERE YEAR(TRY_CAST(fecha_inicio AS date)) = {ano}
+          AND LTRIM(RTRIM(ISNULL(nombre_empresa,''))) != ''
+        GROUP BY LTRIM(RTRIM(ISNULL(nombre_empresa,'')))
+        ORDER BY SUM(CASE WHEN estado='Adjudicado'
+            THEN TRY_CAST(ISNULL(monto_licitacion,'0') AS bigint) ELSE 0 END) DESC
+    """)
+    empresas_raw = cur.fetchall()
+
+    total_mercado_adj = sum(int(r[3] or 0) for r in empresas_raw)
+    total_mercado_part = sum(int(r[2] or 0) for r in empresas_raw)
+
+    empresas = []
+    lbf_row = None
+    for r in empresas_raw:
+        emp = str(r[0]).strip()
+        es_lbf = bool(r[1])
+        t_part = int(r[2] or 0)
+        t_adj  = int(r[3] or 0)
+        of_r   = int(r[4] or 0)
+        of_a   = int(r[5] or 0)
+        ids_p  = int(r[6] or 0)
+        ids_a  = int(r[7] or 0)
+        pct_part = round(t_adj / total_mercado_adj * 100, 2) if total_mercado_adj > 0 else 0
+        pct_efec = round(t_adj / t_part * 100, 2) if t_part > 0 else 0
+        row = {
+            "empresa": emp, "es_lbf": es_lbf,
+            "total_participado": t_part, "total_adjudicado": t_adj,
+            "ofertas_realizadas": of_r, "ofertas_adjudicadas": of_a,
+            "ids_participadas": ids_p, "ids_adjudicadas": ids_a,
+            "pct_participado": pct_part, "pct_efectividad": pct_efec,
+        }
+        empresas.append(row)
+        if es_lbf:
+            lbf_row = row
+
+    # ── 2. Por zona (solo LBF) ───────────────────────────────────────────────
+    cur.execute(f"""
+        SELECT
+            LTRIM(RTRIM(ISNULL(FFVV_ZONA,'Sin Zona'))) AS zona,
+            SUM(TRY_CAST(ISNULL(monto_licitacion,'0') AS bigint)) AS total_participado,
+            SUM(CASE WHEN estado='Adjudicado'
+                THEN TRY_CAST(ISNULL(monto_licitacion,'0') AS bigint) ELSE 0 END) AS total_adjudicado,
+            COUNT(DISTINCT licitacion) AS ids_participadas,
+            COUNT(DISTINCT CASE WHEN estado='Adjudicado' THEN licitacion END) AS ids_adjudicadas,
+            COUNT(*) AS ofertas_realizadas,
+            SUM(CASE WHEN estado='Adjudicado' THEN 1 ELSE 0 END) AS ofertas_adjudicadas
+        FROM vw_LICITACIONES_CATEGORIZADAS
+        WHERE EsLBF = 1 AND YEAR(TRY_CAST(fecha_inicio AS date)) = {ano}
+          AND LTRIM(RTRIM(ISNULL(FFVV_ZONA,''))) != ''
+        GROUP BY LTRIM(RTRIM(ISNULL(FFVV_ZONA,'Sin Zona')))
+        ORDER BY SUM(CASE WHEN estado='Adjudicado'
+            THEN TRY_CAST(ISNULL(monto_licitacion,'0') AS bigint) ELSE 0 END) DESC
+    """)
+    por_zona = []
+    for r in cur.fetchall():
+        t_part = int(r[1] or 0)
+        t_adj  = int(r[2] or 0)
+        por_zona.append({
+            "zona": str(r[0]).strip(),
+            "total_participado": t_part, "total_adjudicado": t_adj,
+            "ids_participadas": int(r[3] or 0), "ids_adjudicadas": int(r[4] or 0),
+            "ofertas_realizadas": int(r[5] or 0), "ofertas_adjudicadas": int(r[6] or 0),
+            "pct_efectividad": round(t_adj / t_part * 100, 1) if t_part > 0 else 0,
+        })
+
+    # ── 3. Top hospitales (LBF) ──────────────────────────────────────────────
+    cur.execute(f"""
+        SELECT TOP 20
+            LTRIM(RTRIM(ISNULL(nombre_cliente,''))) AS cliente,
+            LTRIM(RTRIM(ISNULL(rut_cliente,''))) AS rut,
+            SUM(TRY_CAST(ISNULL(monto_licitacion,'0') AS bigint)) AS total_participado,
+            SUM(CASE WHEN estado='Adjudicado'
+                THEN TRY_CAST(ISNULL(monto_licitacion,'0') AS bigint) ELSE 0 END) AS total_adjudicado,
+            COUNT(*) AS ofertas_realizadas,
+            SUM(CASE WHEN estado='Adjudicado' THEN 1 ELSE 0 END) AS ofertas_adjudicadas,
+            COUNT(DISTINCT licitacion) AS ids_participadas,
+            COUNT(DISTINCT CASE WHEN estado='Adjudicado' THEN licitacion END) AS ids_adjudicadas
+        FROM vw_LICITACIONES_CATEGORIZADAS
+        WHERE EsLBF = 1 AND YEAR(TRY_CAST(fecha_inicio AS date)) = {ano}
+          AND LTRIM(RTRIM(ISNULL(nombre_cliente,''))) != ''
+        GROUP BY LTRIM(RTRIM(ISNULL(nombre_cliente,'')))
+        ORDER BY SUM(CASE WHEN estado='Adjudicado'
+            THEN TRY_CAST(ISNULL(monto_licitacion,'0') AS bigint) ELSE 0 END) DESC
+    """)
+    top_hospitales = []
+    for r in cur.fetchall():
+        t_part = int(r[2] or 0)
+        t_adj  = int(r[3] or 0)
+        top_hospitales.append({
+            "cliente": str(r[0]).strip(), "rut": str(r[1]).strip(),
+            "total_participado": t_part, "total_adjudicado": t_adj,
+            "ofertas_realizadas": int(r[4] or 0), "ofertas_adjudicadas": int(r[5] or 0),
+            "ids_participadas": int(r[6] or 0), "ids_adjudicadas": int(r[7] or 0),
+            "pct_efectividad": round(t_adj / t_part * 100, 1) if t_part > 0 else 0,
+            "total_no_adj": t_part - t_adj,
+        })
+
+    conn.close()
+
+    return {
+        "ano": ano,
+        "empresas": empresas[:20],
+        "lbf": lbf_row,
+        "por_zona": por_zona,
+        "top_hospitales": top_hospitales,
+        "total_mercado_adj": total_mercado_adj,
+        "total_mercado_part": total_mercado_part,
+    }
+
+
+@router.get("/competitividad")
+async def get_competitividad(
+    ano: int = Query(2025),
+    current_user: dict = Depends(get_current_user),
+):
+    try:
+        ck = f"fac_competitividad_{ano}"
+        cached = mem_get(ck)
+        if cached:
+            return cached
+        data = _load_competitividad(ano)
+        mem_set(ck, data)
+        return data
+    except Exception as e:
+        import traceback
+        return {"error": str(e), "trace": traceback.format_exc()}
+
+
 @router.get("/historico")
 async def get_historico(
     ano: int = Query(2025),

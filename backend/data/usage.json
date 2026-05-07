@@ -75,13 +75,30 @@
         "facturacion": 2
       },
       "2026-05-02": {
-        "dashboard": 8,
-        "mercado_publico": 35,
+        "dashboard": 16,
+        "mercado_publico": 41,
         "televentas": 6,
         "zona": 8
+      },
+      "2026-05-04": {
+        "dashboard": 37,
+        "zona": 1,
+        "televentas": 2
+      },
+      "2026-05-05": {
+        "dashboard": 16,
+        "televentas": 2
+      },
+      "2026-05-06": {
+        "dashboard": 8,
+        "zona": 2
+      },
+      "2026-05-07": {
+        "dashboard": 4,
+        "facturacion": 1
       }
     },
-    "last_active": "2026-05-02 14:54:26",
-    "total": 913
+    "last_active": "2026-05-07 15:20:06",
+    "total": 1000
   }
 }

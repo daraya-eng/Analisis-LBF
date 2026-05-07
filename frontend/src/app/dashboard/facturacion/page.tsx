@@ -8,7 +8,7 @@ import { ExportButton } from "@/components/table-tools";
 import HelpButton from "@/components/help-button";
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip,
-  CartesianGrid, Cell, LabelList, PieChart, Pie, Legend,
+  CartesianGrid, Cell, LabelList,
 } from "recharts";
 
 /* ─── Shared styles (light theme) ──────────────────────── */
@@ -385,7 +385,7 @@ function LicTable({ rows, colCount, catFilter, showCumpl, onToggleExcluir }: { r
   );
 }
 
-type TabId = "urgentes" | "licitaciones" | "clientes" | "historico" | "competitividad";
+type TabId = "urgentes" | "licitaciones" | "clientes" | "historico";
 
 /* ─── Helper: generar email KAM ──── */
 function kamToEmail(kam: string): string {
@@ -631,9 +631,6 @@ export default function FacturacionPage() {
   const [excluidos, setExcluidos] = useState<Set<string>>(new Set());
   const [historicoData, setHistoricoData] = useState<any>(null);
   const [historicoLoading, setHistoricoLoading] = useState(false);
-  const [competividadData, setCompetividadData] = useState<any>(null);
-  const [competividadLoading, setCompetividadLoading] = useState(false);
-  const [competividadAno, setCompetividadAno] = useState<number>(2025);
 
   useEffect(() => {
     setLoading(true);
@@ -650,16 +647,6 @@ export default function FacturacionPage() {
       .catch(() => setLoading(false));
   }, []);
 
-  useEffect(() => {
-    if (tab === "competitividad") {
-      setCompetividadLoading(true);
-      setCompetividadData(null);
-      api.get<any>(`/api/facturacion/competitividad?ano=${competividadAno}`)
-        .then(r => { setCompetividadData(r); setCompetividadLoading(false); })
-        .catch((e: any) => { setCompetividadData({ error: String(e?.message || e) }); setCompetividadLoading(false); });
-    }
-  }, [competividadAno, tab]);
-
   const handleTabChange = useCallback((newTab: TabId) => {
     setTab(newTab);
     if (newTab === "historico" && !historicoData && !historicoLoading) {
@@ -668,8 +655,7 @@ export default function FacturacionPage() {
         .then(r => { setHistoricoData(r); setHistoricoLoading(false); })
         .catch(() => setHistoricoLoading(false));
     }
-    // Note: competitividad data is loaded by the useEffect on [competividadAno, tab]
-  }, [historicoData, historicoLoading, competividadData, competividadLoading, competividadAno]);
+  }, [historicoData, historicoLoading]);
 
   const handleToggleExcluir = useCallback(async (licId: string, excluir: boolean) => {
     setExcluidos(prev => {
@@ -755,8 +741,7 @@ export default function FacturacionPage() {
     { id: "urgentes", label: `Urgentes ${mesNombre}`, count: urgentesFiltradas.length, alert: urgentesFiltradas.length > 0 },
     { id: "licitaciones", label: "Todas las Licitaciones", count: licFiltradas.length },
     { id: "clientes", label: "Por Cliente", count: clientesFiltrados.length },
-    { id: "historico", label: "Historial 2025" },
-    { id: "competitividad", label: "Competitividad" },
+    { id: "historico", label: "📊 2025" },
   ];
 
   const LIC_COLS = 10; // number of columns in lic table
@@ -1237,293 +1222,6 @@ export default function FacturacionPage() {
         </div>
       )}
 
-      {/* ═══ Tab: Competitividad ═══ */}
-      {tab === "competitividad" && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-          {/* Year selector */}
-          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-            <span style={{ fontSize: 13, fontWeight: 600, color: "#374151" }}>Año publicación:</span>
-            {[2024, 2025, 2026].map(a => (
-              <button key={a} onClick={() => setCompetividadAno(a)} style={{
-                padding: "6px 16px", borderRadius: 6, border: "1px solid",
-                fontSize: 13, fontWeight: 600, cursor: "pointer",
-                borderColor: competividadAno === a ? "#3B82F6" : "#E2E8F0",
-                background: competividadAno === a ? "#EFF6FF" : "white",
-                color: competividadAno === a ? "#1D4ED8" : "#374151",
-              }}>{a}</button>
-            ))}
-            <span style={{ fontSize: 11, color: "#94A3B8", marginLeft: 4 }}>
-              Filtro por AnioMes (año publicación). Los montos solo incluyen licitaciones adjudicadas — el monto de ofertas no adjudicadas no está disponible en la fuente.
-            </span>
-          </div>
-
-          {competividadLoading && (
-            <div style={{ padding: 40, textAlign: "center", color: "#94A3B8" }}>Cargando análisis de competitividad...</div>
-          )}
-
-          {!competividadLoading && competividadData && !competividadData.error && (() => {
-            const lbf = competividadData.lbf || {};
-            const empresas: any[] = competividadData.empresas || [];
-            const porZona: any[] = competividadData.por_zona || [];
-            const topHosp: any[] = (competividadData.top_hospitales || []).slice(0, 15);
-            const totalMktAdj: number = competividadData.total_mercado_adj || 0;
-
-            // Pie chart data: top 10 by adj + "Otros"
-            const top10 = empresas.slice(0, 10);
-            const otros = empresas.slice(10).reduce((s: number, e: any) => s + e.total_adjudicado, 0);
-            const PIE_COLORS = [
-              "#3B82F6","#EF4444","#10B981","#F59E0B","#8B5CF6",
-              "#EC4899","#06B6D4","#84CC16","#F97316","#6366F1","#94A3B8",
-            ];
-            const pieData = [
-              ...top10.map((e: any, i: number) => ({
-                name: e.empresa.length > 28 ? e.empresa.slice(0, 28) + "…" : e.empresa,
-                value: e.total_adjudicado,
-                pct: e.pct_participado,
-                fill: e.es_lbf ? "#3B82F6" : PIE_COLORS[i],
-                isLbf: e.es_lbf,
-              })),
-              ...(otros > 0 ? [{ name: "Otros", value: otros, pct: totalMktAdj > 0 ? +(otros / totalMktAdj * 100).toFixed(2) : 0, fill: "#94A3B8", isLbf: false }] : []),
-            ];
-
-            return (
-              <>
-                {/* LBF Summary card */}
-                {lbf && (
-                  <div style={{ ...card, background: "#EFF6FF", borderColor: "#BFDBFE" }}>
-                    <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 12 }}>
-                      <div style={{ fontSize: 13, fontWeight: 700, color: "#1D4ED8" }}>
-                        LBF — Resumen {competividadAno}
-                      </div>
-                      <div style={{ fontSize: 11, color: "#94A3B8" }}>
-                        % Efectividad = IDs Adjudicadas / IDs Participadas · Mercado total adj.: {fmtAbs(competividadData.total_mercado_adj ?? 0)}
-                      </div>
-                    </div>
-                    <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-                      {[
-                        { label: "Market Share Adj.", value: `${lbf.pct_participado ?? 0}%`, color: "#1D4ED8" },
-                        { label: "% Efectividad (IDs)", value: `${lbf.pct_efectividad ?? 0}%`, color: lbf.pct_efectividad >= 50 ? "#059669" : lbf.pct_efectividad >= 30 ? "#D97706" : "#DC2626" },
-                        { label: "Total Adjudicado", value: fmt(lbf.total_adjudicado ?? 0), color: "#059669" },
-                        { label: "IDs Participadas", value: (lbf.ids_participadas ?? 0).toLocaleString("es-CL") },
-                        { label: "IDs Adjudicadas", value: (lbf.ids_adjudicadas ?? 0).toLocaleString("es-CL"), color: "#059669" },
-                        { label: "Ofertas Realizadas", value: (lbf.ofertas_realizadas ?? 0).toLocaleString("es-CL") },
-                        { label: "Ofertas Adjudicadas", value: (lbf.ofertas_adjudicadas ?? 0).toLocaleString("es-CL"), color: "#059669" },
-                      ].map(({ label, value, color }) => (
-                        <div key={label} style={{ flex: "1 1 120px", minWidth: 110, padding: "10px 14px", background: "white", border: "1px solid #DBEAFE", borderRadius: 8 }}>
-                          <div style={{ fontSize: 10, color: "#64748B", textTransform: "uppercase", marginBottom: 3 }}>{label}</div>
-                          <div style={{ fontSize: 18, fontWeight: 800, color: color || "#0F172A" }}>{value}</div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {/* Charts row: Pie + Zona bar */}
-                <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr", gap: 16 }}>
-                  {/* Pie chart: market share */}
-                  <div style={card}>
-                    <h3 style={{ fontSize: 13, fontWeight: 700, color: "#0F172A", marginBottom: 12 }}>
-                      Participación de Mercado — Top 10 Empresas ({competividadAno})
-                    </h3>
-                    <ResponsiveContainer width="100%" height={320}>
-                      <PieChart>
-                        <Pie
-                          data={pieData}
-                          dataKey="value"
-                          nameKey="name"
-                          cx="50%"
-                          cy="50%"
-                          outerRadius={110}
-                          label={({ name, pct }: any) => `${pct}%`}
-                          labelLine={true}
-                        >
-                          {pieData.map((entry: any, i: number) => (
-                            <Cell key={i} fill={entry.fill}
-                              stroke={entry.isLbf ? "#1D4ED8" : "white"}
-                              strokeWidth={entry.isLbf ? 2 : 1}
-                            />
-                          ))}
-                        </Pie>
-                        <Tooltip
-                          formatter={(v: any) => fmtAbs(v)}
-                          contentStyle={tt}
-                        />
-                      </PieChart>
-                    </ResponsiveContainer>
-                    {/* Legend */}
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 8 }}>
-                      {pieData.map((e: any, i: number) => (
-                        <div key={i} style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11 }}>
-                          <div style={{ width: 10, height: 10, borderRadius: 2, background: e.fill, flexShrink: 0 }} />
-                          <span style={{ color: e.isLbf ? "#1D4ED8" : "#374151", fontWeight: e.isLbf ? 700 : 400 }}>
-                            {e.name} ({e.pct}%)
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Bar chart: efectividad por zona */}
-                  <div style={card}>
-                    <h3 style={{ fontSize: 13, fontWeight: 700, color: "#0F172A", marginBottom: 12 }}>
-                      Efectividad LBF por Zona ({competividadAno})
-                    </h3>
-                    <ResponsiveContainer width="100%" height={320}>
-                      <BarChart data={porZona} layout="vertical" margin={{ right: 50 }}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" />
-                        <XAxis type="number" domain={[0, 100]} tickFormatter={(v: number) => `${v}%`} tick={{ fill: "#64748B", fontSize: 11 }} />
-                        <YAxis dataKey="zona" type="category" width={110} tick={{ fill: "#374151", fontSize: 11 }} />
-                        <Tooltip
-                          formatter={(v: any) => [`${v}%`, "Efectividad"]}
-                          contentStyle={tt}
-                        />
-                        <Bar dataKey="pct_efectividad" radius={[0, 4, 4, 0]}>
-                          {porZona.map((z: any, i: number) => (
-                            <Cell key={i} fill={z.pct_efectividad >= 50 ? "#10B981" : z.pct_efectividad >= 30 ? "#F59E0B" : "#EF4444"} />
-                          ))}
-                          <LabelList dataKey="pct_efectividad" position="right" formatter={(v: any) => `${v}%`} style={{ fill: "#374151", fontSize: 11, fontWeight: 600 }} />
-                        </Bar>
-                      </BarChart>
-                    </ResponsiveContainer>
-                    {/* Stats zona table */}
-                    <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11, marginTop: 8 }}>
-                      <thead>
-                        <tr style={{ background: "#F8FAFC" }}>
-                          <th style={{ ...thS, fontSize: 11 }}>Zona</th>
-                          <th style={{ ...thC, fontSize: 11 }}>IDs Part.</th>
-                          <th style={{ ...thC, fontSize: 11 }}>IDs Adj.</th>
-                          <th style={{ ...thR, fontSize: 11 }}>Adj.</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {porZona.map((z: any, i: number) => (
-                          <tr key={z.zona} style={{ borderBottom: "1px solid #F1F5F9", background: rowBg(i) }}>
-                            <td style={{ ...td, fontSize: 11 }}>{z.zona}</td>
-                            <td style={{ ...tdC, fontSize: 11 }}>{z.ids_participadas}</td>
-                            <td style={{ ...tdC, fontSize: 11 }}>{z.ids_adjudicadas}</td>
-                            <td style={{ ...tdR, fontSize: 11, fontWeight: 600 }}>{fmt(z.total_adjudicado)}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-
-                {/* Tabla empresas mercado */}
-                <div style={{ ...card, padding: 0, overflow: "auto" }}>
-                  <div style={{ padding: "12px 16px", borderBottom: "1px solid #E2E8F0", background: "#F8FAFC" }}>
-                    <span style={{ fontSize: 13, fontWeight: 700, color: "#0F172A" }}>
-                      Mercado Completo — Top 20 Empresas ({competividadAno})
-                    </span>
-                    <span style={{ fontSize: 12, color: "#94A3B8", marginLeft: 8 }}>
-                      Total mercado adj.: {fmtAbs(totalMktAdj)}
-                    </span>
-                  </div>
-                  <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 900 }}>
-                    <thead>
-                      <tr style={{ background: "#F8FAFC" }}>
-                        <th style={{ ...thC, fontSize: 12 }}>#</th>
-                        <th style={{ ...thS, fontSize: 12 }}>Empresa</th>
-                        <th style={{ ...thR, fontSize: 12 }}>Adjudicado</th>
-                        <th style={{ ...thR, fontSize: 12 }}>Market Share</th>
-                        <th style={{ ...thR, fontSize: 12 }}>Participado</th>
-                        <th style={{ ...thC, fontSize: 12 }}>Efectividad</th>
-                        <th style={{ ...thC, fontSize: 12 }}>IDs Part.</th>
-                        <th style={{ ...thC, fontSize: 12 }}>IDs Adj.</th>
-                        <th style={{ ...thC, fontSize: 12 }}>Ofertas Real.</th>
-                        <th style={{ ...thC, fontSize: 12 }}>Ofertas Adj.</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {empresas.map((e: any, i: number) => (
-                        <tr key={e.empresa} style={{
-                          borderBottom: "1px solid #F1F5F9",
-                          background: e.es_lbf ? "#EFF6FF" : rowBg(i),
-                          fontWeight: e.es_lbf ? 700 : 400,
-                        }}>
-                          <td style={{ ...tdC, fontSize: 12, color: i === 0 ? "#D97706" : "#64748B" }}>{i + 1}</td>
-                          <td style={{ ...td, fontSize: 12, maxWidth: 240, overflow: "hidden", textOverflow: "ellipsis" }} title={e.empresa}>
-                            {e.es_lbf && <span style={{ color: "#1D4ED8", marginRight: 4 }}>★</span>}
-                            {e.empresa}
-                          </td>
-                          <td style={{ ...tdR, fontSize: 12, color: e.es_lbf ? "#1D4ED8" : "#0F172A" }}>{fmtAbs(e.total_adjudicado)}</td>
-                          <td style={{ ...tdR, fontSize: 12 }}>
-                            <span style={{
-                              display: "inline-block", padding: "2px 8px", borderRadius: 12,
-                              background: e.es_lbf ? "#DBEAFE" : "#F1F5F9",
-                              color: e.es_lbf ? "#1D4ED8" : "#374151",
-                              fontWeight: 700, fontSize: 11,
-                            }}>{e.pct_participado}%</span>
-                          </td>
-                          <td style={{ ...tdR, fontSize: 12, color: "#64748B" }}>{fmtAbs(e.total_participado)}</td>
-                          <td style={{ ...tdC, fontSize: 12 }}>
-                            <span style={{
-                              color: e.pct_efectividad >= 50 ? "#059669" : e.pct_efectividad >= 30 ? "#D97706" : "#DC2626",
-                              fontWeight: 700,
-                            }}>{e.pct_efectividad}%</span>
-                          </td>
-                          <td style={{ ...tdC, fontSize: 12 }}>{e.ids_participadas.toLocaleString("es-CL")}</td>
-                          <td style={{ ...tdC, fontSize: 12, color: "#059669" }}>{e.ids_adjudicadas.toLocaleString("es-CL")}</td>
-                          <td style={{ ...tdC, fontSize: 12 }}>{e.ofertas_realizadas.toLocaleString("es-CL")}</td>
-                          <td style={{ ...tdC, fontSize: 12, color: "#059669" }}>{e.ofertas_adjudicadas.toLocaleString("es-CL")}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-
-                {/* Top hospitales LBF */}
-                <div style={{ ...card, padding: 0, overflow: "auto" }}>
-                  <div style={{ padding: "12px 16px", borderBottom: "1px solid #E2E8F0", background: "#F0FDF4" }}>
-                    <span style={{ fontSize: 13, fontWeight: 700, color: "#065F46" }}>
-                      Top Clientes LBF por Monto Adjudicado ({competividadAno})
-                    </span>
-                  </div>
-                  <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 860 }}>
-                    <thead>
-                      <tr style={{ background: "#F8FAFC" }}>
-                        <th style={{ ...thC, fontSize: 12 }}>#</th>
-                        <th style={{ ...thS, fontSize: 12 }}>Cliente</th>
-                        <th style={{ ...thR, fontSize: 12 }}>Adjudicado</th>
-                        <th style={{ ...thR, fontSize: 12 }}>Participado</th>
-                        <th style={{ ...thC, fontSize: 12 }}>Efectividad</th>
-                        <th style={{ ...thC, fontSize: 12 }}>IDs Part.</th>
-                        <th style={{ ...thC, fontSize: 12 }}>IDs Adj.</th>
-                        <th style={{ ...thC, fontSize: 12 }}>Ofertas Real.</th>
-                        <th style={{ ...thC, fontSize: 12 }}>Ofertas Adj.</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {topHosp.map((h: any, i: number) => (
-                        <tr key={h.rut || h.cliente} style={{ borderBottom: "1px solid #F1F5F9", background: rowBg(i) }}>
-                          <td style={{ ...tdC, fontWeight: 700, color: i === 0 ? "#D97706" : "#64748B", fontSize: 12 }}>{i + 1}</td>
-                          <td style={{ ...td, fontSize: 12, maxWidth: 240, overflow: "hidden", textOverflow: "ellipsis" }} title={h.cliente}>{h.cliente}</td>
-                          <td style={{ ...tdR, fontWeight: 600, color: "#059669", fontSize: 12 }}>{fmtAbs(h.total_adjudicado)}</td>
-                          <td style={{ ...tdR, color: "#64748B", fontSize: 12 }}>{fmtAbs(h.total_participado)}</td>
-                          <td style={{ ...tdC, fontSize: 12 }}>
-                            <span style={{
-                              color: h.pct_efectividad >= 50 ? "#059669" : h.pct_efectividad >= 30 ? "#D97706" : "#DC2626",
-                              fontWeight: 700,
-                            }}>{h.pct_efectividad}%</span>
-                          </td>
-                          <td style={{ ...tdC, fontSize: 12 }}>{h.ids_participadas}</td>
-                          <td style={{ ...tdC, fontSize: 12, color: "#059669" }}>{h.ids_adjudicadas}</td>
-                          <td style={{ ...tdC, fontSize: 12 }}>{h.ofertas_realizadas.toLocaleString("es-CL")}</td>
-                          <td style={{ ...tdC, fontSize: 12, color: "#059669" }}>{h.ofertas_adjudicadas.toLocaleString("es-CL")}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </>
-            );
-          })()}
-
-          {!competividadLoading && competividadData?.error && (
-            <div style={{ padding: 20, color: "#EF4444" }}>Error: {competividadData.error}</div>
-          )}
-        </div>
-      )}
 
       {/* Info box */}
       <div style={{ ...card, background: "#F0F9FF", borderColor: "#BAE6FD" }}>

@@ -95,7 +95,7 @@ export default function IncentivosPage() {
 
     // Cabeceras
     const headers = ["Vendedor","Nombre","Tipo","Meta Venta Q","Venta Real","Cumpl Venta %",
-      "Meta Margen Q","Contrib Real Q","Cumpl Margen %",
+      "Meta Margen Q","Vta Bono Margen Q","Cumpl Margen %",
       "Anticipo 80%","Bono Venta","Bono Margen","Factor Margen","Bono Total","Liquidacion"];
 
     const rows = vendedores.map((v: any) => {
@@ -103,7 +103,7 @@ export default function IncentivosPage() {
       return [
         v.vendedor, v.nombre, v.tipo,
         v.meta_venta_q ?? "", v.venta_real_q, v.cumpl_venta ?? "",
-        v.meta_margen_q ?? "", v.contrib_real_q, v.cumpl_margen ?? "",
+        v.meta_margen_q ?? "", v.venta_bono_margen_q, v.cumpl_margen ?? "",
         v.anticipo_calc, v.bono_venta, v.bono_margen,
         v.bono_margen_factor ? `${v.bono_margen_factor * 100}%` : "",
         v.bono_total, liq,
@@ -367,7 +367,7 @@ export default function IncentivosPage() {
                                         <th style={{ ...thS, fontSize: 11, padding: "4px 10px" }}>Mes</th>
                                         <th style={{ ...thR, fontSize: 11, padding: "4px 10px" }}>Meta</th>
                                         <th style={{ ...thR, fontSize: 11, padding: "4px 10px" }}>Venta Real</th>
-                                        <th style={{ ...thR, fontSize: 11, padding: "4px 10px" }}>Margen Real</th>
+                                        <th style={{ ...thR, fontSize: 11, padding: "4px 10px" }}>Vta Bono</th>
                                         <th style={{ ...thR, fontSize: 11, padding: "4px 10px" }}>Cumpl %</th>
                                       </tr>
                                     </thead>

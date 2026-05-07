@@ -1,22 +1,41 @@
 """
 Incentivos — Cálculo de bonos trimestrales por vendedor.
-Fuentes: Targets_Config (metas + bonos), BI_TOTAL_FACTURA (venta + contribucion real).
+Fuentes: Targets_Config (metas + bonos), BI_TOTAL_FACTURA (venta real).
 
 Reglas:
-  Bono venta  = (cumpl_venta - 0.80) × bono_venta_100   [VENDEDOR normal]
-              = cumpl_venta × bono_venta_100              [SUBGERENTE]
+  Bono venta  = cumpl_venta × bono_venta_100              [VENDEDOR / SUBGERENTE]
               = 0                                          [MERCADO_PUBLICO]
   Bono margen = cumpl_margen × bono_margen_100
-              → SOLO si cumpl_venta >= 1.0 Y cumpl_margen > 1.0
+              → cumpl_venta >= 100%: factor 100%
+              → cumpl_venta 95-99.9%: factor 50%
+              → cumpl_venta < 95%: no aplica
+              → Requiere cumpl_margen >= 100%
   Anticipo    = bono_venta_100 × 0.80 (pagado mes 1 del trimestre)
   Liquidacion = bono_total_real - anticipo (puede ser negativo → descuento)
+
+  venta_bono  = SUM(VENTA) para 101 productos elegibles (sin guías)
+               lista en data/bono_margen_productos.json (mb usado solo para META)
 """
+import json
+import os
 from fastapi import APIRouter, Depends, Query
 from auth import get_current_user
 from db import get_conn, filtro_guias, hoy
 from cache import mem_get, mem_set
 
 router = APIRouter()
+
+# Cargar tasas de margen presupuestado por producto elegible para bono margen
+_BM_PATH = os.path.join(os.path.dirname(__file__), "..", "data", "bono_margen_productos.json")
+try:
+    with open(_BM_PATH, encoding="utf-8") as _f:
+        _BM_DATA: dict = json.load(_f)
+    # mb_map: {codigo: mb_rate}
+    _MB_MAP: dict[str, float] = {cod: v["mb"] for cod, v in _BM_DATA.items()}
+    _BM_CODIGOS_SQL = ",".join(f"'{c}'" for c in _MB_MAP)
+except Exception:
+    _MB_MAP = {}
+    _BM_CODIGOS_SQL = "''"
 
 _VEND_EXCLUIR = (
     "'11-PLANILLA EMPRESA','44-RENASYS',"
@@ -151,18 +170,26 @@ def _calcular(q: int, ano: int, mes_actual: int, ano_actual: int, q_actual: int)
         vend, mes, v = row[0] or "", int(row[1]), _float(row[2])
         venta_map.setdefault(vend, {})[mes] = v
 
-    # ── Contribucion por VENDEDOR × MES (solo facturas, nunca guías) ─────
-    cur.execute(f"""
-        SELECT VENDEDOR, MES, SUM(CAST(CONTRIBUCION AS float)) AS contrib
-        FROM BI_TOTAL_FACTURA
-        WHERE ANO = ? AND MES IN ({mes_list})
-          AND {_EXCL} AND DOC_CODE <> 'GF'
-        GROUP BY VENDEDOR, MES
-    """, (ano,))
+    # ── Venta bono margen: VENTA de los 101 productos elegibles (sin guías) ─
+    # "Venta bono margen" = SUM(VENTA) para CODIGOS en bono_margen_productos.json.
+    # Los mb_rates del JSON se usaron para calcular META_MARGEN_Q; aquí solo
+    # se suma la venta real de esos productos.
     contrib_map: dict[str, dict[int, float]] = {}
-    for row in cur.fetchall():
-        vend, mes, c = row[0] or "", int(row[1]), _float(row[2])
-        contrib_map.setdefault(vend, {})[mes] = c
+    if _BM_CODIGOS_SQL:
+        cur.execute(f"""
+            SELECT VENDEDOR, MES, SUM(CAST(VENTA AS float)) AS venta
+            FROM BI_TOTAL_FACTURA
+            WHERE ANO = ? AND MES IN ({mes_list})
+              AND {_EXCL} AND DOC_CODE <> 'GF'
+              AND CODIGO IN ({_BM_CODIGOS_SQL})
+            GROUP BY VENDEDOR, MES
+        """, (ano,))
+        for row in cur.fetchall():
+            vend = row[0] or ""
+            mes = int(row[1])
+            v = _float(row[2])
+            contrib_map.setdefault(vend, {})
+            contrib_map[vend][mes] = contrib_map[vend].get(mes, 0.0) + v
 
     # Total empresa (para Subgerente) — venta con guías, contrib sin guías
     venta_total_q: dict[int, float] = {}
@@ -266,7 +293,7 @@ def _calcular(q: int, ano: int, mes_actual: int, ano_actual: int, q_actual: int)
             "meta_venta_q": round(meta_v_q) if meta_v_q else None,
             "meta_margen_q": round(meta_m_q) if meta_m_q else None,
             "venta_real_q": round(venta_real_q),
-            "contrib_real_q": round(contrib_real_q),
+            "venta_bono_margen_q": round(contrib_real_q),
             "cumpl_venta": _pct(cumpl_v),
             "cumpl_margen": _pct(cumpl_m),
             "bono_venta_100": round(bv100),

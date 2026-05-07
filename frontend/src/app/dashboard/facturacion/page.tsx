@@ -385,7 +385,7 @@ function LicTable({ rows, colCount, catFilter, showCumpl, onToggleExcluir }: { r
   );
 }
 
-type TabId = "urgentes" | "licitaciones" | "clientes";
+type TabId = "urgentes" | "licitaciones" | "clientes" | "historico";
 
 /* ─── Helper: generar email KAM ──── */
 function kamToEmail(kam: string): string {
@@ -629,6 +629,8 @@ export default function FacturacionPage() {
   const [emailModal, setEmailModal] = useState<{ kam: string; lics: any[]; urgente: boolean } | null>(null);
   const [showCumpl, setShowCumpl] = useState(true);
   const [excluidos, setExcluidos] = useState<Set<string>>(new Set());
+  const [historicoData, setHistoricoData] = useState<any>(null);
+  const [historicoLoading, setHistoricoLoading] = useState(false);
 
   useEffect(() => {
     setLoading(true);
@@ -644,6 +646,16 @@ export default function FacturacionPage() {
       })
       .catch(() => setLoading(false));
   }, []);
+
+  const handleTabChange = useCallback((newTab: TabId) => {
+    setTab(newTab);
+    if (newTab === "historico" && !historicoData && !historicoLoading) {
+      setHistoricoLoading(true);
+      api.get<any>("/api/facturacion/historico?ano=2025")
+        .then(r => { setHistoricoData(r); setHistoricoLoading(false); })
+        .catch(() => setHistoricoLoading(false));
+    }
+  }, [historicoData, historicoLoading]);
 
   const handleToggleExcluir = useCallback(async (licId: string, excluir: boolean) => {
     setExcluidos(prev => {
@@ -725,10 +737,11 @@ export default function FacturacionPage() {
 
   const canalColors = ["#3B82F6", "#8B5CF6", "#10B981", "#F59E0B", "#EF4444", "#EC4899"];
 
-  const tabs: { id: TabId; label: string; count: number; alert?: boolean }[] = [
+  const tabs: { id: TabId; label: string; count?: number; alert?: boolean }[] = [
     { id: "urgentes", label: `Urgentes ${mesNombre}`, count: urgentesFiltradas.length, alert: urgentesFiltradas.length > 0 },
     { id: "licitaciones", label: "Todas las Licitaciones", count: licFiltradas.length },
     { id: "clientes", label: "Por Cliente", count: clientesFiltrados.length },
+    { id: "historico", label: "📊 2025" },
   ];
 
   const LIC_COLS = 10; // number of columns in lic table
@@ -764,7 +777,7 @@ export default function FacturacionPage() {
                 Gap recuperable: <strong>{fmt(k.urgentes_reales_gap)}</strong>
               </span>
             </div>
-            <button onClick={() => setTab("urgentes")} style={{
+            <button onClick={() => handleTabChange("urgentes")} style={{
               padding: "6px 14px", borderRadius: 6, border: "1px solid #FECACA", cursor: "pointer",
               fontSize: 12, fontWeight: 600, background: "#EF4444", color: "white",
             }}>Ver urgentes</button>
@@ -825,14 +838,14 @@ export default function FacturacionPage() {
       {/* Tabs */}
       <div style={{ display: "flex", gap: 4, borderBottom: "2px solid #E2E8F0" }}>
         {tabs.map(t => (
-          <button key={t.id} onClick={() => setTab(t.id)} style={{
+          <button key={t.id} onClick={() => handleTabChange(t.id)} style={{
             display: "flex", alignItems: "center", gap: 6,
             padding: "10px 16px", border: "none", cursor: "pointer", fontSize: 13, background: "transparent",
             color: tab === t.id ? "#3B82F6" : "#64748B", fontWeight: tab === t.id ? 600 : 400,
             borderBottom: tab === t.id ? "2px solid #3B82F6" : "2px solid transparent", marginBottom: -2,
           }}>
             {t.alert && <span style={{ width: 8, height: 8, borderRadius: "50%", background: "#EF4444", flexShrink: 0 }} />}
-            {t.label} ({t.count})
+            {t.label}{t.count !== undefined ? ` (${t.count})` : ""}
           </button>
         ))}
       </div>
@@ -1066,6 +1079,146 @@ export default function FacturacionPage() {
               })}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {/* ═══ Tab: Historial 2025 ═══ */}
+      {tab === "historico" && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          {historicoLoading && (
+            <div style={{ padding: 40, textAlign: "center", color: "#94A3B8" }}>Cargando historial 2025...</div>
+          )}
+          {!historicoLoading && historicoData?.error && (
+            <div style={{ padding: 20, color: "#EF4444" }}>Error: {historicoData.error}</div>
+          )}
+          {!historicoLoading && historicoData && !historicoData.error && (() => {
+            const hk = historicoData.kpis || {};
+            const adjudicadas: any[] = historicoData.adjudicadas || [];
+            const perdidas: any[] = historicoData.perdidas || [];
+            const topComp: any[] = (historicoData.top_competidores || []).slice(0, 10);
+            const totalAdj = adjudicadas.reduce((s: number, a: any) => s + (a.monto || 0), 0);
+            return (
+              <>
+                {/* KPI cards */}
+                <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                  <KpiCard title="Adjudicadas 2025" value={hk.n_adjudicadas?.toString() ?? "0"} color="#10B981" />
+                  <KpiCard title="Monto Adjudicado" value={fmt(hk.monto_adjudicado ?? 0)} color="#10B981" />
+                  <KpiCard title="Tasa Adjudicación" value={`${hk.tasa_adj ?? 0}%`} color={hk.tasa_adj >= 50 ? "#10B981" : hk.tasa_adj >= 30 ? "#F59E0B" : "#EF4444"} sub={`${hk.n_participadas ?? 0} participadas`} />
+                  <KpiCard title="Perdidas 2025" value={hk.n_perdidas?.toString() ?? "0"} color="#EF4444" />
+                </div>
+
+                {/* Two-column: adjudicadas + top competidores */}
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+                  {/* Adjudicadas */}
+                  <div style={{ ...card, padding: 0, overflow: "auto" }}>
+                    <div style={{ padding: "12px 16px", borderBottom: "1px solid #E2E8F0", background: "#F0FDF4" }}>
+                      <span style={{ fontSize: 13, fontWeight: 700, color: "#065F46" }}>Adjudicadas 2025 ({adjudicadas.length})</span>
+                    </div>
+                    <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                      <thead>
+                        <tr style={{ background: "#F8FAFC" }}>
+                          <th style={thS}>Licitación</th>
+                          <th style={thS}>Cliente</th>
+                          <th style={thS}>Zona</th>
+                          <th style={thR}>Monto</th>
+                          <th style={thC}>Término</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {adjudicadas.map((a: any, i: number) => (
+                          <tr key={a.licitacion} style={{ borderBottom: "1px solid #F1F5F9", background: rowBg(i) }}>
+                            <td style={{ ...td, fontSize: 11, fontFamily: "monospace", color: "#1E40AF" }}>{a.licitacion}</td>
+                            <td style={{ ...td, fontSize: 11, maxWidth: 160, overflow: "hidden", textOverflow: "ellipsis" }} title={a.nombre}>{a.nombre}</td>
+                            <td style={{ ...td, fontSize: 11 }}>{a.zona || "—"}</td>
+                            <td style={{ ...tdR, fontWeight: 600 }}>{fmtAbs(a.monto)}</td>
+                            <td style={{ ...tdC, fontSize: 11 }}>{a.fecha_termino}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                      <tfoot>
+                        <tr style={{ background: "#F1F5F9", borderTop: "2px solid #CBD5E1" }}>
+                          <td colSpan={3} style={{ ...td, fontWeight: 700, fontSize: 12 }}>TOTAL</td>
+                          <td style={{ ...tdR, fontWeight: 700, fontSize: 12, color: "#10B981" }}>{fmtAbs(totalAdj)}</td>
+                          <td></td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
+
+                  {/* Top competidores */}
+                  <div style={{ ...card, padding: 0, overflow: "auto" }}>
+                    <div style={{ padding: "12px 16px", borderBottom: "1px solid #E2E8F0", background: "#FEF2F2" }}>
+                      <span style={{ fontSize: 13, fontWeight: 700, color: "#991B1B" }}>Top Competidores que Ganaron sobre LBF</span>
+                    </div>
+                    <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                      <thead>
+                        <tr style={{ background: "#F8FAFC" }}>
+                          <th style={thC}>#</th>
+                          <th style={thS}>Empresa</th>
+                          <th style={thR}>N° Veces Ganó</th>
+                          <th style={thR}>Monto Total</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {topComp.map((c: any, i: number) => (
+                          <tr key={c.empresa} style={{ borderBottom: "1px solid #F1F5F9", background: rowBg(i) }}>
+                            <td style={{ ...tdC, fontWeight: 700, color: i === 0 ? "#EF4444" : "#64748B" }}>{i + 1}</td>
+                            <td style={{ ...td, fontSize: 11, maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis" }} title={c.empresa}>{c.empresa}</td>
+                            <td style={{ ...tdR, fontWeight: 700, color: "#EF4444" }}>{c.n_ganadas}</td>
+                            <td style={tdR}>{fmtAbs(c.monto)}</td>
+                          </tr>
+                        ))}
+                        {topComp.length === 0 && (
+                          <tr><td colSpan={4} style={{ ...tdC, color: "#94A3B8", padding: 20 }}>Sin datos</td></tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                {/* Full-width: licitaciones perdidas */}
+                <div style={{ ...card, padding: 0, overflow: "auto" }}>
+                  <div style={{ padding: "12px 16px", borderBottom: "1px solid #E2E8F0", background: "#FEF2F2" }}>
+                    <span style={{ fontSize: 13, fontWeight: 700, color: "#991B1B" }}>Licitaciones Perdidas 2025 ({perdidas.length})</span>
+                  </div>
+                  <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 900 }}>
+                    <thead>
+                      <tr style={{ background: "#F8FAFC" }}>
+                        <th style={thS}>Licitación</th>
+                        <th style={thS}>Cliente</th>
+                        <th style={thS}>Zona</th>
+                        <th style={thS}>Competidor Ganador</th>
+                        <th style={thR}>Monto Competidor</th>
+                        <th style={thC}>Fecha Inicio</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {perdidas.map((p: any, i: number) => (
+                        <tr key={p.licitacion} style={{ borderBottom: "1px solid #F1F5F9", background: rowBg(i) }}>
+                          <td style={{ ...td, fontSize: 11, fontFamily: "monospace", color: "#1E40AF" }}>{p.licitacion}</td>
+                          <td style={{ ...td, fontSize: 11, maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis" }} title={p.nombre}>{p.nombre}</td>
+                          <td style={{ ...td, fontSize: 11 }}>{p.zona || "—"}</td>
+                          <td style={{ ...td, fontSize: 11, maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", color: p.comp_ganador ? "#0F172A" : "#94A3B8" }} title={p.comp_ganador || "Sin info"}>
+                            {p.comp_ganador || <span style={{ fontStyle: "italic" }}>Sin info</span>}
+                          </td>
+                          <td style={{ ...tdR, fontWeight: p.monto_comp > 0 ? 600 : 400, color: p.monto_comp > 0 ? "#EF4444" : "#94A3B8" }}>
+                            {p.monto_comp > 0 ? fmtAbs(p.monto_comp) : "—"}
+                          </td>
+                          <td style={{ ...tdC, fontSize: 11 }}>{p.fecha_inicio}</td>
+                        </tr>
+                      ))}
+                      {perdidas.length === 0 && (
+                        <tr><td colSpan={6} style={{ ...tdC, color: "#94A3B8", padding: 20 }}>Sin licitaciones perdidas registradas</td></tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            );
+          })()}
+          {!historicoLoading && !historicoData && (
+            <div style={{ padding: 40, textAlign: "center", color: "#94A3B8" }}>Haga clic en la pestaña para cargar el historial.</div>
+          )}
         </div>
       )}
 

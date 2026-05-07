@@ -389,6 +389,130 @@ def _load_detalle_licitacion(licitacion: str) -> dict:
     return {"licitacion": licitacion, "adjudicados": adjudicados, "facturados": facturados, "nota": nota}
 
 
+def _load_historico(ano: int) -> dict:
+    conn = get_conn()
+    cur = conn.cursor()
+
+    # Query 1 — Adjudicadas por LBF en el año
+    cur.execute("""
+        SELECT licitacion, MAX(rut_cliente) AS rut, MAX(nombre_cliente) AS nombre,
+               SUM(TRY_CAST(ISNULL(monto_licitacion,'0') AS bigint)) AS monto,
+               MAX(CONVERT(varchar(10), fecha_inicio, 120)) AS fecha_inicio,
+               MAX(CONVERT(varchar(10), fecha_termino, 120)) AS fecha_termino,
+               MAX(FFVV_ZONA) AS zona
+        FROM vw_LICITACIONES_CATEGORIZADAS
+        WHERE EsLBF = 1 AND estado = 'Adjudicado'
+          AND YEAR(TRY_CAST(fecha_inicio AS date)) = ?
+        GROUP BY licitacion
+        ORDER BY SUM(TRY_CAST(ISNULL(monto_licitacion,'0') AS bigint)) DESC
+    """, (ano,))
+    adjudicadas = []
+    for r in cur.fetchall():
+        adjudicadas.append({
+            "licitacion": str(r[0] or "").strip(),
+            "rut": str(r[1] or "").strip(),
+            "nombre": str(r[2] or "").strip(),
+            "monto": int(r[3] or 0),
+            "fecha_inicio": str(r[4] or "").strip(),
+            "fecha_termino": str(r[5] or "").strip(),
+            "zona": str(r[6] or "").strip(),
+        })
+
+    # Query 2 — Participadas pero NO adjudicadas (con competidor ganador)
+    cur.execute("""
+        WITH lbf_participadas AS (
+            SELECT DISTINCT licitacion, MAX(rut_cliente) AS rut, MAX(nombre_cliente) AS nombre,
+                   MAX(FFVV_ZONA) AS zona,
+                   MAX(CONVERT(varchar(10), fecha_inicio, 120)) AS fecha_inicio
+            FROM vw_LICITACIONES_CATEGORIZADAS
+            WHERE EsLBF = 1
+              AND YEAR(TRY_CAST(fecha_inicio AS date)) = ?
+              AND estado != 'Adjudicado'
+              AND licitacion NOT IN (
+                  SELECT DISTINCT licitacion FROM vw_LICITACIONES_CATEGORIZADAS
+                  WHERE EsLBF = 1 AND estado = 'Adjudicado'
+                    AND YEAR(TRY_CAST(fecha_inicio AS date)) = ?
+              )
+            GROUP BY licitacion
+        ),
+        ganadores AS (
+            SELECT v.licitacion,
+                   MAX(v.nombre_empresa) AS comp_ganador,
+                   SUM(TRY_CAST(ISNULL(v.monto_licitacion,'0') AS bigint)) AS monto_comp
+            FROM vw_LICITACIONES_CATEGORIZADAS v
+            INNER JOIN lbf_participadas p ON v.licitacion = p.licitacion
+            WHERE v.EsLBF = 0 AND v.estado = 'Adjudicado'
+            GROUP BY v.licitacion
+        )
+        SELECT p.licitacion, p.rut, p.nombre, p.zona, p.fecha_inicio,
+               g.comp_ganador, ISNULL(g.monto_comp, 0) AS monto_comp
+        FROM lbf_participadas p
+        LEFT JOIN ganadores g ON p.licitacion = g.licitacion
+        ORDER BY g.monto_comp DESC
+    """, (ano, ano))
+    perdidas = []
+    for r in cur.fetchall():
+        perdidas.append({
+            "licitacion": str(r[0] or "").strip(),
+            "rut": str(r[1] or "").strip(),
+            "nombre": str(r[2] or "").strip(),
+            "zona": str(r[3] or "").strip(),
+            "fecha_inicio": str(r[4] or "").strip(),
+            "comp_ganador": str(r[5] or "").strip(),
+            "monto_comp": int(r[6] or 0),
+        })
+
+    conn.close()
+
+    # Top competidores (built in Python from perdidas)
+    comp_counter: dict = {}
+    for p in perdidas:
+        comp = p["comp_ganador"]
+        if comp:
+            if comp not in comp_counter:
+                comp_counter[comp] = {"n": 0, "monto": 0}
+            comp_counter[comp]["n"] += 1
+            comp_counter[comp]["monto"] += p["monto_comp"]
+    top_competidores = sorted(
+        [{"empresa": k, "n_ganadas": v["n"], "monto": v["monto"]} for k, v in comp_counter.items()],
+        key=lambda x: x["n_ganadas"], reverse=True
+    )[:15]
+
+    n_adj = len(adjudicadas)
+    n_per = len(perdidas)
+    n_part = n_adj + n_per
+    return {
+        "ano": ano,
+        "kpis": {
+            "n_adjudicadas": n_adj,
+            "monto_adjudicado": sum(a["monto"] for a in adjudicadas),
+            "n_perdidas": n_per,
+            "n_participadas": n_part,
+            "tasa_adj": round(n_adj / n_part * 100, 1) if n_part > 0 else 0,
+        },
+        "adjudicadas": adjudicadas,
+        "perdidas": perdidas,
+        "top_competidores": top_competidores,
+    }
+
+
+@router.get("/historico")
+async def get_historico(
+    ano: int = Query(2025),
+    current_user: dict = Depends(get_current_user),
+):
+    try:
+        ck = f"fac_historico_{ano}"
+        cached = mem_get(ck)
+        if cached:
+            return cached
+        data = _load_historico(ano)
+        mem_set(ck, data)
+        return data
+    except Exception as e:
+        return {"error": str(e), "ano": ano, "kpis": {}, "adjudicadas": [], "perdidas": [], "top_competidores": []}
+
+
 @router.get("/")
 async def get_facturacion(
     current_user: dict = Depends(get_current_user),

@@ -87,6 +87,43 @@ export default function IncentivosPage() {
     load(newQ);
   };
 
+  const handleDescargar = () => {
+    if (!data) return;
+    const vendedores: any[] = data.vendedores || [];
+    const Q_LABEL_SHORT = ["Q1 Ene-Mar","Q2 Abr-Jun","Q3 Jul-Sep","Q4 Oct-Dic"];
+    const qLabel = Q_LABEL_SHORT[(q || 1) - 1];
+
+    // Cabeceras
+    const headers = ["Vendedor","Nombre","Tipo","Meta Venta Q","Venta Real","Cumpl Venta %",
+      "Meta Margen Q","Contrib Real Q","Cumpl Margen %",
+      "Anticipo 80%","Bono Venta","Bono Margen","Factor Margen","Bono Total","Liquidacion"];
+
+    const rows = vendedores.map((v: any) => {
+      const liq = v.bono_total - v.anticipo_calc;
+      return [
+        v.vendedor, v.nombre, v.tipo,
+        v.meta_venta_q ?? "", v.venta_real_q, v.cumpl_venta ?? "",
+        v.meta_margen_q ?? "", v.contrib_real_q, v.cumpl_margen ?? "",
+        v.anticipo_calc, v.bono_venta, v.bono_margen,
+        v.bono_margen_factor ? `${v.bono_margen_factor * 100}%` : "",
+        v.bono_total, liq,
+      ];
+    });
+
+    // CSV
+    const csv = [headers, ...rows]
+      .map(r => r.map((c: any) => `"${String(c).replace(/"/g, '""')}"`).join(","))
+      .join("\r\n");
+
+    const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `Incentivos_${ano}_${qLabel.replace(/ /g,"_")}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   if (loading) return <div style={{ padding: 60, textAlign: "center", color: "#94A3B8" }}>Cargando incentivos...</div>;
   if (!data) return (
     <div style={{ ...card, padding: 32, color: "#64748B", textAlign: "center" }}>
@@ -137,23 +174,39 @@ export default function IncentivosPage() {
             Bonos trimestrales — anticipo 80% + liquidación al cierre
           </p>
         </div>
-        {/* Q Tabs */}
-        <div style={{ display: "flex", gap: 4, background: "#F1F5F9", borderRadius: 8, padding: 4 }}>
-          {[1, 2, 3, 4].map(n => (
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          {/* Q Tabs */}
+          <div style={{ display: "flex", gap: 4, background: "#F1F5F9", borderRadius: 8, padding: 4 }}>
+            {[1, 2, 3, 4].map(n => (
+              <button
+                key={n}
+                onClick={() => handleQChange(n)}
+                style={{
+                  padding: "7px 16px", borderRadius: 6, border: "none", cursor: "pointer",
+                  fontSize: 13, fontWeight: q === n ? 700 : 400,
+                  background: q === n ? "white" : "transparent",
+                  color: q === n ? "#0F172A" : "#64748B",
+                  boxShadow: q === n ? "0 1px 3px rgba(0,0,0,0.1)" : "none",
+                }}
+              >
+                Q{n}
+              </button>
+            ))}
+          </div>
+          {/* Descargar */}
+          {data && (
             <button
-              key={n}
-              onClick={() => handleQChange(n)}
+              onClick={handleDescargar}
               style={{
-                padding: "7px 16px", borderRadius: 6, border: "none", cursor: "pointer",
-                fontSize: 13, fontWeight: q === n ? 700 : 400,
-                background: q === n ? "white" : "transparent",
-                color: q === n ? "#0F172A" : "#64748B",
-                boxShadow: q === n ? "0 1px 3px rgba(0,0,0,0.1)" : "none",
+                display: "flex", alignItems: "center", gap: 6,
+                padding: "7px 14px", borderRadius: 8, border: "1px solid #E2E8F0",
+                background: "white", fontSize: 13, fontWeight: 600,
+                color: "#374151", cursor: "pointer",
               }}
             >
-              Q{n}
+              ↓ CSV
             </button>
-          ))}
+          )}
         </div>
       </div>
 

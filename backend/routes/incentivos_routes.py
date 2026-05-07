@@ -309,6 +309,10 @@ def _calcular(q: int, ano: int, mes_actual: int, ano_actual: int, q_actual: int)
             "liquidacion": round(liquidacion) if liquidacion is not None else None,
             "detalle": detalle,
         }
+        # Omitir KAMs sin meta de venta configurada para el período
+        if not meta_v_q:
+            continue
+
         vendedores_out.append(row)
 
         # Acumular totales (excluir Mercado Público y Subgerente del resumen)

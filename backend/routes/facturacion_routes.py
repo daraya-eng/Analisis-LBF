@@ -513,7 +513,7 @@ def _load_competitividad(ano: int) -> dict:
             COUNT(DISTINCT licitacion) AS ids_participadas,
             COUNT(DISTINCT CASE WHEN estado='Adjudicado' THEN licitacion END) AS ids_adjudicadas
         FROM vw_LICITACIONES_CATEGORIZADAS
-        WHERE YEAR(TRY_CAST(fecha_inicio AS date)) = {ano}
+        WHERE LEFT(AnioMes, 4) = '{ano}'
           AND LTRIM(RTRIM(ISNULL(nombre_empresa,''))) != ''
         GROUP BY LTRIM(RTRIM(ISNULL(nombre_empresa,'')))
         ORDER BY SUM(CASE WHEN estado='Adjudicado'
@@ -560,7 +560,7 @@ def _load_competitividad(ano: int) -> dict:
             COUNT(*) AS ofertas_realizadas,
             SUM(CASE WHEN estado='Adjudicado' THEN 1 ELSE 0 END) AS ofertas_adjudicadas
         FROM vw_LICITACIONES_CATEGORIZADAS
-        WHERE EsLBF = 1 AND YEAR(TRY_CAST(fecha_inicio AS date)) = {ano}
+        WHERE EsLBF = 1 AND LEFT(AnioMes, 4) = '{ano}'
           AND LTRIM(RTRIM(ISNULL(FFVV_ZONA,''))) != ''
         GROUP BY LTRIM(RTRIM(ISNULL(FFVV_ZONA,'Sin Zona')))
         ORDER BY SUM(CASE WHEN estado='Adjudicado'
@@ -582,7 +582,7 @@ def _load_competitividad(ano: int) -> dict:
     cur.execute(f"""
         SELECT TOP 20
             LTRIM(RTRIM(ISNULL(nombre_cliente,''))) AS cliente,
-            LTRIM(RTRIM(ISNULL(rut_cliente,''))) AS rut,
+            MAX(LTRIM(RTRIM(ISNULL(rut_cliente,'')))) AS rut,
             SUM(TRY_CAST(ISNULL(monto_licitacion,'0') AS bigint)) AS total_participado,
             SUM(CASE WHEN estado='Adjudicado'
                 THEN TRY_CAST(ISNULL(monto_licitacion,'0') AS bigint) ELSE 0 END) AS total_adjudicado,
@@ -591,7 +591,7 @@ def _load_competitividad(ano: int) -> dict:
             COUNT(DISTINCT licitacion) AS ids_participadas,
             COUNT(DISTINCT CASE WHEN estado='Adjudicado' THEN licitacion END) AS ids_adjudicadas
         FROM vw_LICITACIONES_CATEGORIZADAS
-        WHERE EsLBF = 1 AND YEAR(TRY_CAST(fecha_inicio AS date)) = {ano}
+        WHERE EsLBF = 1 AND LEFT(AnioMes, 4) = '{ano}'
           AND LTRIM(RTRIM(ISNULL(nombre_cliente,''))) != ''
         GROUP BY LTRIM(RTRIM(ISNULL(nombre_cliente,'')))
         ORDER BY SUM(CASE WHEN estado='Adjudicado'

@@ -656,7 +656,7 @@ export default function FacturacionPage() {
       setCompetividadData(null);
       api.get<any>(`/api/facturacion/competitividad?ano=${competividadAno}`)
         .then(r => { setCompetividadData(r); setCompetividadLoading(false); })
-        .catch(() => setCompetividadLoading(false));
+        .catch((e: any) => { setCompetividadData({ error: String(e?.message || e) }); setCompetividadLoading(false); });
     }
   }, [competividadAno, tab]);
 
@@ -668,12 +668,7 @@ export default function FacturacionPage() {
         .then(r => { setHistoricoData(r); setHistoricoLoading(false); })
         .catch(() => setHistoricoLoading(false));
     }
-    if (newTab === "competitividad" && !competividadData && !competividadLoading) {
-      setCompetividadLoading(true);
-      api.get<any>(`/api/facturacion/competitividad?ano=${competividadAno}`)
-        .then(r => { setCompetividadData(r); setCompetividadLoading(false); })
-        .catch(() => setCompetividadLoading(false));
-    }
+    // Note: competitividad data is loaded by the useEffect on [competividadAno, tab]
   }, [historicoData, historicoLoading, competividadData, competividadLoading, competividadAno]);
 
   const handleToggleExcluir = useCallback(async (licId: string, excluir: boolean) => {

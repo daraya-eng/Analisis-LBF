@@ -171,17 +171,16 @@ def _calcular(q: int, ano: int, mes_actual: int, ano_actual: int, q_actual: int)
         vend, mes, v = row[0] or "", int(row[1]), _float(row[2])
         venta_map.setdefault(vend, {})[mes] = v
 
-    # ── Venta bono margen: VENTA de los 101 productos elegibles (sin guías) ─
-    # "Venta bono margen" = SUM(VENTA) para CODIGOS en bono_margen_productos.json.
-    # Los mb_rates del JSON se usaron para calcular META_MARGEN_Q; aquí solo
-    # se suma la venta real de esos productos.
+    # ── Venta bono margen: VENTA de los 101 productos elegibles ─────────────
+    # Usa filtro_guias() igual que venta_real: incluye GF del mes en curso,
+    # excluye GF de meses cerrados.
     contrib_map: dict[str, dict[int, float]] = {}
     if _BM_CODIGOS_SQL:
         cur.execute(f"""
             SELECT VENDEDOR, MES, SUM(CAST(VENTA AS float)) AS venta
             FROM BI_TOTAL_FACTURA
             WHERE ANO = ? AND MES IN ({mes_list})
-              AND {_EXCL} AND DOC_CODE <> 'GF'
+              AND {_EXCL} AND {_FG}
               AND CODIGO IN ({_BM_CODIGOS_SQL})
             GROUP BY VENDEDOR, MES
         """, (ano,))

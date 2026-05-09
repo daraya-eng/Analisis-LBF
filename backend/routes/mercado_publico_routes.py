@@ -763,7 +763,7 @@ def _load_vs_competidor(comp_rut: str, ano: int, tipo: str) -> dict:
 # ── /evolucion ────────────────────────────────────────────────────────────────
 
 def _load_evolucion(ano: int, tipo: str) -> list:
-    """Adjudicado LBF por mes para el año solicitado (método combinado JSONB + rut)."""
+    """Adjudicado LBF por mes×tipo para el año solicitado (método combinado JSONB + rut)."""
     tf = _tipo_filter(tipo)
     conn = get_pg_conn()
     cur = conn.cursor()
@@ -772,6 +772,7 @@ def _load_evolucion(ano: int, tipo: str) -> list:
         WITH adj_jsonb AS (
             SELECT
                 EXTRACT(MONTH FROM COALESCE(l.fecha_adjudicacion, l.fecha_publicacion))::int AS mes,
+                l.tipo,
                 COALESCE(
                     NULLIF((o->>'monto_adjudicado')::numeric, 0),
                     (o->>'total')::numeric,
@@ -789,6 +790,7 @@ def _load_evolucion(ano: int, tipo: str) -> list:
         adj_rut AS (
             SELECT
                 EXTRACT(MONTH FROM COALESCE(l.fecha_adjudicacion, l.fecha_publicacion))::int AS mes,
+                l.tipo,
                 li.monto_adjudicado * COALESCE(li.cantidad_adjudicada, li.cantidad) AS monto_adj
             FROM licitaciones_items li
             JOIN licitaciones l ON l.id = li.licitacion_id
@@ -802,25 +804,31 @@ def _load_evolucion(ano: int, tipo: str) -> list:
                     AND (o2->>'seleccionada')::boolean = true
               )
         ),
-        all_adj AS (SELECT * FROM adj_jsonb UNION ALL SELECT * FROM adj_rut),
-        monthly AS (
-            SELECT mes, SUM(monto_adj) AS total_adj
-            FROM all_adj
-            GROUP BY mes
-        )
-        SELECT m.mes, COALESCE(monthly.total_adj, 0) AS total_adj
-        FROM generate_series(1, 12) m(mes)
-        LEFT JOIN monthly ON monthly.mes = m.mes
-        ORDER BY m.mes
+        all_adj AS (SELECT * FROM adj_jsonb UNION ALL SELECT * FROM adj_rut)
+        SELECT mes, tipo, SUM(monto_adj) AS total_adj
+        FROM all_adj
+        GROUP BY mes, tipo
+        ORDER BY mes, total_adj DESC
     """)
 
     MESES = ["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"]
     rows = cur.fetchall()
     conn.close()
 
+    # Organizar por mes: {mes_num -> {tipo -> monto}}
+    from collections import defaultdict
+    by_mes: dict = defaultdict(dict)
+    for mes_num, t, adj in rows:
+        by_mes[int(mes_num)][t or "?"] = round(float(adj or 0))
+
     return [
-        {"mes": MESES[int(row[0]) - 1], "mes_num": int(row[0]), "total_adj": round(float(row[1] or 0))}
-        for row in rows
+        {
+            "mes":       MESES[m - 1],
+            "mes_num":   m,
+            "total_adj": sum(by_mes[m].values()) if m in by_mes else 0,
+            "tipos":     [{"tipo": t, "adj": v} for t, v in by_mes[m].items()] if m in by_mes else [],
+        }
+        for m in range(1, 13)
     ]
 
 

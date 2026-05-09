@@ -121,10 +121,12 @@ interface PorTipo {
   ids_adj: number;
   total_adj: number;
 }
+interface TipoAdj { tipo: string; adj: number; }
 interface MesEvo {
   mes: string;
   mes_num: number;
   total_adj: number;
+  tipos: TipoAdj[];
 }
 interface Data {
   ano: number;
@@ -428,94 +430,149 @@ function VsModal({
 // variable global para pasar el año al modal sin prop drilling
 let data_ano_ref = 2026;
 
-/* ─── Gráfico evolución mensual ──────────────────────────────────────────── */
+/* ─── Gráfico evolución mensual con barras apiladas por tipo ─────────────── */
+const TIPO_PALETTE: Record<string, string> = {
+  LR: "#2563EB", LP: "#7C3AED", LQ: "#059669",
+  LE: "#D97706", L1: "#DC2626", SE: "#0891B2",
+  TD: "#9333EA", AG: "#EA580C", "?": "#94A3B8",
+};
+function tipoColor(t: string) { return TIPO_PALETTE[t] ?? "#94A3B8"; }
+
 function EvoChart({ meses }: { meses: MesEvo[] }) {
-  // visibleCount: cuántas barras se han "revelado" en la animación
-  const [visibleCount, setVisibleCount] = useState(0);
-  const [playing, setPlaying] = useState(false);
+  const hoy        = new Date().getMonth() + 1;
+  const maxVisible = meses.filter((m) => m.mes_num <= hoy).length;
 
-  // Al cambiar datos, resetear a estado estático (barras completas, sin animación activa)
+  const [visibleCount, setVisibleCount] = useState(maxVisible);
+  const [playing, setPlaying]           = useState(false);
+
   useEffect(() => {
-    setVisibleCount(meses.length);
+    setVisibleCount(maxVisible);
     setPlaying(false);
-  }, [meses]);
+  }, [meses, maxVisible]);
 
-  // Motor de animación: revela una barra cada 180ms
+  // Motor de animación — 600ms por barra (cámara lenta)
   useEffect(() => {
     if (!playing) return;
-    if (visibleCount >= meses.length) { setPlaying(false); return; }
-    const t = setTimeout(() => setVisibleCount((v) => v + 1), 180);
+    if (visibleCount >= maxVisible) { setPlaying(false); return; }
+    const t = setTimeout(() => setVisibleCount((v) => v + 1), 600);
     return () => clearTimeout(t);
-  }, [playing, visibleCount, meses.length]);
+  }, [playing, visibleCount, maxVisible]);
 
-  const handlePlay = () => {
-    setVisibleCount(0);
-    setPlaying(true);
-  };
+  const handlePlay = () => { setVisibleCount(0); setPlaying(true); };
 
-  const max    = Math.max(...meses.map((m) => m.total_adj), 1);
-  const hoy    = new Date().getMonth() + 1;
-  const BAR_W  = 28;
-  const CHART_H = 128;
-  const svgW   = meses.length * (BAR_W + 8) + 16;
-  const svgH   = CHART_H + 28;
+  // Tipos globales ordenados por total desc
+  const tiposGlobal = Array.from(
+    new Set(meses.flatMap((m) => m.tipos.map((tt) => tt.tipo)))
+  ).sort((a, b) => {
+    const sa = meses.reduce((s, m) => s + (m.tipos.find((tt) => tt.tipo === a)?.adj ?? 0), 0);
+    const sb = meses.reduce((s, m) => s + (m.tipos.find((tt) => tt.tipo === b)?.adj ?? 0), 0);
+    return sb - sa;
+  });
 
-  // acumulados para la línea
-  let acum = 0;
-  const acums = meses.map((m) => { acum += m.total_adj; return acum; });
-  const maxAcum = acums[acums.length - 1] || 1;
+  // Acumulado por tipo hasta visibleCount (para los badges)
+  const acumPorTipo: Record<string, number> = {};
+  let acumTotal = 0;
+  for (let i = 0; i < visibleCount; i++) {
+    const m = meses[i];
+    if (m.mes_num > hoy) continue;
+    for (const tt of m.tipos) {
+      acumPorTipo[tt.tipo] = (acumPorTipo[tt.tipo] ?? 0) + tt.adj;
+      acumTotal += tt.adj;
+    }
+  }
 
-  // puntos de la línea (solo meses pasados/actuales y visibles)
-  const linePts = meses
-    .map((m, i) => {
-      if (m.mes_num > hoy || i >= visibleCount) return null;
-      const x = 8 + i * (BAR_W + 8) + BAR_W / 2;
-      const y = 4 + (1 - acums[i] / maxAcum) * (CHART_H - 12);
-      return { x, y, mes: m.mes, acum: acums[i] };
-    })
-    .filter(Boolean) as { x: number; y: number; mes: string; acum: number }[];
+  // Dimensiones — barras anchas, ancho total del contenedor
+  const max     = Math.max(...meses.map((m) => m.total_adj), 1);
+  const N       = 12;
+  const CHART_H = 160;
+  const LABEL_H = 22;
+  // BAR_W se calcula dinámicamente con viewBox para ocupar todo el ancho
+  const SLOT    = 100 / N; // % por mes en viewBox 0-100 * N
+  const GAP     = 4;
+  const BW      = SLOT - GAP;
 
   return (
-    <div>
-      <svg width={svgW} height={svgH} style={{ display: "block", overflow: "visible" }}>
+    <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
+      {/* Badges dinámicos — se actualizan con cada mes */}
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 12 }}>
+        {tiposGlobal.map((tt) => {
+          const adj  = acumPorTipo[tt] ?? 0;
+          const pct  = acumTotal > 0 ? (adj / acumTotal * 100) : 0;
+          const col  = tipoColor(tt);
+          return (
+            <span key={tt} style={{
+              fontSize: 12, fontWeight: 700, color: col,
+              background: `${col}18`, border: `1.5px solid ${col}55`,
+              borderRadius: 6, padding: "4px 10px",
+              transition: "opacity 0.4s ease",
+              opacity: adj > 0 ? 1 : 0.25,
+              minWidth: 60, textAlign: "center",
+            }}>
+              {tt} {pct.toFixed(0)}%
+            </span>
+          );
+        })}
+        {acumTotal > 0 && (
+          <span style={{ fontSize: 11, color: "#64748B", alignSelf: "center", marginLeft: 6 }}>
+            {fmtCLP(acumTotal)}
+          </span>
+        )}
+      </div>
+
+      {/* SVG con viewBox para ocupar todo el ancho */}
+      <svg
+        viewBox={`0 0 ${N * SLOT} ${CHART_H + LABEL_H}`}
+        preserveAspectRatio="none"
+        style={{ width: "100%", height: CHART_H + LABEL_H, display: "block" }}
+      >
         {meses.map((m, i) => {
-          const x        = 8 + i * (BAR_W + 8);
-          const cx       = x + BAR_W / 2;
+          const x0       = i * SLOT + GAP / 2;
+          const cx       = x0 + BW / 2;
           const isFuture = m.mes_num > hoy;
           const isActive = m.mes_num === hoy;
-          const visible  = i < visibleCount;
-          const frac     = visible && !isFuture && m.total_adj > 0
-            ? m.total_adj / max : 0;
-          const barH     = frac * (CHART_H - 12);
-          const baseY    = 4 + (CHART_H - 12);
-          const color    = isActive ? "#1D4ED8" : isFuture ? "#E2E8F0" : "#2563EB";
+          const visible  = i < visibleCount && !isFuture;
+          const baseY    = CHART_H - 2;
+
+          // Segmentos apilados (de abajo hacia arriba)
+          let curY = baseY;
+          const segments: { tipo: string; adj: number; y: number; h: number; color: string }[] = [];
+          for (const tt of [...tiposGlobal].reverse()) {
+            const adj  = m.tipos.find((x) => x.tipo === tt)?.adj ?? 0;
+            const segH = visible && adj > 0 ? (adj / max) * (CHART_H - 6) : 0;
+            if (segH > 0) {
+              segments.unshift({ tipo: tt, adj, y: curY - segH, h: segH, color: tipoColor(tt) });
+              curY -= segH;
+            }
+          }
+          const topY = segments[0]?.y ?? baseY;
 
           return (
             <g key={m.mes}>
-              {/* Track (fondo) */}
-              <rect x={x} y={4} width={BAR_W} height={CHART_H - 12} rx={4}
-                fill={isFuture ? "#F1F5F9" : "#EFF6FF"} />
-              {/* Barra real — scaleY desde la base */}
-              <rect
-                x={x} y={baseY - barH} width={BAR_W} height={barH} rx={4}
-                fill={color}
-                style={{
-                  transition: playing
-                    ? "y 0.35s cubic-bezier(.22,1,.36,1), height 0.35s cubic-bezier(.22,1,.36,1)"
-                    : "none",
-                }}
-              >
-                <title>{m.mes}: {fmtCLP(m.total_adj)}</title>
-              </rect>
-              {/* Label monto encima */}
-              {visible && !isFuture && m.total_adj > 0 && (
-                <text x={cx} y={baseY - barH - 4} textAnchor="middle"
-                  fontSize={8} fill="#1D4ED8" fontWeight="600">
+              {/* Track fondo */}
+              <rect x={x0} y={0} width={BW} height={CHART_H - 2} rx={2}
+                fill={isFuture ? "#F1F5F9" : "#F0F4FF"} />
+
+              {/* Segmentos */}
+              {segments.map((s, si) => (
+                <rect key={s.tipo}
+                  x={x0} y={s.y} width={BW} height={s.h}
+                  rx={si === 0 ? 2 : 0}
+                  fill={s.color} opacity={isActive ? 1 : 0.85}
+                  style={{ transition: "y 0.5s ease, height 0.5s ease" }}
+                >
+                  <title>{m.mes} · {s.tipo}: {fmtCLP(s.adj)}</title>
+                </rect>
+              ))}
+
+              {/* Monto total encima */}
+              {visible && m.total_adj > 0 && (
+                <text x={cx} y={topY - 2} textAnchor="middle" fontSize={5} fill="#334155" fontWeight="700">
                   {(m.total_adj / 1_000_000).toFixed(0)}M
                 </text>
               )}
+
               {/* Label mes */}
-              <text x={cx} y={svgH - 4} textAnchor="middle" fontSize={9}
+              <text x={cx} y={CHART_H + LABEL_H - 4} textAnchor="middle" fontSize={6}
                 fill={isActive ? "#1D4ED8" : "#94A3B8"}
                 fontWeight={isActive ? "700" : "400"}>
                 {m.mes}
@@ -523,45 +580,27 @@ function EvoChart({ meses }: { meses: MesEvo[] }) {
             </g>
           );
         })}
-
-        {/* Línea acumulada */}
-        {linePts.length > 1 && (
-          <polyline
-            points={linePts.map((p) => `${p.x},${p.y}`).join(" ")}
-            fill="none" stroke="#F59E0B" strokeWidth={2.5}
-            strokeLinejoin="round" strokeLinecap="round" opacity={0.9}
-          />
-        )}
-        {linePts.map((p, i) => (
-          <circle key={i} cx={p.x} cy={p.y} r={3.5} fill="#F59E0B" stroke="white" strokeWidth={1.5}>
-            <title>Acum. {p.mes}: {fmtCLP(p.acum)}</title>
-          </circle>
-        ))}
       </svg>
 
       {/* Controles */}
-      <div style={{ display: "flex", alignItems: "center", gap: 16, marginTop: 10 }}>
-        <button
-          onClick={handlePlay}
-          disabled={playing}
-          style={{
-            display: "flex", alignItems: "center", gap: 6,
-            padding: "5px 14px", borderRadius: 6, border: "none", cursor: playing ? "default" : "pointer",
-            background: playing ? "#E2E8F0" : "#2563EB", color: playing ? "#94A3B8" : "white",
-            fontSize: 12, fontWeight: 600, transition: "background 0.2s",
-          }}
-        >
+      <div style={{ display: "flex", alignItems: "center", gap: 14, marginTop: 10 }}>
+        <button onClick={handlePlay} disabled={playing} style={{
+          display: "flex", alignItems: "center", gap: 5,
+          padding: "6px 16px", borderRadius: 6, border: "none",
+          cursor: playing ? "default" : "pointer",
+          background: playing ? "#E2E8F0" : "#2563EB",
+          color: playing ? "#94A3B8" : "white",
+          fontSize: 12, fontWeight: 600, transition: "background 0.2s",
+        }}>
           {playing ? "▶ Reproduciendo..." : "▶ Reproducir"}
         </button>
-        <div style={{ display: "flex", gap: 14, fontSize: 11, color: "#64748B" }}>
-          <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
-            <span style={{ display: "inline-block", width: 10, height: 10, borderRadius: 2, background: "#2563EB" }} />
-            Adj. mensual
-          </span>
-          <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
-            <span style={{ display: "inline-block", width: 16, height: 2.5, background: "#F59E0B", borderRadius: 1 }} />
-            Acumulado
-          </span>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          {tiposGlobal.map((tt) => (
+            <span key={tt} style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: "#64748B" }}>
+              <span style={{ display: "inline-block", width: 10, height: 10, borderRadius: 2, background: tipoColor(tt) }} />
+              {tt}
+            </span>
+          ))}
         </div>
       </div>
     </div>
@@ -719,45 +758,24 @@ function TabCompetencia({ data, ano, tipo }: { data: Data; ano: number; tipo: st
             </div>
 
             {/* Gráfico 2 — Evolución mensual */}
-            <div style={card}>
-              <div style={{ marginBottom: 14 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-                  <div>
-                    <div style={{ fontSize: 14, fontWeight: 700, color: "#0F172A" }}>
-                      Evolución adjudicado LBF {ano}
-                    </div>
-                    <div style={{ fontSize: 11, color: "#94A3B8", marginTop: 2 }}>
-                      mes a mes · línea amarilla = acumulado
-                    </div>
+            <div style={{ ...card, display: "flex", flexDirection: "column" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
+                <div>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: "#0F172A" }}>
+                    Evolución adjudicado LBF {ano}
                   </div>
-                  <div style={{ textAlign: "right" }}>
-                    <div style={{ fontSize: 11, color: "#94A3B8" }}>Total adj.</div>
-                    <div style={{ fontSize: 14, fontWeight: 700, color: "#2563EB" }}>{fmtCLP(totalTipo)}</div>
+                  <div style={{ fontSize: 11, color: "#94A3B8", marginTop: 2 }}>
+                    barras apiladas por tipo · % acumulado al mes visible
                   </div>
                 </div>
-                {/* Torta mini por tipo */}
-                {porTipo.length > 0 && (
-                  <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
-                    {porTipo.map((t, i) => {
-                      const pct = totalTipo > 0 ? (t.total_adj / totalTipo * 100).toFixed(0) : "0";
-                      return (
-                        <span key={i} style={{
-                          fontSize: 11, fontWeight: 600,
-                          color: PALETTE[i % PALETTE.length],
-                          background: `${PALETTE[i % PALETTE.length]}15`,
-                          border: `1px solid ${PALETTE[i % PALETTE.length]}40`,
-                          borderRadius: 4, padding: "2px 7px",
-                        }}>
-                          {t.tipo} {pct}%
-                        </span>
-                      );
-                    })}
-                  </div>
-                )}
+                <div style={{ textAlign: "right" }}>
+                  <div style={{ fontSize: 11, color: "#94A3B8" }}>Total adj.</div>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: "#2563EB" }}>{fmtCLP(totalTipo)}</div>
+                </div>
               </div>
               {evolucion
                 ? <EvoChart meses={evolucion} />
-                : <div style={{ color: "#94A3B8", fontSize: 13, padding: "24px 0", textAlign: "center" }}>Cargando...</div>
+                : <div style={{ color: "#94A3B8", fontSize: 13, padding: "40px 0", textAlign: "center" }}>Cargando...</div>
               }
             </div>
 

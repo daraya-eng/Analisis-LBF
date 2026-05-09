@@ -116,12 +116,18 @@ interface VsData {
   comp_lics_adj: number;
   licitaciones: VsLic[];
 }
+interface PorTipo {
+  tipo: string;
+  ids_adj: number;
+  total_adj: number;
+}
 interface Data {
   ano: number;
   tipo: string;
   lbf: Lbf;
   mercado: Mercado;
   top20: Comp[];
+  por_tipo: PorTipo[];
 }
 interface Cliente {
   organismo: string;
@@ -488,6 +494,77 @@ function TabCompetencia({ data, ano, tipo }: { data: Data; ano: number; tipo: st
           onClose={() => setSelectedComp(null)}
         />
       )}
+
+      {/* Adjudicado por tipo de licitación */}
+      {data.por_tipo.length > 0 && (() => {
+        const totalTipo = data.por_tipo.reduce((s, t) => s + t.total_adj, 0);
+        const COLORS: Record<string, string> = {
+          LR: "#1D4ED8", LP: "#2563EB", LQ: "#3B82F6",
+          LE: "#60A5FA", SE: "#7C3AED", L1: "#93C5FD",
+          LS: "#A78BFA", TD: "#F59E0B", AG: "#10B981",
+        };
+        return (
+          <div style={card}>
+            <div style={{ marginBottom: 16 }}>
+              <span style={{ fontSize: 15, fontWeight: 700, color: "#0F172A" }}>
+                Adjudicado por tipo de licitación
+              </span>
+              <span style={{ fontSize: 12, color: "#94A3B8", marginLeft: 8 }}>
+                {fmtCLP(totalTipo)} total · {data.ano}
+              </span>
+            </div>
+            <div style={{ display: "flex", gap: 24, alignItems: "flex-start", flexWrap: "wrap" }}>
+              {/* Barras */}
+              <div style={{ flex: 1, minWidth: 260 }}>
+                {data.por_tipo.map((t, i) => {
+                  const pctVal = totalTipo > 0 ? (t.total_adj / totalTipo) * 100 : 0;
+                  const color = COLORS[t.tipo] ?? "#94A3B8";
+                  return (
+                    <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+                      <div style={{
+                        width: 36, fontSize: 12, fontWeight: 700, color,
+                        textAlign: "right", flexShrink: 0,
+                      }}>
+                        {t.tipo}
+                      </div>
+                      <div style={{ flex: 1, height: 20, background: "#F1F5F9", borderRadius: 4, overflow: "hidden" }}>
+                        <div style={{
+                          width: `${pctVal}%`, height: "100%",
+                          background: color, borderRadius: 4,
+                          transition: "width 0.4s ease",
+                        }} />
+                      </div>
+                      <div style={{ width: 44, fontSize: 12, fontWeight: 600, color, textAlign: "right", flexShrink: 0 }}>
+                        {pctVal.toFixed(1)}%
+                      </div>
+                      <div style={{ width: 130, fontSize: 11, color: "#64748B", textAlign: "right", flexShrink: 0, fontVariantNumeric: "tabular-nums" }}>
+                        {fmtCLP(t.total_adj)}
+                      </div>
+                      <div style={{ width: 60, fontSize: 11, color: "#94A3B8", textAlign: "right", flexShrink: 0 }}>
+                        {t.ids_adj} lics
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              {/* Barra apilada resumen */}
+              <div style={{ flexShrink: 0 }}>
+                <div style={{ fontSize: 11, color: "#64748B", marginBottom: 6 }}>Composición</div>
+                <div style={{ width: 24, height: 200, borderRadius: 4, overflow: "hidden", display: "flex", flexDirection: "column" }}>
+                  {data.por_tipo.map((t, i) => {
+                    const pctVal = totalTipo > 0 ? (t.total_adj / totalTipo) * 100 : 0;
+                    const color = COLORS[t.tipo] ?? "#94A3B8";
+                    return (
+                      <div key={i} title={`${t.tipo}: ${pctVal.toFixed(1)}%`}
+                        style={{ width: "100%", height: `${pctVal}%`, background: color, flexShrink: 0 }} />
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Gráfico MS% relativo al total participado LBF */}
       <div style={card}>

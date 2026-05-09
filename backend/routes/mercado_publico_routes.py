@@ -170,6 +170,52 @@ def _load_participacion(ano: int, tipo: str) -> dict:
     part_ids   = round(ids_part / mkt_ids * 100, 1) if mkt_ids > 0 else 0
     part_valor = round(total_adj / mkt_valor * 100, 1) if mkt_valor > 0 else 0
 
+    # ── Adjudicado LBF por tipo de licitación ────────────────────────────────
+    cur.execute(f"""
+        WITH adj_jsonb AS (
+            SELECT li.licitacion_id, li.id AS item_id,
+                   COALESCE(NULLIF((o->>'monto_adjudicado')::numeric,0),(o->>'total')::numeric,0) AS monto_adj
+            FROM licitaciones_items li
+            JOIN licitaciones l ON l.id = li.licitacion_id
+            CROSS JOIN LATERAL jsonb_array_elements(li.oferentes) o
+            WHERE o->>'rut' = '{LBF_RUT}'
+              AND (o->>'seleccionada')::boolean = true
+              AND upper(li.categoria_nivel1) LIKE '{CAT_LIKE}'
+              AND EXTRACT(YEAR FROM COALESCE(l.fecha_adjudicacion, l.fecha_publicacion)) = {ano}
+              {tf}
+        ),
+        adj_rut AS (
+            SELECT li.licitacion_id, li.id AS item_id,
+                   li.monto_adjudicado * COALESCE(li.cantidad_adjudicada, li.cantidad) AS monto_adj
+            FROM licitaciones_items li
+            JOIN licitaciones l ON l.id = li.licitacion_id
+            WHERE li.rut_proveedor_adj = '{LBF_RUT}'
+              AND upper(li.categoria_nivel1) LIKE '{CAT_LIKE}'
+              AND EXTRACT(YEAR FROM COALESCE(l.fecha_adjudicacion, l.fecha_publicacion)) = {ano}
+              {tf}
+              AND NOT EXISTS (
+                  SELECT 1 FROM jsonb_array_elements(li.oferentes) o2
+                  WHERE o2->>'rut' = '{LBF_RUT}' AND (o2->>'seleccionada')::boolean = true
+              )
+        ),
+        all_adj AS (SELECT * FROM adj_jsonb UNION ALL SELECT * FROM adj_rut)
+        SELECT
+            l.tipo,
+            COUNT(DISTINCT a.licitacion_id) AS ids_adj,
+            SUM(a.monto_adj)                AS total_adj
+        FROM all_adj a
+        JOIN licitaciones l ON l.id = a.licitacion_id
+        GROUP BY l.tipo
+        ORDER BY total_adj DESC
+    """)
+    por_tipo = []
+    for row in cur.fetchall():
+        por_tipo.append({
+            "tipo":     row[0] or "?",
+            "ids_adj":  int(row[1] or 0),
+            "total_adj": round(float(row[2] or 0)),
+        })
+
     # ── Top 20 competidores en las mismas licitaciones donde participó LBF ────
     # Para adj de competidores: JSONB monto_adjudicado/total (tiene los totales correctos
     # para grandes contratos marco). rut_proveedor_adj × cant da el precio unitario,
@@ -260,7 +306,8 @@ def _load_participacion(ano: int, tipo: str) -> dict:
             "items_total":mkt_items,
             "valor_total":round(mkt_valor),
         },
-        "top20": top20,
+        "top20":    top20,
+        "por_tipo": por_tipo,
     }
 
 

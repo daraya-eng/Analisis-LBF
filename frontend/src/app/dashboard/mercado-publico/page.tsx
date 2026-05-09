@@ -620,7 +620,7 @@ function TabCompetencia({ data, ano, tipo }: { data: Data; ano: number; tipo: st
                 <th style={thR}>Monto Ofertado</th>
                 <th style={thR}>Monto Adjudicado</th>
                 <th style={thR}>% Éxito $</th>
-                <th style={{ ...thR, color: "#2563EB" }}>Adj / Ofertado</th>
+                <th style={{ ...thR, color: "#2563EB" }}>LBF adj / Comp. ofertado</th>
                 <th style={thR}>% Efect. Lics.</th>
                 <th style={thR}>Ítems Ofertados</th>
                 <th style={thR}>Ítems Adj.</th>
@@ -704,7 +704,7 @@ function TabCompetencia({ data, ano, tipo }: { data: Data; ano: number; tipo: st
                       {cPct !== null ? pct(cPct) : "—"}
                     </td>
                     <td style={{ ...tdR, color: "#2563EB", fontWeight: 600 }}>
-                      {c.total_ofertado > 0 ? pct((c.total_adj / c.total_ofertado) * 100) : "—"}
+                      {c.total_ofertado > 0 ? pct((lbf.total_adj / c.total_ofertado) * 100) : "—"}
                     </td>
                     <td style={{
                       ...tdR,

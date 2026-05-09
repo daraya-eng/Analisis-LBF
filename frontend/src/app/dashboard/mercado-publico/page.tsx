@@ -369,57 +369,24 @@ function VsModal({
               ))}
             </div>
 
-            {/* Tabla de licitaciones */}
-            <div style={{ overflowX: "auto" }}>
-              <table style={{ width: "100%", borderCollapse: "collapse" }}>
-                <thead>
-                  <tr>
-                    <th style={thS}>Organismo</th>
-                    <th style={thS}>Tipo</th>
-                    <th style={thS}>Período</th>
-                    <th style={thR}>LBF Adj.</th>
-                    <th style={thR}>Comp. Adj.</th>
-                    <th style={{ ...thS, textAlign: "center" }}>Resultado</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {vs.licitaciones.map((l, i) => {
-                    const ganColor =
-                      l.ganador === "LBF" ? "#DBEAFE" :
-                      l.ganador === "COMPETIDOR" ? "#FEE2E2" :
-                      l.ganador === "AMBOS" ? "#EDE9FE" : "white";
-                    const ganLabel =
-                      l.ganador === "LBF" ? { text: "LBF ✓", color: "#2563EB" } :
-                      l.ganador === "COMPETIDOR" ? { text: "Comp. ✓", color: "#EF4444" } :
-                      l.ganador === "AMBOS" ? { text: "Ambos", color: "#7C3AED" } :
-                      { text: "Otro", color: "#94A3B8" };
-                    return (
-                      <tr key={i} style={{ background: i % 2 === 0 ? ganColor : ganColor }}>
-                        <td style={{ ...tdS, maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", fontSize: 12 }}>
-                          {l.organismo || l.nombre.slice(0, 60)}
-                        </td>
-                        <td style={{ ...tdS, fontSize: 12 }}>{l.tipo}</td>
-                        <td style={{ ...tdS, fontSize: 12 }}>{l.periodo}</td>
-                        <td style={{ ...tdR, fontWeight: l.lbf_adj > 0 ? 700 : 400, color: l.lbf_adj > 0 ? "#2563EB" : "#94A3B8" }}>
-                          {l.lbf_adj > 0 ? fmtCLP(l.lbf_adj) : "—"}
-                        </td>
-                        <td style={{ ...tdR, fontWeight: l.comp_adj > 0 ? 700 : 400, color: l.comp_adj > 0 ? "#EF4444" : "#94A3B8" }}>
-                          {l.comp_adj > 0 ? fmtCLP(l.comp_adj) : "—"}
-                        </td>
-                        <td style={{ ...tdS, textAlign: "center" }}>
-                          <span style={{
-                            fontSize: 11, fontWeight: 700, color: ganLabel.color,
-                            background: `${ganLabel.color}20`, borderRadius: 4, padding: "2px 8px",
-                          }}>
-                            {ganLabel.text}
-                          </span>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+            {/* Totales por resultado — sin tabla de detalle */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+              {[
+                { label: "Total LBF adjudicado", value: fmtCLP(vs.lbf_total), color: "#2563EB", sub: `${vs.lbf_lics_adj} licitaciones ganadas` },
+                { label: `Total ${vs.comp_nombre} adj.`, value: fmtCLP(vs.comp_total), color: "#EF4444", sub: `${vs.comp_lics_adj} licitaciones ganadas` },
+                { label: "Lics. donde LBF gana", value: String(vs.licitaciones.filter(l => l.ganador === "LBF").length), color: "#2563EB", sub: "sobre licitaciones compartidas" },
+                { label: "Lics. donde Comp. gana", value: String(vs.licitaciones.filter(l => l.ganador === "COMPETIDOR").length), color: "#EF4444", sub: "sobre licitaciones compartidas" },
+                { label: "Lics. donde ambos ganan", value: String(vs.licitaciones.filter(l => l.ganador === "AMBOS").length), color: "#7C3AED", sub: "ítems distintos adjudicados" },
+                { label: "Total lics. compartidas", value: String(vs.ids_compartidas), color: "#64748B", sub: "ambos participaron" },
+              ].map((x) => (
+                <div key={x.label} style={{ ...card, borderLeft: `3px solid ${x.color}` }}>
+                  <div style={{ fontSize: 11, color: "#64748B", marginBottom: 4 }}>{x.label}</div>
+                  <div style={{ fontSize: 20, fontWeight: 800, color: x.color }}>{x.value}</div>
+                  <div style={{ fontSize: 11, color: "#94A3B8", marginTop: 2 }}>{x.sub}</div>
+                </div>
+              ))}
             </div>
+
           </div>
         )}
       </div>
@@ -579,9 +546,9 @@ function TabCompetencia({ data, ano, tipo }: { data: Data; ano: number; tipo: st
               })}
             </div>
 
-            {/* Gráfico 2 — Torta por tipo */}
+            {/* Gráfico 2 — Barras horizontales por tipo */}
             <div style={card}>
-              <div style={{ marginBottom: 16 }}>
+              <div style={{ marginBottom: 18 }}>
                 <div style={{ fontSize: 14, fontWeight: 700, color: "#0F172A" }}>
                   Adjudicado LBF por tipo de licitación
                 </div>
@@ -591,64 +558,40 @@ function TabCompetencia({ data, ano, tipo }: { data: Data; ano: number; tipo: st
               </div>
               {(() => {
                 if (porTipo.length === 0) return <div style={{ color: "#94A3B8", fontSize: 13 }}>Sin datos</div>;
-                const R = 110, r = 66, cx = 130, cy = 130;
-                let cumAngle = -Math.PI / 2;
-                const slices = porTipo.map((t, i) => {
-                  const frac  = totalTipo > 0 ? t.total_adj / totalTipo : 0;
-                  const angle = frac * 2 * Math.PI;
-                  const x1 = cx + R * Math.cos(cumAngle);
-                  const y1 = cy + R * Math.sin(cumAngle);
-                  cumAngle += angle;
-                  const x2 = cx + R * Math.cos(cumAngle);
-                  const y2 = cy + R * Math.sin(cumAngle);
-                  const xi1 = cx + r * Math.cos(cumAngle - angle);
-                  const yi1 = cy + r * Math.sin(cumAngle - angle);
-                  const xi2 = cx + r * Math.cos(cumAngle);
-                  const yi2 = cy + r * Math.sin(cumAngle);
-                  const large = angle > Math.PI ? 1 : 0;
-                  const d = `M ${x1} ${y1} A ${R} ${R} 0 ${large} 1 ${x2} ${y2} L ${xi2} ${yi2} A ${r} ${r} 0 ${large} 0 ${xi1} ${yi1} Z`;
-                  const color = tipoColor(t.tipo);
-                  return { d, color, frac, tipo: t.tipo, total_adj: t.total_adj };
-                });
-                // abreviación de monto
                 const abbr = (n: number) =>
-                  n >= 1e9 ? `$${(n/1e9).toFixed(1)}MM`
+                  n >= 1e9 ? `$${(n/1e9).toFixed(2)}MM`
                   : n >= 1e6 ? `$${(n/1e6).toFixed(0)}M`
                   : `$${(n/1e3).toFixed(0)}K`;
+                const maxAdj = Math.max(...porTipo.map((t) => t.total_adj), 1);
                 return (
-                  <div style={{ display: "flex", gap: 24, alignItems: "center", justifyContent: "center" }}>
-                    <svg width={260} height={260} style={{ flexShrink: 0 }}>
-                      {slices.map((s, i) => (
-                        <path key={i} d={s.d} fill={s.color} stroke="white" strokeWidth={2.5}>
-                          <title>{s.tipo}: {(s.frac * 100).toFixed(1)}% · {fmtCLP(s.total_adj)}</title>
-                        </path>
-                      ))}
-                      <text x={cx} y={cy - 10} textAnchor="middle" fontSize={11} fill="#64748B">Total adj.</text>
-                      <text x={cx} y={cy + 10} textAnchor="middle" fontSize={15} fontWeight="700" fill="#0F172A">
-                        {abbr(totalTipo)}
-                      </text>
-                    </svg>
-                    {/* Leyenda */}
-                    <div style={{ flex: 1 }}>
-                      {porTipo.map((t, i) => {
-                        const pctVal = totalTipo > 0 ? (t.total_adj / totalTipo) * 100 : 0;
-                        const color  = tipoColor(t.tipo);
-                        return (
-                          <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
-                            <div style={{ width: 14, height: 14, borderRadius: 4, background: color, flexShrink: 0 }} />
-                            <div style={{ flex: 1 }}>
-                              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-                                <span style={{ fontSize: 14, fontWeight: 700, color }}>{t.tipo}</span>
-                                <span style={{ fontSize: 14, fontWeight: 700, color: "#0F172A" }}>{pctVal.toFixed(1)}%</span>
-                              </div>
-                              <div style={{ fontSize: 12, color: "#64748B", fontVariantNumeric: "tabular-nums" }}>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+                    {porTipo.map((t, i) => {
+                      const pctVal = totalTipo > 0 ? (t.total_adj / totalTipo) * 100 : 0;
+                      const barW   = (t.total_adj / maxAdj) * 100;
+                      const color  = tipoColor(t.tipo);
+                      return (
+                        <div key={i}>
+                          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 5 }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                              <div style={{ width: 12, height: 12, borderRadius: 3, background: color, flexShrink: 0 }} />
+                              <span style={{ fontSize: 13, fontWeight: 700, color }}>{t.tipo}</span>
+                            </div>
+                            <div style={{ display: "flex", gap: 16, alignItems: "baseline" }}>
+                              <span style={{ fontSize: 13, fontWeight: 700, color: "#0F172A" }}>{pctVal.toFixed(1)}%</span>
+                              <span style={{ fontSize: 12, color: "#64748B", fontVariantNumeric: "tabular-nums", minWidth: 64, textAlign: "right" }}>
                                 {abbr(t.total_adj)}
-                              </div>
+                              </span>
                             </div>
                           </div>
-                        );
-                      })}
-                    </div>
+                          <div style={{ height: 12, background: "#F1F5F9", borderRadius: 6, overflow: "hidden" }}>
+                            <div style={{
+                              width: `${barW}%`, height: "100%", background: color,
+                              borderRadius: 6, transition: "width 0.5s ease",
+                            }} />
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
                 );
               })()}
@@ -677,6 +620,7 @@ function TabCompetencia({ data, ano, tipo }: { data: Data; ano: number; tipo: st
                 <th style={thR}>Monto Ofertado</th>
                 <th style={thR}>Monto Adjudicado</th>
                 <th style={thR}>% Éxito $</th>
+                <th style={{ ...thR, color: "#2563EB" }}>MS% (vs LBF part.)</th>
                 <th style={thR}>% Efect. Lics.</th>
                 <th style={thR}>Ítems Ofertados</th>
                 <th style={thR}>Ítems Adj.</th>
@@ -704,6 +648,9 @@ function TabCompetencia({ data, ano, tipo }: { data: Data; ano: number; tipo: st
                 </td>
                 <td style={{ ...tdR, fontWeight: 700 }}>
                   {pct(lbfPct)}
+                </td>
+                <td style={{ ...tdR, fontWeight: 700, color: "#2563EB" }}>
+                  {pct(100)}
                 </td>
                 <td style={{ ...tdR, fontWeight: 700, color: "#059669" }}>
                   {pct(lbfEf)}
@@ -755,6 +702,9 @@ function TabCompetencia({ data, ano, tipo }: { data: Data; ano: number; tipo: st
                     <td style={tdR}>{fmtCLP(c.total_adj)}</td>
                     <td style={{ ...tdR, color: cPct !== null ? "#374151" : "#94A3B8" }}>
                       {cPct !== null ? pct(cPct) : "—"}
+                    </td>
+                    <td style={{ ...tdR, color: "#2563EB", fontWeight: 600 }}>
+                      {lbf.total_participado > 0 ? pct((c.total_adj / lbf.total_participado) * 100) : "—"}
                     </td>
                     <td style={{
                       ...tdR,

@@ -434,37 +434,95 @@ function TabCompetencia({ data, ano, tipo }: { data: Data; ano: number; tipo: st
 
   return (
     <>
-      {/* KPIs superiores */}
-      <div style={{ display: "flex", gap: 12, marginBottom: 20, flexWrap: "wrap" }}>
+      {/* ── 3 tarjetas principales ───────────────────────────────────────────── */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 14, marginBottom: 14 }}>
+        {/* 1. Mercado total */}
+        <div style={{ ...card, borderTop: "3px solid #64748B" }}>
+          <div style={{ fontSize: 11, color: "#64748B", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6 }}>
+            Mercado total insumos médicos
+          </div>
+          <div style={{ fontSize: 26, fontWeight: 800, color: "#0F172A", fontVariantNumeric: "tabular-nums" }}>
+            {fmtCLP(data.mercado.valor_total)}
+          </div>
+          <div style={{ fontSize: 12, color: "#94A3B8", marginTop: 4 }}>
+            {fmtN(data.mercado.ids_total)} licitaciones adjudicadas · {data.ano}
+          </div>
+        </div>
+
+        {/* 2. LBF participó */}
+        {(() => {
+          const pctMercado = data.mercado.valor_total > 0
+            ? (lbf.total_participado / data.mercado.valor_total) * 100 : 0;
+          const barW = Math.min(pctMercado, 100);
+          return (
+            <div style={{ ...card, borderTop: "3px solid #2563EB" }}>
+              <div style={{ fontSize: 11, color: "#2563EB", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6 }}>
+                LBF participó
+              </div>
+              <div style={{ fontSize: 26, fontWeight: 800, color: "#2563EB", fontVariantNumeric: "tabular-nums" }}>
+                {fmtCLP(lbf.total_participado)}
+              </div>
+              <div style={{ fontSize: 12, color: "#94A3B8", marginTop: 4, marginBottom: 8 }}>
+                {fmtN(lbf.ids_participadas)} licitaciones · {pctMercado.toFixed(1)}% del mercado
+              </div>
+              <div style={{ height: 6, background: "#EFF6FF", borderRadius: 3, overflow: "hidden" }}>
+                <div style={{ width: `${barW}%`, height: "100%", background: "#2563EB", borderRadius: 3 }} />
+              </div>
+            </div>
+          );
+        })()}
+
+        {/* 3. LBF adjudicó */}
+        {(() => {
+          const pctPart = lbf.total_participado > 0
+            ? (lbf.total_adj / lbf.total_participado) * 100 : 0;
+          const pctMkt = data.mercado.valor_total > 0
+            ? (lbf.total_adj / data.mercado.valor_total) * 100 : 0;
+          const barW = Math.min(pctPart, 100);
+          return (
+            <div style={{ ...card, borderTop: "3px solid #059669" }}>
+              <div style={{ fontSize: 11, color: "#059669", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6 }}>
+                LBF adjudicó
+              </div>
+              <div style={{ fontSize: 26, fontWeight: 800, color: "#059669", fontVariantNumeric: "tabular-nums" }}>
+                {fmtCLP(lbf.total_adj)}
+              </div>
+              <div style={{ fontSize: 12, color: "#94A3B8", marginTop: 4, marginBottom: 8 }}>
+                {pctPart.toFixed(1)}% de lo participado · {pctMkt.toFixed(1)}% del mercado
+              </div>
+              <div style={{ height: 6, background: "#F0FDF4", borderRadius: 3, overflow: "hidden" }}>
+                <div style={{ width: `${barW}%`, height: "100%", background: "#059669", borderRadius: 3 }} />
+              </div>
+            </div>
+          );
+        })()}
+      </div>
+
+      {/* ── Métricas secundarias ─────────────────────────────────────────────── */}
+      <div style={{ display: "flex", gap: 10, marginBottom: 20, flexWrap: "wrap" }}>
         <KpiCard
-          title="Licitaciones participadas"
+          title="Lics. participadas"
           value={fmtN(lbf.ids_participadas)}
           sub={`de ${fmtN(data.mercado.ids_total)} en el mercado`}
           color="#2563EB"
         />
         <KpiCard
-          title="Licitaciones adjudicadas"
+          title="Lics. adjudicadas"
           value={fmtN(lbf.ids_adjudicadas)}
           sub={`efectividad: ${pct(lbf.efectividad_lics)}`}
-          color="#2563EB"
+          color="#059669"
         />
         <KpiCard
-          title="% Participación (valor)"
+          title="MS% valor"
           value={pct(lbf.part_valor)}
           sub="LBF adj / mercado adj"
           color="#7C3AED"
         />
         <KpiCard
-          title="% Efectividad (ítems)"
+          title="Efectividad lics."
           value={pct(lbfEf)}
-          sub="ítems adj / ítems ofertados"
-          color="#059669"
-        />
-        <KpiCard
-          title="Valor adjudicado LBF"
-          value={fmtCLP(lbf.total_adj)}
-          sub={`mercado: ${fmtCLP(data.mercado.valor_total)}`}
-          color="#0F172A"
+          sub="lics. adj / lics. participadas"
+          color="#D97706"
         />
       </div>
 

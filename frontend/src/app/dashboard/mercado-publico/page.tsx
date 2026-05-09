@@ -40,9 +40,7 @@ const rowBg = (i: number): React.CSSProperties => ({
 /* ─── Constantes ──────────────────────────────────────────────────────────── */
 const YEARS = [2026, 2025, 2024, 2023];
 const TIPOS = [
-  { id: "ALL", label: "Todos (con CM)" },
-  { id: "",    label: "Sin CM" },
-  { id: "CM",  label: "Convenio Marco" },
+  { id: "",    label: "Todos" },
   { id: "SE",  label: "SE" },
   { id: "LE",  label: "LE" },
   { id: "LP",  label: "LP" },

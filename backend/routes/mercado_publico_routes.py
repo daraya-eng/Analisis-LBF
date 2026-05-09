@@ -186,7 +186,7 @@ def _load_participacion(ano: int, tipo: str) -> dict:
               {tf}
         )
         SELECT
-            INITCAP(o->>'nombre')                                            AS competidor,
+            INITCAP(MAX(o->>'nombre'))                                       AS competidor,
             o->>'rut'                                                        AS rut,
             COUNT(DISTINCT li.licitacion_id)                                AS ids_part,
             COUNT(li.id)                                                    AS ofertas,
@@ -209,7 +209,7 @@ def _load_participacion(ano: int, tipo: str) -> dict:
         CROSS JOIN LATERAL jsonb_array_elements(li.oferentes) o
         WHERE o->>'rut' != '{LBF_RUT}'
           AND upper(li.categoria_nivel1) LIKE '{CAT_LIKE}'
-        GROUP BY o->>'nombre', o->>'rut'
+        GROUP BY o->>'rut'
         ORDER BY total_adj DESC
         LIMIT 20
     """)

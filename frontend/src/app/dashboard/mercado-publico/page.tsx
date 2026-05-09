@@ -634,14 +634,14 @@ function TabCompetencia({ data, ano, tipo }: { data: Data; ano: number; tipo: st
               <tr>
                 <th style={{ ...thS, width: 32 }}>#</th>
                 <th style={thS}>Proveedor</th>
-                <th style={thR}>% Adj/Part.</th>
-                <th style={thR}>% Efect. Lic.</th>
-                <th style={thR}>Total Participado</th>
-                <th style={thR}>Total Adjudicado</th>
-                <th style={thR}>Ofertas Real.</th>
-                <th style={thR}>Ofertas Adj.</th>
-                <th style={thR}>Ids Part.</th>
-                <th style={thR}>Ids Adj.</th>
+                <th style={thR}>Monto Ofertado</th>
+                <th style={thR}>Monto Adjudicado</th>
+                <th style={thR}>% Éxito $</th>
+                <th style={thR}>% Efect. Lics.</th>
+                <th style={thR}>Ítems Ofertados</th>
+                <th style={thR}>Ítems Adj.</th>
+                <th style={thR}>Lics. Part.</th>
+                <th style={thR}>Lics. Adj.</th>
               </tr>
             </thead>
             <tbody>
@@ -657,16 +657,16 @@ function TabCompetencia({ data, ano, tipo }: { data: Data; ano: number; tipo: st
                   LBF (tú)
                 </td>
                 <td style={{ ...tdR, fontWeight: 700 }}>
-                  {pct(lbfPct)}
-                </td>
-                <td style={{ ...tdR, fontWeight: 700, color: "#059669" }}>
-                  {pct(lbfEf)}
-                </td>
-                <td style={{ ...tdR, fontWeight: 700 }}>
                   {fmtCLP(lbf.total_participado)}
                 </td>
                 <td style={{ ...tdR, fontWeight: 700 }}>
                   {fmtCLP(lbf.total_adj)}
+                </td>
+                <td style={{ ...tdR, fontWeight: 700 }}>
+                  {pct(lbfPct)}
+                </td>
+                <td style={{ ...tdR, fontWeight: 700, color: "#059669" }}>
+                  {pct(lbfEf)}
                 </td>
                 <td style={{ ...tdR, fontWeight: 700 }}>
                   {fmtN(lbf.ofertas_realizadas)}
@@ -711,24 +711,17 @@ function TabCompetencia({ data, ano, tipo }: { data: Data; ano: number; tipo: st
                     <td style={{ ...tdS, color: isSelected ? "#2563EB" : undefined, fontWeight: isSelected ? 700 : undefined }}>
                       {c.competidor}
                     </td>
+                    <td style={tdR}>{fmtCLP(c.total_ofertado)}</td>
+                    <td style={tdR}>{fmtCLP(c.total_adj)}</td>
                     <td style={{ ...tdR, color: cPct !== null ? "#374151" : "#94A3B8" }}>
                       {cPct !== null ? pct(cPct) : "—"}
                     </td>
-                    <td
-                      style={{
-                        ...tdR,
-                        color:
-                          cEf >= 20
-                            ? "#059669"
-                            : cEf >= 10
-                            ? "#D97706"
-                            : "#374151",
-                      }}
-                    >
+                    <td style={{
+                      ...tdR,
+                      color: cEf >= 20 ? "#059669" : cEf >= 10 ? "#D97706" : "#374151",
+                    }}>
                       {pct(cEf)}
                     </td>
-                    <td style={tdR}>{fmtCLP(c.total_ofertado)}</td>
-                    <td style={tdR}>{fmtCLP(c.total_adj)}</td>
                     <td style={tdR}>{fmtN(c.ofertas)}</td>
                     <td style={tdR}>{fmtN(c.ofertas_adj)}</td>
                     <td style={tdR}>{fmtN(c.ids_part)}</td>

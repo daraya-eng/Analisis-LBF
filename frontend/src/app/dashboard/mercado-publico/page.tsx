@@ -620,7 +620,7 @@ function TabCompetencia({ data, ano, tipo }: { data: Data; ano: number; tipo: st
                 <th style={thR}>Monto Ofertado</th>
                 <th style={thR}>Monto Adjudicado</th>
                 <th style={thR}>% Éxito $</th>
-                <th style={{ ...thR, color: "#2563EB" }}>MS% (vs LBF part.)</th>
+                <th style={{ ...thR, color: "#2563EB" }}>Adj / Ofertado</th>
                 <th style={thR}>% Efect. Lics.</th>
                 <th style={thR}>Ítems Ofertados</th>
                 <th style={thR}>Ítems Adj.</th>
@@ -650,7 +650,7 @@ function TabCompetencia({ data, ano, tipo }: { data: Data; ano: number; tipo: st
                   {pct(lbfPct)}
                 </td>
                 <td style={{ ...tdR, fontWeight: 700, color: "#2563EB" }}>
-                  {pct(100)}
+                  {lbf.total_participado > 0 ? pct((lbf.total_adj / lbf.total_participado) * 100) : "—"}
                 </td>
                 <td style={{ ...tdR, fontWeight: 700, color: "#059669" }}>
                   {pct(lbfEf)}
@@ -704,7 +704,7 @@ function TabCompetencia({ data, ano, tipo }: { data: Data; ano: number; tipo: st
                       {cPct !== null ? pct(cPct) : "—"}
                     </td>
                     <td style={{ ...tdR, color: "#2563EB", fontWeight: 600 }}>
-                      {lbf.total_participado > 0 ? pct((c.total_adj / lbf.total_participado) * 100) : "—"}
+                      {c.total_ofertado > 0 ? pct((c.total_adj / c.total_ofertado) * 100) : "—"}
                     </td>
                     <td style={{
                       ...tdR,

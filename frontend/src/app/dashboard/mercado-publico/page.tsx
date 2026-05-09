@@ -121,6 +121,11 @@ interface PorTipo {
   ids_adj: number;
   total_adj: number;
 }
+interface MesEvo {
+  mes: string;
+  mes_num: number;
+  total_adj: number;
+}
 interface Data {
   ano: number;
   tipo: string;
@@ -423,6 +428,124 @@ function VsModal({
 // variable global para pasar el año al modal sin prop drilling
 let data_ano_ref = 2026;
 
+/* ─── Gráfico evolución mensual ──────────────────────────────────────────── */
+function EvoChart({ meses }: { meses: MesEvo[] }) {
+  const [animated, setAnimated] = useState(false);
+
+  useEffect(() => {
+    const t = setTimeout(() => setAnimated(true), 60);
+    return () => clearTimeout(t);
+  }, [meses]);
+
+  const max = Math.max(...meses.map((m) => m.total_adj), 1);
+  const hoy = new Date().getMonth() + 1; // 1-12
+  const BAR_COLOR  = "#2563EB";
+  const FUT_COLOR  = "#E2E8F0";
+  const BAR_W      = 28;
+  const CHART_H    = 120;
+
+  // acumulado hasta cada mes
+  let acum = 0;
+  const acums = meses.map((m) => {
+    acum += m.total_adj;
+    return acum;
+  });
+  const maxAcum = acums[acums.length - 1] || 1;
+
+  // posiciones para la línea acumulada
+  const svgW = meses.length * (BAR_W + 8) + 16;
+  const svgH = CHART_H + 24; // espacio label abajo
+  const pts = meses.map((_, i) => {
+    const x = 8 + i * (BAR_W + 8) + BAR_W / 2;
+    const y = 4 + (1 - acums[i] / maxAcum) * (CHART_H - 8);
+    return `${x},${y}`;
+  });
+
+  return (
+    <div style={{ overflowX: "auto" }}>
+      <svg width={svgW} height={svgH} style={{ display: "block" }}>
+        {meses.map((m, i) => {
+          const x = 8 + i * (BAR_W + 8);
+          const isFuture = m.mes_num > hoy;
+          const barH = animated && m.total_adj > 0 ? (m.total_adj / max) * (CHART_H - 8) : 0;
+          const y = 4 + (CHART_H - 8) - barH;
+          const isActive = m.mes_num === hoy;
+          return (
+            <g key={m.mes}>
+              <rect
+                x={x} y={isFuture ? 4 + CHART_H - 8 : y}
+                width={BAR_W} height={isFuture ? 0 : barH}
+                rx={4}
+                fill={isActive ? "#1D4ED8" : isFuture ? FUT_COLOR : BAR_COLOR}
+                opacity={isFuture ? 0.5 : 1}
+                style={{ transition: "y 0.6s ease, height 0.6s ease" }}
+              >
+                <title>{m.mes}: {fmtCLP(m.total_adj)}</title>
+              </rect>
+              {/* placeholder barra futura */}
+              {isFuture && (
+                <rect x={x} y={4} width={BAR_W} height={CHART_H - 8} rx={4}
+                  fill={FUT_COLOR} opacity={0.5} />
+              )}
+              {/* label mes */}
+              <text
+                x={x + BAR_W / 2} y={svgH - 4}
+                textAnchor="middle" fontSize={9}
+                fill={isActive ? "#1D4ED8" : "#94A3B8"}
+                fontWeight={isActive ? "700" : "400"}
+              >
+                {m.mes}
+              </text>
+              {/* monto encima de barra (solo meses con datos) */}
+              {!isFuture && m.total_adj > 0 && animated && (
+                <text
+                  x={x + BAR_W / 2} y={y - 3}
+                  textAnchor="middle" fontSize={8} fill="#374151"
+                  style={{ transition: "y 0.6s ease" }}
+                >
+                  {(m.total_adj / 1_000_000).toFixed(0)}M
+                </text>
+              )}
+            </g>
+          );
+        })}
+        {/* Línea acumulada */}
+        {animated && (
+          <polyline
+            points={pts.filter((_, i) => meses[i].mes_num <= hoy).join(" ")}
+            fill="none"
+            stroke="#F59E0B"
+            strokeWidth={2}
+            strokeLinejoin="round"
+            opacity={0.85}
+          />
+        )}
+        {/* Puntos en la línea */}
+        {animated && pts.map((pt, i) => {
+          if (meses[i].mes_num > hoy) return null;
+          const [px, py] = pt.split(",").map(Number);
+          return (
+            <circle key={i} cx={px} cy={py} r={3} fill="#F59E0B">
+              <title>Acum. {meses[i].mes}: {fmtCLP(acums[i])}</title>
+            </circle>
+          );
+        })}
+      </svg>
+      {/* leyenda */}
+      <div style={{ display: "flex", gap: 16, marginTop: 8, fontSize: 11, color: "#64748B" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+          <div style={{ width: 10, height: 10, borderRadius: 2, background: BAR_COLOR }} />
+          Adj. mensual
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+          <div style={{ width: 16, height: 2, background: "#F59E0B", borderRadius: 1 }} />
+          Acumulado anual
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ─── Sub-tab Competencia ────────────────────────────────────────────────── */
 function TabCompetencia({ data, ano, tipo }: { data: Data; ano: number; tipo: string }) {
   const lbf = data.lbf;
@@ -431,6 +554,7 @@ function TabCompetencia({ data, ano, tipo }: { data: Data; ano: number; tipo: st
   const [selectedComp, setSelectedComp] = useState<{ rut: string; nombre: string } | null>(null);
   const [vsData, setVsData] = useState<VsData | null>(null);
   const [vsLoading, setVsLoading] = useState(false);
+  const [evolucion, setEvolucion] = useState<MesEvo[] | null>(null);
 
   useEffect(() => {
     if (!selectedComp) { setVsData(null); setVsLoading(false); return; }
@@ -441,6 +565,13 @@ function TabCompetencia({ data, ano, tipo }: { data: Data; ano: number; tipo: st
       .then((r) => setVsData(r as VsData))
       .finally(() => setVsLoading(false));
   }, [selectedComp, ano, tipo]);
+
+  useEffect(() => {
+    setEvolucion(null);
+    const params = new URLSearchParams({ ano: String(ano), tipo });
+    api.get(`/api/mercado-publico/evolucion?${params}`)
+      .then((r) => setEvolucion(r as MesEvo[]));
+  }, [ano, tipo]);
 
   // % adj / participado (cuánto de lo ofertado fue adjudicado)
   const lbfPct =
@@ -513,7 +644,6 @@ function TabCompetencia({ data, ano, tipo }: { data: Data; ano: number; tipo: st
 
         const porTipo = data.por_tipo ?? [];
         const totalTipo = porTipo.reduce((s, t) => s + t.total_adj, 0);
-        const maxTipo = totalTipo > 0 ? Math.max(...porTipo.map((t) => t.total_adj / totalTipo * 100)) : 1;
 
         return (
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
@@ -566,70 +696,47 @@ function TabCompetencia({ data, ano, tipo }: { data: Data; ano: number; tipo: st
               })}
             </div>
 
-            {/* Gráfico 2 — Torta por tipo */}
+            {/* Gráfico 2 — Evolución mensual */}
             <div style={card}>
               <div style={{ marginBottom: 14 }}>
-                <div style={{ fontSize: 14, fontWeight: 700, color: "#0F172A" }}>
-                  Adjudicado LBF por tipo de licitación
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                  <div>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: "#0F172A" }}>
+                      Evolución adjudicado LBF {ano}
+                    </div>
+                    <div style={{ fontSize: 11, color: "#94A3B8", marginTop: 2 }}>
+                      mes a mes · línea amarilla = acumulado
+                    </div>
+                  </div>
+                  <div style={{ textAlign: "right" }}>
+                    <div style={{ fontSize: 11, color: "#94A3B8" }}>Total adj.</div>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: "#2563EB" }}>{fmtCLP(totalTipo)}</div>
+                  </div>
                 </div>
-                <div style={{ fontSize: 11, color: "#94A3B8", marginTop: 2 }}>
-                  total {fmtCLP(totalTipo)}
-                </div>
+                {/* Torta mini por tipo */}
+                {porTipo.length > 0 && (
+                  <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
+                    {porTipo.map((t, i) => {
+                      const pct = totalTipo > 0 ? (t.total_adj / totalTipo * 100).toFixed(0) : "0";
+                      return (
+                        <span key={i} style={{
+                          fontSize: 11, fontWeight: 600,
+                          color: PALETTE[i % PALETTE.length],
+                          background: `${PALETTE[i % PALETTE.length]}15`,
+                          border: `1px solid ${PALETTE[i % PALETTE.length]}40`,
+                          borderRadius: 4, padding: "2px 7px",
+                        }}>
+                          {t.tipo} {pct}%
+                        </span>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
-              <div style={{ display: "flex", gap: 24, alignItems: "center" }}>
-                {/* SVG donut */}
-                {(() => {
-                  const R = 80, r = 48, cx = 90, cy = 90;
-                  let cumAngle = -Math.PI / 2;
-                  const slices = porTipo.map((t, i) => {
-                    const frac = totalTipo > 0 ? t.total_adj / totalTipo : 0;
-                    const angle = frac * 2 * Math.PI;
-                    const x1 = cx + R * Math.cos(cumAngle);
-                    const y1 = cy + R * Math.sin(cumAngle);
-                    cumAngle += angle;
-                    const x2 = cx + R * Math.cos(cumAngle);
-                    const y2 = cy + R * Math.sin(cumAngle);
-                    const xi1 = cx + r * Math.cos(cumAngle - angle);
-                    const yi1 = cy + r * Math.sin(cumAngle - angle);
-                    const xi2 = cx + r * Math.cos(cumAngle);
-                    const yi2 = cy + r * Math.sin(cumAngle);
-                    const large = angle > Math.PI ? 1 : 0;
-                    const d = `M ${x1} ${y1} A ${R} ${R} 0 ${large} 1 ${x2} ${y2} L ${xi2} ${yi2} A ${r} ${r} 0 ${large} 0 ${xi1} ${yi1} Z`;
-                    return { d, color: PALETTE[i % PALETTE.length], frac, tipo: t.tipo };
-                  });
-                  return (
-                    <svg width={180} height={180} style={{ flexShrink: 0 }}>
-                      {slices.map((s, i) => (
-                        <path key={i} d={s.d} fill={s.color} stroke="white" strokeWidth={2}>
-                          <title>{s.tipo}: {(s.frac * 100).toFixed(1)}%</title>
-                        </path>
-                      ))}
-                      {/* Centro: total */}
-                      <text x={cx} y={cy - 6} textAnchor="middle" fontSize={10} fill="#64748B">Total adj.</text>
-                      <text x={cx} y={cy + 10} textAnchor="middle" fontSize={11} fontWeight="700" fill="#0F172A">
-                        {fmtCLP(totalTipo).replace("$", "$")}
-                      </text>
-                    </svg>
-                  );
-                })()}
-                {/* Leyenda */}
-                <div style={{ flex: 1 }}>
-                  {porTipo.map((t, i) => {
-                    const pctVal = totalTipo > 0 ? (t.total_adj / totalTipo) * 100 : 0;
-                    const color = PALETTE[i % PALETTE.length];
-                    return (
-                      <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
-                        <div style={{ width: 12, height: 12, borderRadius: 3, background: color, flexShrink: 0 }} />
-                        <div style={{ fontSize: 13, fontWeight: 700, color, width: 36, flexShrink: 0 }}>{t.tipo}</div>
-                        <div style={{ flex: 1 }}>
-                          <div style={{ fontSize: 12, fontWeight: 600, color: "#0F172A" }}>{pctVal.toFixed(1)}%</div>
-                          <div style={{ fontSize: 11, color: "#64748B", fontVariantNumeric: "tabular-nums" }}>{fmtCLP(t.total_adj)}</div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
+              {evolucion
+                ? <EvoChart meses={evolucion} />
+                : <div style={{ color: "#94A3B8", fontSize: 13, padding: "24px 0", textAlign: "center" }}>Cargando...</div>
+              }
             </div>
 
           </div>

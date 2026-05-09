@@ -760,6 +760,85 @@ def _load_vs_competidor(comp_rut: str, ano: int, tipo: str) -> dict:
     }
 
 
+# ── /evolucion ────────────────────────────────────────────────────────────────
+
+def _load_evolucion(ano: int, tipo: str) -> list:
+    """Adjudicado LBF por mes para el año solicitado (método combinado JSONB + rut)."""
+    tf = _tipo_filter(tipo)
+    conn = get_pg_conn()
+    cur = conn.cursor()
+
+    cur.execute(f"""
+        WITH adj_jsonb AS (
+            SELECT
+                EXTRACT(MONTH FROM COALESCE(l.fecha_adjudicacion, l.fecha_publicacion))::int AS mes,
+                COALESCE(
+                    NULLIF((o->>'monto_adjudicado')::numeric, 0),
+                    (o->>'total')::numeric,
+                    0
+                ) AS monto_adj
+            FROM licitaciones_items li
+            JOIN licitaciones l ON l.id = li.licitacion_id
+            CROSS JOIN LATERAL jsonb_array_elements(li.oferentes) o
+            WHERE o->>'rut' = '{LBF_RUT}'
+              AND (o->>'seleccionada')::boolean = true
+              AND upper(li.categoria_nivel1) LIKE '{CAT_LIKE}'
+              AND EXTRACT(YEAR FROM COALESCE(l.fecha_adjudicacion, l.fecha_publicacion)) = {ano}
+              {tf}
+        ),
+        adj_rut AS (
+            SELECT
+                EXTRACT(MONTH FROM COALESCE(l.fecha_adjudicacion, l.fecha_publicacion))::int AS mes,
+                li.monto_adjudicado * COALESCE(li.cantidad_adjudicada, li.cantidad) AS monto_adj
+            FROM licitaciones_items li
+            JOIN licitaciones l ON l.id = li.licitacion_id
+            WHERE li.rut_proveedor_adj = '{LBF_RUT}'
+              AND upper(li.categoria_nivel1) LIKE '{CAT_LIKE}'
+              AND EXTRACT(YEAR FROM COALESCE(l.fecha_adjudicacion, l.fecha_publicacion)) = {ano}
+              {tf}
+              AND NOT EXISTS (
+                  SELECT 1 FROM jsonb_array_elements(li.oferentes) o2
+                  WHERE o2->>'rut' = '{LBF_RUT}'
+                    AND (o2->>'seleccionada')::boolean = true
+              )
+        ),
+        all_adj AS (SELECT * FROM adj_jsonb UNION ALL SELECT * FROM adj_rut),
+        monthly AS (
+            SELECT mes, SUM(monto_adj) AS total_adj
+            FROM all_adj
+            GROUP BY mes
+        )
+        SELECT m.mes, COALESCE(monthly.total_adj, 0) AS total_adj
+        FROM generate_series(1, 12) m(mes)
+        LEFT JOIN monthly ON monthly.mes = m.mes
+        ORDER BY m.mes
+    """)
+
+    MESES = ["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"]
+    rows = cur.fetchall()
+    conn.close()
+
+    return [
+        {"mes": MESES[int(row[0]) - 1], "mes_num": int(row[0]), "total_adj": round(float(row[1] or 0))}
+        for row in rows
+    ]
+
+
+@router.get("/evolucion")
+async def get_evolucion(
+    ano:  int = Query(2026),
+    tipo: str = Query(""),
+    current_user: dict = Depends(get_current_user),
+):
+    ck = f"mp:evolucion:{ano}:{tipo}"
+    cached = mem_get(ck)
+    if cached:
+        return cached
+    data = _load_evolucion(ano, tipo)
+    mem_set(ck, data)
+    return data
+
+
 @router.get("/vs-competidor")
 async def get_vs_competidor(
     rut:  str = Query(...),

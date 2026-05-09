@@ -230,37 +230,76 @@ def _load_participacion(ano: int, tipo: str) -> dict:
               AND upper(li.categoria_nivel1) LIKE '{CAT_LIKE}'
               AND EXTRACT(YEAR FROM COALESCE(l.fecha_adjudicacion, l.fecha_publicacion)) = {ano}
               {tf}
-        )
-        SELECT
-            INITCAP(MAX(o->>'nombre'))                                       AS competidor,
-            o->>'rut'                                                        AS rut,
-            COUNT(DISTINCT li.licitacion_id)                                AS ids_part,
-            COUNT(li.id)                                                    AS ofertas,
-            COUNT(CASE WHEN (o->>'seleccionada')::boolean THEN 1 END)       AS ofertas_adj,
-            COUNT(DISTINCT CASE WHEN (o->>'seleccionada')::boolean
-                THEN li.licitacion_id END)                                  AS ids_adj,
-            SUM(CASE WHEN (o->>'seleccionada')::boolean THEN
-                COALESCE(
-                    NULLIF((o->>'monto_adjudicado')::numeric, 0),
+        ),
+        lbf_adj_jsonb AS (
+            -- LBF adjudicado por licitacion (método JSONB)
+            SELECT li.licitacion_id,
+                   COALESCE(NULLIF((o->>'monto_adjudicado')::numeric,0),(o->>'total')::numeric,0) AS monto
+            FROM licitaciones_items li
+            JOIN lbf_lics ll ON ll.licitacion_id = li.licitacion_id
+            CROSS JOIN LATERAL jsonb_array_elements(li.oferentes) o
+            WHERE o->>'rut' = '{LBF_RUT}' AND (o->>'seleccionada')::boolean = true
+        ),
+        lbf_adj_rut AS (
+            -- LBF adjudicado por licitacion (método rut_proveedor_adj)
+            SELECT li.licitacion_id,
+                   li.monto_adjudicado * COALESCE(li.cantidad_adjudicada, li.cantidad) AS monto
+            FROM licitaciones_items li
+            JOIN lbf_lics ll ON ll.licitacion_id = li.licitacion_id
+            WHERE li.rut_proveedor_adj = '{LBF_RUT}'
+              AND NOT EXISTS (
+                  SELECT 1 FROM jsonb_array_elements(li.oferentes) o2
+                  WHERE o2->>'rut' = '{LBF_RUT}' AND (o2->>'seleccionada')::boolean = true
+              )
+        ),
+        lbf_adj_per_lic AS (
+            SELECT licitacion_id, SUM(monto) AS lbf_monto
+            FROM (SELECT * FROM lbf_adj_jsonb UNION ALL SELECT * FROM lbf_adj_rut) x
+            GROUP BY licitacion_id
+        ),
+        comp_data AS (
+            SELECT
+                o->>'rut'                                                        AS rut,
+                INITCAP(MAX(o->>'nombre'))                                       AS competidor,
+                COUNT(DISTINCT li.licitacion_id)                                AS ids_part,
+                COUNT(li.id)                                                     AS ofertas,
+                COUNT(CASE WHEN (o->>'seleccionada')::boolean THEN 1 END)        AS ofertas_adj,
+                COUNT(DISTINCT CASE WHEN (o->>'seleccionada')::boolean
+                    THEN li.licitacion_id END)                                   AS ids_adj,
+                SUM(CASE WHEN (o->>'seleccionada')::boolean THEN
+                    COALESCE(
+                        NULLIF((o->>'monto_adjudicado')::numeric, 0),
+                        (o->>'total')::numeric,
+                        0
+                    ) ELSE 0 END)                                                AS total_adj,
+                SUM(COALESCE(
+                    NULLIF((o->>'valor_total_ofertado')::numeric, 0),
                     (o->>'total')::numeric,
                     0
-                ) ELSE 0 END)                                               AS total_adj,
-            SUM(COALESCE(
-                NULLIF((o->>'valor_total_ofertado')::numeric, 0),
-                (o->>'total')::numeric,
-                0
-            ))                                                              AS total_ofertado
-        FROM licitaciones_items li
-        JOIN lbf_lics ll ON ll.licitacion_id = li.licitacion_id
-        CROSS JOIN LATERAL jsonb_array_elements(li.oferentes) o
-        WHERE o->>'rut' != '{LBF_RUT}'
-          AND upper(li.categoria_nivel1) LIKE '{CAT_LIKE}'
-        GROUP BY o->>'rut'
-        ORDER BY total_adj DESC
-        LIMIT 20
+                ))                                                               AS total_ofertado,
+                -- licitaciones donde este competidor participa
+                array_agg(DISTINCT li.licitacion_id)                             AS lics_array
+            FROM licitaciones_items li
+            JOIN lbf_lics ll ON ll.licitacion_id = li.licitacion_id
+            CROSS JOIN LATERAL jsonb_array_elements(li.oferentes) o
+            WHERE o->>'rut' != '{LBF_RUT}'
+              AND upper(li.categoria_nivel1) LIKE '{CAT_LIKE}'
+            GROUP BY o->>'rut'
+            ORDER BY total_adj DESC
+            LIMIT 20
+        )
+        SELECT
+            c.competidor, c.rut, c.ids_part, c.ofertas, c.ofertas_adj,
+            c.ids_adj, c.total_adj, c.total_ofertado,
+            COALESCE((
+                SELECT SUM(lbf_monto)
+                FROM lbf_adj_per_lic
+                WHERE licitacion_id = ANY(c.lics_array)
+            ), 0) AS lbf_adj_compartido
+        FROM comp_data c
     """)
     # columnas: competidor(0), rut(1), ids_part(2), ofertas(3),
-    #           ofertas_adj(4), ids_adj(5), total_adj(6), total_ofertado(7)
+    #           ofertas_adj(4), ids_adj(5), total_adj(6), total_ofertado(7), lbf_adj_compartido(8)
     top20 = []
     for row in cur.fetchall():
         comp_name  = row[0] or "Sin nombre"
@@ -270,17 +309,19 @@ def _load_participacion(ano: int, tipo: str) -> dict:
         ids_adj_c  = int(row[5] or 0)
         tadj_c     = float(row[6] or 0)
         of_c       = float(row[7] or 0)
+        lbf_comp   = float(row[8] or 0)
         top20.append({
-            "competidor":    comp_name,
-            "rut":           str(row[1] or ""),
-            "ids_part":      ids_part_c,
-            "ofertas":       of_tot_c,
-            "ofertas_adj":   of_adj_c,
-            "ids_adj":       ids_adj_c,
-            "total_adj":     round(tadj_c),
-            "total_ofertado":round(of_c),
-            "efectividad":   round(of_adj_c / of_tot_c * 100, 1) if of_tot_c > 0 else 0,
-            "part_valor":    round(tadj_c / mkt_valor * 100, 1) if mkt_valor > 0 else 0,
+            "competidor":        comp_name,
+            "rut":               str(row[1] or ""),
+            "ids_part":          ids_part_c,
+            "ofertas":           of_tot_c,
+            "ofertas_adj":       of_adj_c,
+            "ids_adj":           ids_adj_c,
+            "total_adj":         round(tadj_c),
+            "total_ofertado":    round(of_c),
+            "lbf_adj_compartido":round(lbf_comp),
+            "efectividad":       round(of_adj_c / of_tot_c * 100, 1) if of_tot_c > 0 else 0,
+            "part_valor":        round(tadj_c / mkt_valor * 100, 1) if mkt_valor > 0 else 0,
         })
 
     conn.close()

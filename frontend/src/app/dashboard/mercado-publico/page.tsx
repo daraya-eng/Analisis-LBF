@@ -90,6 +90,7 @@ interface Comp {
   ids_adj: number;
   total_adj: number;
   total_ofertado: number;
+  lbf_adj_compartido: number;
   efectividad: number;
   part_valor: number;
 }
@@ -621,7 +622,8 @@ function TabCompetencia({ data, ano, tipo }: { data: Data; ano: number; tipo: st
                 <th style={thR}>Monto Ofertado</th>
                 <th style={thR}>Monto Adjudicado</th>
                 <th style={thR}>% Éxito $</th>
-                <th style={{ ...thR, color: "#2563EB" }}>LBF adj / Comp. ofertado</th>
+                <th style={{ ...thR, color: "#2563EB" }}>LBF adj en sus lics.</th>
+                <th style={{ ...thR, color: "#2563EB" }}>% LBF / Comp. ofertado</th>
                 <th style={thR}>% Efect. Lics.</th>
                 <th style={thR}>Ítems Ofertados</th>
                 <th style={thR}>Ítems Adj.</th>
@@ -651,8 +653,9 @@ function TabCompetencia({ data, ano, tipo }: { data: Data; ano: number; tipo: st
                   {pct(lbfPct)}
                 </td>
                 <td style={{ ...tdR, fontWeight: 700, color: "#2563EB" }}>
-                  {lbf.total_participado > 0 ? pct((lbf.total_adj / lbf.total_participado) * 100) : "—"}
+                  {fmtCLP(lbf.total_adj)}
                 </td>
+                <td style={{ ...tdR, fontWeight: 700, color: "#2563EB" }}>—</td>
                 <td style={{ ...tdR, fontWeight: 700, color: "#059669" }}>
                   {pct(lbfEf)}
                 </td>
@@ -705,7 +708,10 @@ function TabCompetencia({ data, ano, tipo }: { data: Data; ano: number; tipo: st
                       {cPct !== null ? pct(cPct) : "—"}
                     </td>
                     <td style={{ ...tdR, color: "#2563EB", fontWeight: 600 }}>
-                      {c.total_ofertado > 0 ? pct((lbf.total_adj / c.total_ofertado) * 100) : "—"}
+                      {fmtCLP(c.lbf_adj_compartido)}
+                    </td>
+                    <td style={{ ...tdR, color: "#2563EB", fontWeight: 600 }}>
+                      {c.total_ofertado > 0 ? pct((c.lbf_adj_compartido / c.total_ofertado) * 100) : "—"}
                     </td>
                     <td style={{
                       ...tdR,

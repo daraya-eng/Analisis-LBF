@@ -495,132 +495,128 @@ function TabCompetencia({ data, ano, tipo }: { data: Data; ano: number; tipo: st
         />
       )}
 
-      {/* Adjudicado por tipo de licitación */}
-      {(data.por_tipo ?? []).length > 0 && (() => {
-        const totalTipo = data.por_tipo.reduce((s, t) => s + t.total_adj, 0);
-        const COLORS: Record<string, string> = {
-          LR: "#1D4ED8", LP: "#2563EB", LQ: "#3B82F6",
-          LE: "#60A5FA", SE: "#7C3AED", L1: "#93C5FD",
-          LS: "#A78BFA", TD: "#F59E0B", AG: "#10B981",
-        };
+      {/* ── Dos gráficos lado a lado ─────────────────────────────────────────── */}
+      {(() => {
+        // Paleta compartida
+        const PALETTE = [
+          "#2563EB", "#7C3AED", "#059669", "#D97706",
+          "#DC2626", "#0891B2", "#9333EA", "#EA580C",
+          "#16A34A", "#CA8A04", "#BE185D", "#0284C7",
+        ];
+        const compRows = [
+          { nombre: "LBF (tú)", adj: lbf.total_adj, isLbf: true },
+          ...data.top20.slice(0, 11).map((c) => ({ nombre: c.competidor, adj: c.total_adj, isLbf: false })),
+        ];
+        const maxMs = lbf.total_participado > 0
+          ? Math.max(...compRows.map((r) => r.adj / lbf.total_participado * 100))
+          : 1;
+
+        const porTipo = data.por_tipo ?? [];
+        const totalTipo = porTipo.reduce((s, t) => s + t.total_adj, 0);
+        const maxTipo = totalTipo > 0 ? Math.max(...porTipo.map((t) => t.total_adj / totalTipo * 100)) : 1;
+
         return (
-          <div style={card}>
-            <div style={{ marginBottom: 16 }}>
-              <span style={{ fontSize: 15, fontWeight: 700, color: "#0F172A" }}>
-                Adjudicado por tipo de licitación
-              </span>
-              <span style={{ fontSize: 12, color: "#94A3B8", marginLeft: 8 }}>
-                {fmtCLP(totalTipo)} total · {data.ano}
-              </span>
-            </div>
-            <div style={{ display: "flex", gap: 24, alignItems: "flex-start", flexWrap: "wrap" }}>
-              {/* Barras */}
-              <div style={{ flex: 1, minWidth: 260 }}>
-                {data.por_tipo.map((t, i) => {
-                  const pctVal = totalTipo > 0 ? (t.total_adj / totalTipo) * 100 : 0;
-                  const color = COLORS[t.tipo] ?? "#94A3B8";
-                  return (
-                    <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
-                      <div style={{
-                        width: 36, fontSize: 12, fontWeight: 700, color,
-                        textAlign: "right", flexShrink: 0,
-                      }}>
-                        {t.tipo}
-                      </div>
-                      <div style={{ flex: 1, height: 20, background: "#F1F5F9", borderRadius: 4, overflow: "hidden" }}>
-                        <div style={{
-                          width: `${pctVal}%`, height: "100%",
-                          background: color, borderRadius: 4,
-                          transition: "width 0.4s ease",
-                        }} />
-                      </div>
-                      <div style={{ width: 44, fontSize: 12, fontWeight: 600, color, textAlign: "right", flexShrink: 0 }}>
-                        {pctVal.toFixed(1)}%
-                      </div>
-                      <div style={{ width: 130, fontSize: 11, color: "#64748B", textAlign: "right", flexShrink: 0, fontVariantNumeric: "tabular-nums" }}>
-                        {fmtCLP(t.total_adj)}
-                      </div>
-                      <div style={{ width: 60, fontSize: 11, color: "#94A3B8", textAlign: "right", flexShrink: 0 }}>
-                        {t.ids_adj} lics
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-              {/* Barra apilada resumen */}
-              <div style={{ flexShrink: 0 }}>
-                <div style={{ fontSize: 11, color: "#64748B", marginBottom: 6 }}>Composición</div>
-                <div style={{ width: 24, height: 200, borderRadius: 4, overflow: "hidden", display: "flex", flexDirection: "column" }}>
-                  {data.por_tipo.map((t, i) => {
-                    const pctVal = totalTipo > 0 ? (t.total_adj / totalTipo) * 100 : 0;
-                    const color = COLORS[t.tipo] ?? "#94A3B8";
-                    return (
-                      <div key={i} title={`${t.tipo}: ${pctVal.toFixed(1)}%`}
-                        style={{ width: "100%", height: `${pctVal}%`, background: color, flexShrink: 0 }} />
-                    );
-                  })}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+
+            {/* Gráfico 1 — MS% por empresa */}
+            <div style={card}>
+              <div style={{ marginBottom: 14 }}>
+                <div style={{ fontSize: 14, fontWeight: 700, color: "#0F172A" }}>
+                  MS% sobre total participado LBF
+                </div>
+                <div style={{ fontSize: 11, color: "#94A3B8", marginTop: 2 }}>
+                  base {fmtCLP(lbf.total_participado)}
                 </div>
               </div>
+              {compRows.map((row, i) => {
+                const pctVal = lbf.total_participado > 0
+                  ? (row.adj / lbf.total_participado) * 100 : 0;
+                const barW = maxMs > 0 ? (pctVal / maxMs) * 100 : 0;
+                const color = row.isLbf ? "#2563EB" : PALETTE[(i - 1 + PALETTE.length) % PALETTE.length];
+                return (
+                  <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                    <div style={{
+                      width: 4, height: 18, borderRadius: 2,
+                      background: color, flexShrink: 0,
+                    }} />
+                    <div style={{
+                      width: 140, fontSize: 12,
+                      color: row.isLbf ? "#2563EB" : "#374151",
+                      fontWeight: row.isLbf ? 700 : 400,
+                      whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", flexShrink: 0,
+                    }}>
+                      {row.nombre}
+                    </div>
+                    <div style={{ flex: 1, height: 14, background: "#F1F5F9", borderRadius: 3, overflow: "hidden" }}>
+                      <div style={{
+                        width: `${barW}%`, height: "100%", background: color,
+                        borderRadius: 3, transition: "width 0.4s ease",
+                        opacity: row.isLbf ? 1 : 0.75,
+                      }} />
+                    </div>
+                    <div style={{
+                      width: 44, fontSize: 11, fontWeight: row.isLbf ? 700 : 400,
+                      color: row.isLbf ? "#2563EB" : "#374151",
+                      textAlign: "right", flexShrink: 0, fontVariantNumeric: "tabular-nums",
+                    }}>
+                      {pctVal.toFixed(1)}%
+                    </div>
+                  </div>
+                );
+              })}
             </div>
+
+            {/* Gráfico 2 — Adj LBF por tipo */}
+            <div style={card}>
+              <div style={{ marginBottom: 14 }}>
+                <div style={{ fontSize: 14, fontWeight: 700, color: "#0F172A" }}>
+                  Adjudicado LBF por tipo de licitación
+                </div>
+                <div style={{ fontSize: 11, color: "#94A3B8", marginTop: 2 }}>
+                  total {fmtCLP(totalTipo)}
+                </div>
+              </div>
+              {porTipo.map((t, i) => {
+                const pctVal = totalTipo > 0 ? (t.total_adj / totalTipo) * 100 : 0;
+                const barW  = maxTipo > 0 ? (pctVal / maxTipo) * 100 : 0;
+                const color = PALETTE[i % PALETTE.length];
+                return (
+                  <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                    <div style={{
+                      width: 4, height: 18, borderRadius: 2,
+                      background: color, flexShrink: 0,
+                    }} />
+                    <div style={{
+                      width: 36, fontSize: 12, fontWeight: 700, color, flexShrink: 0,
+                    }}>
+                      {t.tipo}
+                    </div>
+                    <div style={{ flex: 1, height: 14, background: "#F1F5F9", borderRadius: 3, overflow: "hidden" }}>
+                      <div style={{
+                        width: `${barW}%`, height: "100%", background: color,
+                        borderRadius: 3, transition: "width 0.4s ease",
+                      }} />
+                    </div>
+                    <div style={{
+                      width: 44, fontSize: 11, fontWeight: 600, color,
+                      textAlign: "right", flexShrink: 0, fontVariantNumeric: "tabular-nums",
+                    }}>
+                      {pctVal.toFixed(1)}%
+                    </div>
+                    <div style={{
+                      width: 115, fontSize: 11, color: "#64748B",
+                      textAlign: "right", flexShrink: 0, fontVariantNumeric: "tabular-nums",
+                    }}>
+                      {fmtCLP(t.total_adj)}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
           </div>
         );
       })()}
-
-      {/* Gráfico MS% relativo al total participado LBF */}
-      <div style={card}>
-        <div style={{ marginBottom: 16 }}>
-          <span style={{ fontSize: 15, fontWeight: 700, color: "#0F172A" }}>
-            Market Share sobre total participado LBF
-          </span>
-          <span style={{ fontSize: 12, color: "#94A3B8", marginLeft: 8 }}>
-            base = {fmtCLP(lbf.total_participado)} · cada barra = adj empresa / total part. LBF
-          </span>
-        </div>
-
-        {/* LBF primero + top 10 competidores */}
-        {[
-          { nombre: "LBF (tú)", adj: lbf.total_adj, isLbf: true },
-          ...data.top20.slice(0, 14).map((c) => ({ nombre: c.competidor, adj: c.total_adj, isLbf: false })),
-        ].map((row, i) => {
-          const pctVal = lbf.total_participado > 0
-            ? (row.adj / lbf.total_participado) * 100
-            : 0;
-          const color = row.isLbf ? "#2563EB" : i % 2 === 0 ? "#64748B" : "#94A3B8";
-          return (
-            <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 7 }}>
-              <div style={{
-                width: 180, fontSize: 12, color: row.isLbf ? "#2563EB" : "#374151",
-                fontWeight: row.isLbf ? 700 : 400, textAlign: "right",
-                whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", flexShrink: 0,
-              }}>
-                {row.nombre}
-              </div>
-              <div style={{ flex: 1, height: 18, background: "#F1F5F9", borderRadius: 3, overflow: "hidden" }}>
-                <div style={{
-                  width: `${Math.min(pctVal, 100)}%`,
-                  height: "100%",
-                  background: color,
-                  borderRadius: 3,
-                  transition: "width 0.4s ease",
-                }} />
-              </div>
-              <div style={{
-                width: 52, fontSize: 12, fontWeight: row.isLbf ? 700 : 400,
-                color: row.isLbf ? "#2563EB" : "#374151",
-                textAlign: "right", flexShrink: 0, fontVariantNumeric: "tabular-nums",
-              }}>
-                {pctVal.toFixed(1)}%
-              </div>
-              <div style={{
-                width: 130, fontSize: 11, color: "#94A3B8",
-                textAlign: "right", flexShrink: 0, fontVariantNumeric: "tabular-nums",
-              }}>
-                {fmtCLP(row.adj)}
-              </div>
-            </div>
-          );
-        })}
-      </div>
 
       {/* Tabla competidores */}
       <div style={card}>

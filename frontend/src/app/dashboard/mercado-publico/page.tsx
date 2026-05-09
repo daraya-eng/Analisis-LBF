@@ -480,40 +480,49 @@ function TabCompetencia({ data, ano, tipo }: { data: Data; ano: number; tipo: st
                 if (porTipo.length === 0) return <div style={{ color: "#94A3B8", fontSize: 13 }}>Sin datos</div>;
                 const CHART_H = 160;
                 const maxAdj  = Math.max(...porTipo.map((t) => t.total_adj), 1);
+                const vals = porTipo.map((t) => ({
+                  pctVal: totalTipo > 0 ? (t.total_adj / totalTipo) * 100 : 0,
+                  barH:   Math.max((t.total_adj / maxAdj) * CHART_H, t.total_adj > 0 ? 4 : 0),
+                  color:  tipoColor(t.tipo),
+                }));
                 return (
                   <div style={{ overflowX: "auto" }}>
-                    <div style={{ display: "flex", alignItems: "flex-end", gap: 8, minWidth: porTipo.length * 90, paddingTop: 8 }}>
-                      {porTipo.map((t, i) => {
-                        const pctVal = totalTipo > 0 ? (t.total_adj / totalTipo) * 100 : 0;
-                        const barH   = (t.total_adj / maxAdj) * CHART_H;
-                        const color  = tipoColor(t.tipo);
-                        return (
-                          <div key={i} style={{ flex: 1, minWidth: 80, display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
-                            {/* monto completo */}
-                            <div style={{ fontSize: 10, fontWeight: 700, color, textAlign: "center", whiteSpace: "nowrap" }}>
+                    <div style={{ minWidth: porTipo.length * 90 }}>
+                      {/* Fila 1 — textos (monto, %, lics) alineados al fondo */}
+                      <div style={{ display: "flex", gap: 8, alignItems: "flex-end", marginBottom: 6 }}>
+                        {porTipo.map((t, i) => (
+                          <div key={i} style={{ flex: 1, minWidth: 80, textAlign: "center" }}>
+                            <div style={{ fontSize: 10, fontWeight: 700, color: vals[i].color, whiteSpace: "nowrap" }}>
                               {fmtCLP(t.total_adj)}
                             </div>
-                            {/* % */}
-                            <div style={{ fontSize: 13, fontWeight: 800, color: "#0F172A", textAlign: "center" }}>
-                              {pctVal.toFixed(1)}%
+                            <div style={{ fontSize: 13, fontWeight: 800, color: "#0F172A" }}>
+                              {vals[i].pctVal.toFixed(1)}%
                             </div>
-                            {/* lics */}
-                            <div style={{ fontSize: 10, color: "#94A3B8", textAlign: "center" }}>
+                            <div style={{ fontSize: 10, color: "#94A3B8" }}>
                               {fmtN(t.ids_adj)} lics.
                             </div>
-                            {/* barra */}
-                            <div style={{ width: "100%", height: CHART_H, display: "flex", alignItems: "flex-end" }}>
-                              <div style={{
-                                width: "100%", height: barH, background: color,
-                                borderRadius: "5px 5px 0 0", transition: "height 0.5s ease",
-                                minHeight: t.total_adj > 0 ? 4 : 0,
-                              }} />
-                            </div>
-                            {/* label tipo */}
-                            <div style={{ fontSize: 13, fontWeight: 800, color, textAlign: "center" }}>{t.tipo}</div>
                           </div>
-                        );
-                      })}
+                        ))}
+                      </div>
+                      {/* Fila 2 — barras todas con el mismo baseline */}
+                      <div style={{ display: "flex", gap: 8, alignItems: "flex-end", height: CHART_H }}>
+                        {porTipo.map((t, i) => (
+                          <div key={i} style={{
+                            flex: 1, minWidth: 80, height: vals[i].barH,
+                            background: vals[i].color,
+                            borderRadius: "5px 5px 0 0",
+                            transition: "height 0.5s ease",
+                          }} />
+                        ))}
+                      </div>
+                      {/* Fila 3 — etiquetas tipo */}
+                      <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
+                        {porTipo.map((t, i) => (
+                          <div key={i} style={{ flex: 1, minWidth: 80, textAlign: "center", fontSize: 13, fontWeight: 800, color: vals[i].color }}>
+                            {t.tipo}
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   </div>
                 );

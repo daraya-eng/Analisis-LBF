@@ -151,37 +151,22 @@ def _load_participacion(ano: int, tipo: str) -> dict:
     # Combina rut_proveedor_adj (datos modernos) con JSONB seleccionada (datos 2024/2025
     # donde rut_proveedor_adj puede estar vacío).
     def _mkt_query(year_val: int) -> str:
+        # monto_adjudicado > 0 es el marcador universal de "item adjudicado" —
+        # funciona para todos los años independientemente de rut_proveedor_adj o JSONB.
         return f"""
             SELECT
                 COUNT(DISTINCT li.licitacion_id)   AS ids_total,
                 COUNT(DISTINCT li.id)              AS items_total,
                 SUM(
-                    CASE WHEN li.rut_proveedor_adj IS NOT NULL
-                         THEN COALESCE(li.monto_adjudicado
-                              * COALESCE(li.cantidad_adjudicada, li.cantidad, 1), 0)
-                         ELSE COALESCE((
-                             SELECT NULLIF((o->>'monto_adjudicado')::numeric, 0)
-                             FROM jsonb_array_elements(li.oferentes) o
-                             WHERE (o->>'seleccionada')::boolean = true LIMIT 1
-                         ), (
-                             SELECT (o->>'total')::numeric
-                             FROM jsonb_array_elements(li.oferentes) o
-                             WHERE (o->>'seleccionada')::boolean = true LIMIT 1
-                         ), 0)
-                    END
+                    li.monto_adjudicado
+                    * COALESCE(li.cantidad_adjudicada, li.cantidad, 1)
                 )                                  AS valor_total_adj
             FROM licitaciones_items li
             JOIN licitaciones l ON l.id = li.licitacion_id
             WHERE upper(li.categoria_nivel1) LIKE '{CAT_LIKE}'
+              AND li.monto_adjudicado > 0
               AND EXTRACT(YEAR FROM COALESCE(l.fecha_adjudicacion, l.fecha_publicacion)) = {year_val}
               {tf}
-              AND (
-                  li.rut_proveedor_adj IS NOT NULL
-                  OR EXISTS (
-                      SELECT 1 FROM jsonb_array_elements(li.oferentes) o2
-                      WHERE (o2->>'seleccionada')::boolean = true
-                  )
-              )
         """
 
     cur.execute(_mkt_query(ano))

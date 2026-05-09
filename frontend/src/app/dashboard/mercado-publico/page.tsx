@@ -546,7 +546,7 @@ function TabCompetencia({ data, ano, tipo }: { data: Data; ano: number; tipo: st
               })}
             </div>
 
-            {/* Gráfico 2 — Barras horizontales por tipo */}
+            {/* Gráfico 2 — Barras verticales por tipo */}
             <div style={card}>
               <div style={{ marginBottom: 18 }}>
                 <div style={{ fontSize: 14, fontWeight: 700, color: "#0F172A" }}>
@@ -562,33 +562,34 @@ function TabCompetencia({ data, ano, tipo }: { data: Data; ano: number; tipo: st
                   n >= 1e9 ? `$${(n/1e9).toFixed(2)}MM`
                   : n >= 1e6 ? `$${(n/1e6).toFixed(0)}M`
                   : `$${(n/1e3).toFixed(0)}K`;
-                const maxAdj = Math.max(...porTipo.map((t) => t.total_adj), 1);
+                const CHART_H = 180;
+                const maxAdj  = Math.max(...porTipo.map((t) => t.total_adj), 1);
                 return (
-                  <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+                  <div style={{ display: "flex", alignItems: "flex-end", gap: 10, height: CHART_H + 52, paddingTop: 28 }}>
                     {porTipo.map((t, i) => {
                       const pctVal = totalTipo > 0 ? (t.total_adj / totalTipo) * 100 : 0;
-                      const barW   = (t.total_adj / maxAdj) * 100;
+                      const barH   = (t.total_adj / maxAdj) * CHART_H;
                       const color  = tipoColor(t.tipo);
                       return (
-                        <div key={i}>
-                          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 5 }}>
-                            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                              <div style={{ width: 12, height: 12, borderRadius: 3, background: color, flexShrink: 0 }} />
-                              <span style={{ fontSize: 13, fontWeight: 700, color }}>{t.tipo}</span>
-                            </div>
-                            <div style={{ display: "flex", gap: 16, alignItems: "baseline" }}>
-                              <span style={{ fontSize: 13, fontWeight: 700, color: "#0F172A" }}>{pctVal.toFixed(1)}%</span>
-                              <span style={{ fontSize: 12, color: "#64748B", fontVariantNumeric: "tabular-nums", minWidth: 64, textAlign: "right" }}>
-                                {abbr(t.total_adj)}
-                              </span>
-                            </div>
+                        <div key={i} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}>
+                          {/* monto encima */}
+                          <div style={{ fontSize: 11, fontWeight: 700, color, textAlign: "center", whiteSpace: "nowrap" }}>
+                            {abbr(t.total_adj)}
                           </div>
-                          <div style={{ height: 12, background: "#F1F5F9", borderRadius: 6, overflow: "hidden" }}>
+                          {/* % */}
+                          <div style={{ fontSize: 12, fontWeight: 700, color: "#0F172A", textAlign: "center" }}>
+                            {pctVal.toFixed(1)}%
+                          </div>
+                          {/* barra */}
+                          <div style={{ width: "100%", height: CHART_H, display: "flex", alignItems: "flex-end" }}>
                             <div style={{
-                              width: `${barW}%`, height: "100%", background: color,
-                              borderRadius: 6, transition: "width 0.5s ease",
+                              width: "100%", height: barH, background: color,
+                              borderRadius: "5px 5px 0 0", transition: "height 0.5s ease",
+                              minHeight: t.total_adj > 0 ? 4 : 0,
                             }} />
                           </div>
+                          {/* label tipo */}
+                          <div style={{ fontSize: 12, fontWeight: 700, color, textAlign: "center" }}>{t.tipo}</div>
                         </div>
                       );
                     })}

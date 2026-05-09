@@ -566,7 +566,7 @@ function TabCompetencia({ data, ano, tipo }: { data: Data; ano: number; tipo: st
               })}
             </div>
 
-            {/* Gráfico 2 — Adj LBF por tipo */}
+            {/* Gráfico 2 — Torta por tipo */}
             <div style={card}>
               <div style={{ marginBottom: 14 }}>
                 <div style={{ fontSize: 14, fontWeight: 700, color: "#0F172A" }}>
@@ -576,42 +576,60 @@ function TabCompetencia({ data, ano, tipo }: { data: Data; ano: number; tipo: st
                   total {fmtCLP(totalTipo)}
                 </div>
               </div>
-              {porTipo.map((t, i) => {
-                const pctVal = totalTipo > 0 ? (t.total_adj / totalTipo) * 100 : 0;
-                const barW  = maxTipo > 0 ? (pctVal / maxTipo) * 100 : 0;
-                const color = PALETTE[i % PALETTE.length];
-                return (
-                  <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
-                    <div style={{
-                      width: 4, height: 18, borderRadius: 2,
-                      background: color, flexShrink: 0,
-                    }} />
-                    <div style={{
-                      width: 36, fontSize: 12, fontWeight: 700, color, flexShrink: 0,
-                    }}>
-                      {t.tipo}
-                    </div>
-                    <div style={{ flex: 1, height: 14, background: "#F1F5F9", borderRadius: 3, overflow: "hidden" }}>
-                      <div style={{
-                        width: `${barW}%`, height: "100%", background: color,
-                        borderRadius: 3, transition: "width 0.4s ease",
-                      }} />
-                    </div>
-                    <div style={{
-                      width: 44, fontSize: 11, fontWeight: 600, color,
-                      textAlign: "right", flexShrink: 0, fontVariantNumeric: "tabular-nums",
-                    }}>
-                      {pctVal.toFixed(1)}%
-                    </div>
-                    <div style={{
-                      width: 115, fontSize: 11, color: "#64748B",
-                      textAlign: "right", flexShrink: 0, fontVariantNumeric: "tabular-nums",
-                    }}>
-                      {fmtCLP(t.total_adj)}
-                    </div>
-                  </div>
-                );
-              })}
+              <div style={{ display: "flex", gap: 24, alignItems: "center" }}>
+                {/* SVG donut */}
+                {(() => {
+                  const R = 80, r = 48, cx = 90, cy = 90;
+                  let cumAngle = -Math.PI / 2;
+                  const slices = porTipo.map((t, i) => {
+                    const frac = totalTipo > 0 ? t.total_adj / totalTipo : 0;
+                    const angle = frac * 2 * Math.PI;
+                    const x1 = cx + R * Math.cos(cumAngle);
+                    const y1 = cy + R * Math.sin(cumAngle);
+                    cumAngle += angle;
+                    const x2 = cx + R * Math.cos(cumAngle);
+                    const y2 = cy + R * Math.sin(cumAngle);
+                    const xi1 = cx + r * Math.cos(cumAngle - angle);
+                    const yi1 = cy + r * Math.sin(cumAngle - angle);
+                    const xi2 = cx + r * Math.cos(cumAngle);
+                    const yi2 = cy + r * Math.sin(cumAngle);
+                    const large = angle > Math.PI ? 1 : 0;
+                    const d = `M ${x1} ${y1} A ${R} ${R} 0 ${large} 1 ${x2} ${y2} L ${xi2} ${yi2} A ${r} ${r} 0 ${large} 0 ${xi1} ${yi1} Z`;
+                    return { d, color: PALETTE[i % PALETTE.length], frac, tipo: t.tipo };
+                  });
+                  return (
+                    <svg width={180} height={180} style={{ flexShrink: 0 }}>
+                      {slices.map((s, i) => (
+                        <path key={i} d={s.d} fill={s.color} stroke="white" strokeWidth={2}>
+                          <title>{s.tipo}: {(s.frac * 100).toFixed(1)}%</title>
+                        </path>
+                      ))}
+                      {/* Centro: total */}
+                      <text x={cx} y={cy - 6} textAnchor="middle" fontSize={10} fill="#64748B">Total adj.</text>
+                      <text x={cx} y={cy + 10} textAnchor="middle" fontSize={11} fontWeight="700" fill="#0F172A">
+                        {fmtCLP(totalTipo).replace("$", "$")}
+                      </text>
+                    </svg>
+                  );
+                })()}
+                {/* Leyenda */}
+                <div style={{ flex: 1 }}>
+                  {porTipo.map((t, i) => {
+                    const pctVal = totalTipo > 0 ? (t.total_adj / totalTipo) * 100 : 0;
+                    const color = PALETTE[i % PALETTE.length];
+                    return (
+                      <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+                        <div style={{ width: 12, height: 12, borderRadius: 3, background: color, flexShrink: 0 }} />
+                        <div style={{ fontSize: 13, fontWeight: 700, color, width: 36, flexShrink: 0 }}>{t.tipo}</div>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontSize: 12, fontWeight: 600, color: "#0F172A" }}>{pctVal.toFixed(1)}%</div>
+                          <div style={{ fontSize: 11, color: "#64748B", fontVariantNumeric: "tabular-nums" }}>{fmtCLP(t.total_adj)}</div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
             </div>
 
           </div>

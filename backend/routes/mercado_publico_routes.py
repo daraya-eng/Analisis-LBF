@@ -1,7 +1,20 @@
 """
 Mercado Publico — Análisis de participación LBF en insumos médicos.
 Fuente: PostgreSQL mercado_publico, tabla licitaciones + licitaciones_items.
-LBF se identifica por RUT 93.366.000-1 dentro del JSONB oferentes.
+
+Identificación LBF (dos métodos combinados):
+  1. JSONB oferentes: o->>'rut' = '93.366.000-1' AND (o->>'seleccionada')::boolean = true
+  2. Columna directa:  licitaciones_items.rut_proveedor_adj = '93.366.000-1'
+     (cubre casos donde el JSONB no fue actualizado correctamente)
+
+Montos adjudicados:
+  - Formato nuevo (estado='Aceptada'):  o->>'monto_adjudicado'
+  - Formato antiguo (estado='Adjudicada'): o->>'total' (= monto_unitario x cantidad_adj)
+  - Ítems vía rut_proveedor_adj sin JSONB: li.monto_adjudicado x COALESCE(cant_adj, cantidad)
+
+Montos ofertados:
+  - Formato nuevo: o->>'valor_total_ofertado'
+  - Formato antiguo: o->>'total'
 """
 from fastapi import APIRouter, Depends, Query
 from auth import get_current_user
@@ -15,6 +28,7 @@ CAT_LIKE = "EQUIPAMIENTO%"
 
 # Tipos de licitación pública (excluye CM que tiene módulo aparte)
 TIPOS_LIC = ("L1", "LE", "LP", "LQ", "LR", "LS", "SE", "E2")
+
 
 def _tipo_filter(tipo: str) -> str:
     t = (tipo or "").upper()
@@ -37,16 +51,17 @@ def _load_participacion(ano: int, tipo: str) -> dict:
     conn = get_pg_conn()
     cur = conn.cursor()
 
-    # ── KPIs LBF ──────────────────────────────────────────────────────────────
+    # ── KPIs LBF — participación (ítems ofertados via JSONB) ──────────────────
     cur.execute(f"""
         WITH lbf_items AS (
             SELECT
                 li.licitacion_id,
-                li.id                                            AS item_id,
-                (o->>'seleccionada')::boolean                   AS adj,
+                li.id                                                        AS item_id,
                 COALESCE(
-                    (o->>'valor_total_ofertado')::numeric, 0)   AS monto_ofertado,
-                COALESCE(li.monto_adjudicado, 0)               AS monto_adj
+                    NULLIF((o->>'valor_total_ofertado')::numeric, 0),
+                    (o->>'total')::numeric,
+                    0
+                )                                                            AS monto_ofertado
             FROM licitaciones_items li
             JOIN licitaciones l ON l.id = li.licitacion_id
             CROSS JOIN LATERAL jsonb_array_elements(li.oferentes) o
@@ -59,9 +74,6 @@ def _load_participacion(ano: int, tipo: str) -> dict:
             COUNT(DISTINCT licitacion_id)                              AS ids_participadas,
             COUNT(item_id)                                             AS ofertas_realizadas,
             COUNT(CASE WHEN monto_ofertado > 0 THEN 1 END)            AS ofertas_con_precio,
-            COUNT(CASE WHEN adj THEN 1 END)                           AS ofertas_adj,
-            COUNT(DISTINCT CASE WHEN adj THEN licitacion_id END)      AS ids_adj,
-            SUM(CASE WHEN adj THEN monto_adj ELSE 0 END)              AS total_adj,
             SUM(monto_ofertado)                                        AS total_ofertado
         FROM lbf_items
     """)
@@ -69,23 +81,84 @@ def _load_participacion(ano: int, tipo: str) -> dict:
     ids_part   = int(r[0] or 0)
     of_real    = int(r[1] or 0)
     of_precio  = int(r[2] or 0)
-    of_adj     = int(r[3] or 0)
-    ids_adj    = int(r[4] or 0)
-    total_adj  = float(r[5] or 0)
-    total_part = float(r[6] or 0)
+    total_part = float(r[3] or 0)
+
+    # ── KPIs LBF — adjudicaciones (método combinado JSONB + rut_proveedor_adj) ─
+    #
+    # Método 1: ítems donde LBF aparece en JSONB con seleccionada=true.
+    # Monto: COALESCE(o.monto_adjudicado, o.total) según formato del JSONB.
+    #
+    # Método 2: ítems donde rut_proveedor_adj = LBF pero el JSONB no refleja
+    # la adjudicación (data quality issue en la fuente). Monto: precio_unit × cantidad.
+    cur.execute(f"""
+        WITH adj_jsonb AS (
+            -- Método 1: JSONB seleccionada=true
+            SELECT
+                li.licitacion_id,
+                li.id AS item_id,
+                COALESCE(
+                    NULLIF((o->>'monto_adjudicado')::numeric, 0),
+                    (o->>'total')::numeric,
+                    0
+                ) AS monto_adj
+            FROM licitaciones_items li
+            JOIN licitaciones l ON l.id = li.licitacion_id
+            CROSS JOIN LATERAL jsonb_array_elements(li.oferentes) o
+            WHERE o->>'rut' = '{LBF_RUT}'
+              AND (o->>'seleccionada')::boolean = true
+              AND upper(li.categoria_nivel1) LIKE '{CAT_LIKE}'
+              AND EXTRACT(YEAR FROM COALESCE(l.fecha_adjudicacion, l.fecha_publicacion)) = {ano}
+              {tf}
+        ),
+        adj_rut AS (
+            -- Método 2: rut_proveedor_adj sin cobertura JSONB
+            SELECT
+                li.licitacion_id,
+                li.id AS item_id,
+                li.monto_adjudicado * COALESCE(li.cantidad_adjudicada, li.cantidad) AS monto_adj
+            FROM licitaciones_items li
+            JOIN licitaciones l ON l.id = li.licitacion_id
+            WHERE li.rut_proveedor_adj = '{LBF_RUT}'
+              AND upper(li.categoria_nivel1) LIKE '{CAT_LIKE}'
+              AND EXTRACT(YEAR FROM COALESCE(l.fecha_adjudicacion, l.fecha_publicacion)) = {ano}
+              {tf}
+              AND NOT EXISTS (
+                  SELECT 1 FROM jsonb_array_elements(li.oferentes) o2
+                  WHERE o2->>'rut' = '{LBF_RUT}'
+                    AND (o2->>'seleccionada')::boolean = true
+              )
+        ),
+        all_adj AS (
+            SELECT * FROM adj_jsonb
+            UNION ALL
+            SELECT * FROM adj_rut
+        )
+        SELECT
+            COUNT(item_id)                                       AS ofertas_adj,
+            COUNT(DISTINCT licitacion_id)                        AS ids_adj,
+            SUM(monto_adj)                                       AS total_adj
+        FROM all_adj
+    """)
+    r = cur.fetchone()
+    of_adj    = int(r[0] or 0)
+    ids_adj   = int(r[1] or 0)
+    total_adj = float(r[2] or 0)
 
     ef_items = round(of_adj / of_real * 100, 1) if of_real > 0 else 0
     ef_lics  = round(ids_adj / ids_part * 100, 1) if ids_part > 0 else 0
 
     # ── Mercado total (misma categoría y filtro tipo) ─────────────────────────
+    # Suma de monto_adjudicado (precio × cant_adj vía rut_proveedor_adj) — consistente
+    # con el método LBF. Se usa para calcular participación de mercado por valor.
     cur.execute(f"""
         SELECT
-            COUNT(DISTINCT li.licitacion_id)    AS ids_total,
-            COUNT(li.id)                        AS items_total,
-            SUM(COALESCE(li.monto_adjudicado,0)) AS valor_total_adj
+            COUNT(DISTINCT li.licitacion_id)                               AS ids_total,
+            COUNT(li.id)                                                   AS items_total,
+            SUM(COALESCE(li.monto_adjudicado, 0))                         AS valor_total_adj
         FROM licitaciones_items li
         JOIN licitaciones l ON l.id = li.licitacion_id
         WHERE upper(li.categoria_nivel1) LIKE '{CAT_LIKE}'
+          AND li.rut_proveedor_adj IS NOT NULL
           AND EXTRACT(YEAR FROM COALESCE(l.fecha_adjudicacion, l.fecha_publicacion)) = {ano}
           {tf}
     """)
@@ -98,6 +171,9 @@ def _load_participacion(ano: int, tipo: str) -> dict:
     part_valor = round(total_adj / mkt_valor * 100, 1) if mkt_valor > 0 else 0
 
     # ── Top 20 competidores en las mismas licitaciones donde participó LBF ────
+    # Para adj de competidores: JSONB monto_adjudicado/total (tiene los totales correctos
+    # para grandes contratos marco). rut_proveedor_adj × cant da el precio unitario,
+    # no el total, para la mayoría de empresas grandes.
     cur.execute(f"""
         WITH lbf_lics AS (
             SELECT DISTINCT li.licitacion_id
@@ -111,14 +187,23 @@ def _load_participacion(ano: int, tipo: str) -> dict:
         )
         SELECT
             INITCAP(o->>'nombre')                                            AS competidor,
+            o->>'rut'                                                        AS rut,
             COUNT(DISTINCT li.licitacion_id)                                AS ids_part,
             COUNT(li.id)                                                    AS ofertas,
             COUNT(CASE WHEN (o->>'seleccionada')::boolean THEN 1 END)       AS ofertas_adj,
             COUNT(DISTINCT CASE WHEN (o->>'seleccionada')::boolean
                 THEN li.licitacion_id END)                                  AS ids_adj,
-            SUM(CASE WHEN (o->>'seleccionada')::boolean
-                THEN COALESCE(li.monto_adjudicado, 0) ELSE 0 END)          AS total_adj,
-            SUM(COALESCE((o->>'valor_total_ofertado')::numeric, 0))         AS total_ofertado
+            SUM(CASE WHEN (o->>'seleccionada')::boolean THEN
+                COALESCE(
+                    NULLIF((o->>'monto_adjudicado')::numeric, 0),
+                    (o->>'total')::numeric,
+                    0
+                ) ELSE 0 END)                                               AS total_adj,
+            SUM(COALESCE(
+                NULLIF((o->>'valor_total_ofertado')::numeric, 0),
+                (o->>'total')::numeric,
+                0
+            ))                                                              AS total_ofertado
         FROM licitaciones_items li
         JOIN lbf_lics ll ON ll.licitacion_id = li.licitacion_id
         CROSS JOIN LATERAL jsonb_array_elements(li.oferentes) o
@@ -128,21 +213,27 @@ def _load_participacion(ano: int, tipo: str) -> dict:
         ORDER BY total_adj DESC
         LIMIT 20
     """)
+    # columnas: competidor(0), rut(1), ids_part(2), ofertas(3),
+    #           ofertas_adj(4), ids_adj(5), total_adj(6), total_ofertado(7)
     top20 = []
     for row in cur.fetchall():
-        comp_of   = int(row[2] or 0)
-        comp_adj  = int(row[3] or 0)
-        comp_tadj = float(row[5] or 0)
+        comp_name  = row[0] or "Sin nombre"
+        ids_part_c = int(row[2] or 0)
+        of_tot_c   = int(row[3] or 0)
+        of_adj_c   = int(row[4] or 0)
+        ids_adj_c  = int(row[5] or 0)
+        tadj_c     = float(row[6] or 0)
+        of_c       = float(row[7] or 0)
         top20.append({
-            "competidor":    row[0] or "Sin nombre",
-            "ids_part":      int(row[1] or 0),
-            "ofertas":       comp_of,
-            "ofertas_adj":   comp_adj,
-            "ids_adj":       int(row[4] or 0),
-            "total_adj":     round(comp_tadj),
-            "total_ofertado":round(float(row[6] or 0)),
-            "efectividad":   round(comp_adj / comp_of * 100, 1) if comp_of > 0 else 0,
-            "part_valor":    round(comp_tadj / mkt_valor * 100, 1) if mkt_valor > 0 else 0,
+            "competidor":    comp_name,
+            "ids_part":      ids_part_c,
+            "ofertas":       of_tot_c,
+            "ofertas_adj":   of_adj_c,
+            "ids_adj":       ids_adj_c,
+            "total_adj":     round(tadj_c),
+            "total_ofertado":round(of_c),
+            "efectividad":   round(of_adj_c / of_tot_c * 100, 1) if of_tot_c > 0 else 0,
+            "part_valor":    round(tadj_c / mkt_valor * 100, 1) if mkt_valor > 0 else 0,
         })
 
     conn.close()

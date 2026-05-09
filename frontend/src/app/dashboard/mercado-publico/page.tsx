@@ -496,7 +496,7 @@ function TabCompetencia({ data, ano, tipo }: { data: Data; ano: number; tipo: st
       )}
 
       {/* Adjudicado por tipo de licitación */}
-      {data.por_tipo.length > 0 && (() => {
+      {(data.por_tipo ?? []).length > 0 && (() => {
         const totalTipo = data.por_tipo.reduce((s, t) => s + t.total_adj, 0);
         const COLORS: Record<string, string> = {
           LR: "#1D4ED8", LP: "#2563EB", LQ: "#3B82F6",

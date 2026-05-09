@@ -489,6 +489,62 @@ function TabCompetencia({ data, ano, tipo }: { data: Data; ano: number; tipo: st
         />
       )}
 
+      {/* Gráfico MS% relativo al total participado LBF */}
+      <div style={card}>
+        <div style={{ marginBottom: 16 }}>
+          <span style={{ fontSize: 15, fontWeight: 700, color: "#0F172A" }}>
+            Market Share sobre total participado LBF
+          </span>
+          <span style={{ fontSize: 12, color: "#94A3B8", marginLeft: 8 }}>
+            base = {fmtCLP(lbf.total_participado)} · cada barra = adj empresa / total part. LBF
+          </span>
+        </div>
+
+        {/* LBF primero + top 10 competidores */}
+        {[
+          { nombre: "LBF (tú)", adj: lbf.total_adj, isLbf: true },
+          ...data.top20.slice(0, 14).map((c) => ({ nombre: c.competidor, adj: c.total_adj, isLbf: false })),
+        ].map((row, i) => {
+          const pctVal = lbf.total_participado > 0
+            ? (row.adj / lbf.total_participado) * 100
+            : 0;
+          const color = row.isLbf ? "#2563EB" : i % 2 === 0 ? "#64748B" : "#94A3B8";
+          return (
+            <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 7 }}>
+              <div style={{
+                width: 180, fontSize: 12, color: row.isLbf ? "#2563EB" : "#374151",
+                fontWeight: row.isLbf ? 700 : 400, textAlign: "right",
+                whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", flexShrink: 0,
+              }}>
+                {row.nombre}
+              </div>
+              <div style={{ flex: 1, height: 18, background: "#F1F5F9", borderRadius: 3, overflow: "hidden" }}>
+                <div style={{
+                  width: `${Math.min(pctVal, 100)}%`,
+                  height: "100%",
+                  background: color,
+                  borderRadius: 3,
+                  transition: "width 0.4s ease",
+                }} />
+              </div>
+              <div style={{
+                width: 52, fontSize: 12, fontWeight: row.isLbf ? 700 : 400,
+                color: row.isLbf ? "#2563EB" : "#374151",
+                textAlign: "right", flexShrink: 0, fontVariantNumeric: "tabular-nums",
+              }}>
+                {pctVal.toFixed(1)}%
+              </div>
+              <div style={{
+                width: 130, fontSize: 11, color: "#94A3B8",
+                textAlign: "right", flexShrink: 0, fontVariantNumeric: "tabular-nums",
+              }}>
+                {fmtCLP(row.adj)}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
       {/* Tabla competidores */}
       <div style={card}>
         <div style={{ marginBottom: 14 }}>

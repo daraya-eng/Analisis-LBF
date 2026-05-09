@@ -94,29 +94,6 @@ interface Comp {
   efectividad: number;
   part_valor: number;
 }
-interface VsLic {
-  licitacion_id: string;
-  nombre: string;
-  organismo: string;
-  region: string;
-  tipo: string;
-  periodo: string;
-  lbf_items: number;
-  lbf_adj: number;
-  comp_items: number;
-  comp_adj: number;
-  ganador: "LBF" | "COMPETIDOR" | "AMBOS" | "OTRO";
-}
-interface VsData {
-  comp_rut: string;
-  comp_nombre: string;
-  ids_compartidas: number;
-  lbf_total: number;
-  comp_total: number;
-  lbf_lics_adj: number;
-  comp_lics_adj: number;
-  licitaciones: VsLic[];
-}
 interface PorTipo {
   tipo: string;
   ids_adj: number;
@@ -263,141 +240,6 @@ function EmptyRow({ cols, msg }: { cols: number; msg?: string }) {
   );
 }
 
-/* ─── Modal LBF vs Competidor ────────────────────────────────────────────── */
-function VsModal({
-  vs,
-  loading,
-  onClose,
-}: {
-  vs: VsData | null;
-  loading: boolean;
-  onClose: () => void;
-}) {
-  if (!loading && !vs) return null;
-
-  const lbfWins  = vs ? vs.licitaciones.filter((l) => l.ganador === "LBF").length  : 0;
-  const compWins = vs ? vs.licitaciones.filter((l) => l.ganador === "COMPETIDOR").length : 0;
-  const ambos    = vs ? vs.licitaciones.filter((l) => l.ganador === "AMBOS").length : 0;
-  const otros    = vs ? vs.licitaciones.filter((l) => l.ganador === "OTRO").length  : 0;
-  const lbfAhead = vs ? vs.lbf_total > vs.comp_total : false;
-
-  return (
-    <div
-      onClick={onClose}
-      style={{
-        position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)",
-        zIndex: 1000, display: "flex", alignItems: "flex-start", justifyContent: "flex-end",
-      }}
-    >
-      <div
-        onClick={(e) => e.stopPropagation()}
-        style={{
-          width: "min(860px, 95vw)", height: "100vh", background: "white",
-          overflowY: "auto", boxShadow: "-4px 0 24px rgba(0,0,0,0.15)",
-          display: "flex", flexDirection: "column",
-        }}
-      >
-        {/* Header */}
-        <div style={{
-          padding: "20px 24px", borderBottom: "1px solid #E2E8F0",
-          display: "flex", justifyContent: "space-between", alignItems: "center",
-          background: "#F8FAFC", position: "sticky", top: 0, zIndex: 10,
-        }}>
-          <div>
-            <div style={{ fontSize: 17, fontWeight: 700, color: "#0F172A" }}>
-              LBF vs {vs?.comp_nombre ?? "…"}
-            </div>
-            <div style={{ fontSize: 12, color: "#64748B", marginTop: 2 }}>
-              {vs ? `${vs.ids_compartidas} licitaciones compartidas · ${data_ano_ref}` : "Cargando…"}
-            </div>
-          </div>
-          <button
-            onClick={onClose}
-            style={{
-              background: "none", border: "none", cursor: "pointer",
-              fontSize: 20, color: "#64748B", lineHeight: 1, padding: "4px 8px",
-            }}
-          >✕</button>
-        </div>
-
-        {loading && (
-          <div style={{ padding: 40, textAlign: "center", color: "#94A3B8" }}>
-            Cargando comparación…
-          </div>
-        )}
-
-        {!loading && vs && (
-          <div style={{ padding: "20px 24px", display: "flex", flexDirection: "column", gap: 20 }}>
-            {/* KPI cards */}
-            <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-              <div style={{ ...card, flex: 1, minWidth: 150, borderLeft: "3px solid #2563EB" }}>
-                <div style={{ fontSize: 11, color: "#64748B", textTransform: "uppercase", marginBottom: 4 }}>LBF Adjudicado</div>
-                <div style={{ fontSize: 20, fontWeight: 800, color: "#2563EB" }}>{fmtCLP(vs.lbf_total)}</div>
-                <div style={{ fontSize: 11, color: "#94A3B8", marginTop: 2 }}>{vs.lbf_lics_adj} lics ganadas</div>
-              </div>
-              <div style={{ ...card, flex: 1, minWidth: 150, borderLeft: "3px solid #EF4444" }}>
-                <div style={{ fontSize: 11, color: "#64748B", textTransform: "uppercase", marginBottom: 4 }}>{vs.comp_nombre} Adj.</div>
-                <div style={{ fontSize: 20, fontWeight: 800, color: "#EF4444" }}>{fmtCLP(vs.comp_total)}</div>
-                <div style={{ fontSize: 11, color: "#94A3B8", marginTop: 2 }}>{vs.comp_lics_adj} lics ganadas</div>
-              </div>
-              <div style={{ ...card, flex: 1, minWidth: 150, borderLeft: `3px solid ${lbfAhead ? "#059669" : "#F59E0B"}` }}>
-                <div style={{ fontSize: 11, color: "#64748B", textTransform: "uppercase", marginBottom: 4 }}>Diferencia</div>
-                <div style={{ fontSize: 20, fontWeight: 800, color: lbfAhead ? "#059669" : "#F59E0B" }}>
-                  {lbfAhead ? "+" : ""}{fmtCLP(vs.lbf_total - vs.comp_total)}
-                </div>
-                <div style={{ fontSize: 11, color: "#94A3B8", marginTop: 2 }}>
-                  {lbfAhead ? "LBF por delante" : "Competidor por delante"}
-                </div>
-              </div>
-            </div>
-
-            {/* Resumen por licitación */}
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-              {[
-                { label: "LBF gana", n: lbfWins,  color: "#2563EB" },
-                { label: "Competidor gana", n: compWins, color: "#EF4444" },
-                { label: "Ambos ganan", n: ambos, color: "#7C3AED" },
-                { label: "Ninguno gana", n: otros,  color: "#94A3B8" },
-              ].map((x) => (
-                <div key={x.label} style={{
-                  background: "#F8FAFC", border: "1px solid #E2E8F0", borderRadius: 8,
-                  padding: "8px 14px", display: "flex", gap: 8, alignItems: "center",
-                }}>
-                  <span style={{ width: 10, height: 10, borderRadius: "50%", background: x.color, display: "inline-block" }} />
-                  <span style={{ fontSize: 12, color: "#374151" }}>{x.label}:</span>
-                  <span style={{ fontSize: 13, fontWeight: 700, color: x.color }}>{x.n}</span>
-                </div>
-              ))}
-            </div>
-
-            {/* Totales por resultado — sin tabla de detalle */}
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-              {[
-                { label: "Total LBF adjudicado", value: fmtCLP(vs.lbf_total), color: "#2563EB", sub: `${vs.lbf_lics_adj} licitaciones ganadas` },
-                { label: `Total ${vs.comp_nombre} adj.`, value: fmtCLP(vs.comp_total), color: "#EF4444", sub: `${vs.comp_lics_adj} licitaciones ganadas` },
-                { label: "Lics. donde LBF gana", value: String(vs.licitaciones.filter(l => l.ganador === "LBF").length), color: "#2563EB", sub: "sobre licitaciones compartidas" },
-                { label: "Lics. donde Comp. gana", value: String(vs.licitaciones.filter(l => l.ganador === "COMPETIDOR").length), color: "#EF4444", sub: "sobre licitaciones compartidas" },
-                { label: "Lics. donde ambos ganan", value: String(vs.licitaciones.filter(l => l.ganador === "AMBOS").length), color: "#7C3AED", sub: "ítems distintos adjudicados" },
-                { label: "Total lics. compartidas", value: String(vs.ids_compartidas), color: "#64748B", sub: "ambos participaron" },
-              ].map((x) => (
-                <div key={x.label} style={{ ...card, borderLeft: `3px solid ${x.color}` }}>
-                  <div style={{ fontSize: 11, color: "#64748B", marginBottom: 4 }}>{x.label}</div>
-                  <div style={{ fontSize: 20, fontWeight: 800, color: x.color }}>{x.value}</div>
-                  <div style={{ fontSize: 11, color: "#94A3B8", marginTop: 2 }}>{x.sub}</div>
-                </div>
-              ))}
-            </div>
-
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-// variable global para pasar el año al modal sin prop drilling
-let data_ano_ref = 2026;
-
 const TIPO_PALETTE: Record<string, string> = {
   LR: "#2563EB", LP: "#7C3AED", LQ: "#059669",
   LE: "#D97706", L1: "#DC2626", SE: "#0891B2",
@@ -408,21 +250,6 @@ function tipoColor(t: string) { return TIPO_PALETTE[t] ?? "#94A3B8"; }
 /* ─── Sub-tab Competencia ────────────────────────────────────────────────── */
 function TabCompetencia({ data, ano, tipo }: { data: Data; ano: number; tipo: string }) {
   const lbf = data.lbf;
-  data_ano_ref = ano;
-
-  const [selectedComp, setSelectedComp] = useState<{ rut: string; nombre: string } | null>(null);
-  const [vsData, setVsData] = useState<VsData | null>(null);
-  const [vsLoading, setVsLoading] = useState(false);
-
-  useEffect(() => {
-    if (!selectedComp) { setVsData(null); setVsLoading(false); return; }
-    setVsLoading(true);
-    setVsData(null);
-    const params = new URLSearchParams({ rut: selectedComp.rut, ano: String(ano), tipo });
-    api.get(`/api/mercado-publico/vs-competidor?${params}`)
-      .then((r) => setVsData(r as VsData))
-      .finally(() => setVsLoading(false));
-  }, [selectedComp, ano, tipo]);
 
   // % adj / participado (cuánto de lo ofertado fue adjudicado)
   const lbfPct =
@@ -525,15 +352,6 @@ function TabCompetencia({ data, ano, tipo }: { data: Data; ano: number; tipo: st
           color="#D97706"
         />
       </div>
-
-      {/* Modal comparación */}
-      {selectedComp && (
-        <VsModal
-          vs={vsData}
-          loading={vsLoading}
-          onClose={() => setSelectedComp(null)}
-        />
-      )}
 
       {/* ── Dos gráficos lado a lado ─────────────────────────────────────────── */}
       {(() => {
@@ -668,7 +486,7 @@ function TabCompetencia({ data, ano, tipo }: { data: Data; ano: number; tipo: st
             Competidores
           </span>
           <span style={{ fontSize: 12, color: "#94A3B8", marginLeft: 8 }}>
-            top 20 en licitaciones donde LBF participó · {data.ano} · clic en fila para comparar
+            top 20 en licitaciones donde LBF participó · {data.ano}
           </span>
         </div>
         <div style={{ overflowX: "auto" }}>
@@ -741,25 +559,12 @@ function TabCompetencia({ data, ano, tipo }: { data: Data; ano: number; tipo: st
                 // Efectividad a nivel licitación (evita 100% por JSONB formato antiguo)
                 const cEf =
                   c.ids_part > 0 ? (c.ids_adj / c.ids_part) * 100 : 0;
-                const isSelected = selectedComp?.rut === c.rut;
                 return (
-                  <tr
-                    key={i}
-                    onClick={() => setSelectedComp(isSelected ? null : { rut: c.rut, nombre: c.competidor })}
-                    style={{
-                      ...rowBg(i),
-                      cursor: "pointer",
-                      outline: isSelected ? "2px solid #2563EB" : "none",
-                      outlineOffset: -1,
-                    }}
-                    title="Clic para comparar con LBF"
-                  >
+                  <tr key={i} style={rowBg(i)}>
                     <td style={{ ...tdS, color: "#94A3B8", fontWeight: 600 }}>
                       {i + 1}
                     </td>
-                    <td style={{ ...tdS, color: isSelected ? "#2563EB" : undefined, fontWeight: isSelected ? 700 : undefined }}>
-                      {c.competidor}
-                    </td>
+                    <td style={tdS}>{c.competidor}</td>
                     <td style={tdR}>{fmtCLP(c.total_ofertado)}</td>
                     <td style={tdR}>{fmtCLP(c.total_adj)}</td>
                     <td style={{ ...tdR, color: cPct !== null ? "#374151" : "#94A3B8" }}>

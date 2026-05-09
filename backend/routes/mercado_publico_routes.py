@@ -560,3 +560,169 @@ async def get_clientes(
     data = _load_clientes(ano, tipo)
     mem_set(ck, data)
     return data
+
+
+# ── /vs-competidor ────────────────────────────────────────────────────────────
+
+def _load_vs_competidor(comp_rut: str, ano: int, tipo: str) -> dict:
+    tf = _tipo_filter(tipo)
+    conn = get_pg_conn()
+    cur = conn.cursor()
+
+    # Nombre del competidor
+    cur.execute("""
+        SELECT INITCAP(MAX(o->>'nombre'))
+        FROM licitaciones_items li
+        CROSS JOIN LATERAL jsonb_array_elements(li.oferentes) o
+        WHERE o->>'rut' = %s
+        LIMIT 1
+    """, (comp_rut,))
+    r = cur.fetchone()
+    comp_nombre = (r[0] if r else comp_rut) or comp_rut
+
+    cur.execute(f"""
+        WITH lbf_lics AS (
+            SELECT DISTINCT li.licitacion_id
+            FROM licitaciones_items li
+            JOIN licitaciones l ON l.id = li.licitacion_id
+            CROSS JOIN LATERAL jsonb_array_elements(li.oferentes) o
+            WHERE o->>'rut' = '{LBF_RUT}'
+              AND upper(li.categoria_nivel1) LIKE '{CAT_LIKE}'
+              AND EXTRACT(YEAR FROM COALESCE(l.fecha_adjudicacion, l.fecha_publicacion)) = {ano}
+              {tf}
+        ),
+        comp_lics AS (
+            SELECT DISTINCT li.licitacion_id
+            FROM licitaciones_items li
+            JOIN licitaciones l ON l.id = li.licitacion_id
+            CROSS JOIN LATERAL jsonb_array_elements(li.oferentes) o
+            WHERE o->>'rut' = '{comp_rut}'
+              AND upper(li.categoria_nivel1) LIKE '{CAT_LIKE}'
+              AND EXTRACT(YEAR FROM COALESCE(l.fecha_adjudicacion, l.fecha_publicacion)) = {ano}
+              {tf}
+        ),
+        shared AS (
+            SELECT licitacion_id FROM lbf_lics
+            INTERSECT
+            SELECT licitacion_id FROM comp_lics
+        ),
+        lbf_adj_jsonb AS (
+            SELECT li.licitacion_id, li.id AS item_id,
+                   COALESCE(NULLIF((o->>'monto_adjudicado')::numeric,0),(o->>'total')::numeric,0) AS monto
+            FROM licitaciones_items li
+            JOIN shared s ON s.licitacion_id = li.licitacion_id
+            CROSS JOIN LATERAL jsonb_array_elements(li.oferentes) o
+            WHERE o->>'rut' = '{LBF_RUT}' AND (o->>'seleccionada')::boolean = true
+        ),
+        lbf_adj_rut AS (
+            SELECT li.licitacion_id, li.id AS item_id,
+                   li.monto_adjudicado * COALESCE(li.cantidad_adjudicada, li.cantidad) AS monto
+            FROM licitaciones_items li
+            JOIN shared s ON s.licitacion_id = li.licitacion_id
+            WHERE li.rut_proveedor_adj = '{LBF_RUT}'
+              AND NOT EXISTS (
+                  SELECT 1 FROM jsonb_array_elements(li.oferentes) o2
+                  WHERE o2->>'rut' = '{LBF_RUT}' AND (o2->>'seleccionada')::boolean = true
+              )
+        ),
+        lbf_adj AS (SELECT * FROM lbf_adj_jsonb UNION ALL SELECT * FROM lbf_adj_rut),
+        comp_adj AS (
+            SELECT li.licitacion_id, li.id AS item_id,
+                   COALESCE(NULLIF((o->>'monto_adjudicado')::numeric,0),(o->>'total')::numeric,0) AS monto
+            FROM licitaciones_items li
+            JOIN shared s ON s.licitacion_id = li.licitacion_id
+            CROSS JOIN LATERAL jsonb_array_elements(li.oferentes) o
+            WHERE o->>'rut' = '{comp_rut}' AND (o->>'seleccionada')::boolean = true
+        ),
+        lbf_per_lic AS (
+            SELECT licitacion_id,
+                   COUNT(item_id) AS items_adj,
+                   SUM(monto)     AS total_adj
+            FROM lbf_adj GROUP BY licitacion_id
+        ),
+        comp_per_lic AS (
+            SELECT licitacion_id,
+                   COUNT(item_id) AS items_adj,
+                   SUM(monto)     AS total_adj
+            FROM comp_adj GROUP BY licitacion_id
+        )
+        SELECT
+            l.id                                                             AS licitacion_id,
+            l.nombre                                                         AS nombre,
+            l.comprador_nombre_organismo                                     AS organismo,
+            l.comprador_region_unidad                                        AS region,
+            l.tipo,
+            TO_CHAR(COALESCE(l.fecha_adjudicacion, l.fecha_publicacion), 'YYYY-MM') AS periodo,
+            COALESCE(lb.items_adj, 0)                                        AS lbf_items,
+            COALESCE(lb.total_adj, 0)                                        AS lbf_adj,
+            COALESCE(cp.items_adj, 0)                                        AS comp_items,
+            COALESCE(cp.total_adj, 0)                                        AS comp_adj
+        FROM shared s
+        JOIN licitaciones l ON l.id = s.licitacion_id
+        LEFT JOIN lbf_per_lic lb ON lb.licitacion_id = s.licitacion_id
+        LEFT JOIN comp_per_lic cp ON cp.licitacion_id = s.licitacion_id
+        ORDER BY (COALESCE(cp.total_adj, 0) + COALESCE(lb.total_adj, 0)) DESC
+        LIMIT 100
+    """)
+
+    cols = [d[0] for d in cur.description]
+    rows = [dict(zip(cols, row)) for row in cur.fetchall()]
+    conn.close()
+
+    lbf_total  = sum(float(r["lbf_adj"]  or 0) for r in rows)
+    comp_total = sum(float(r["comp_adj"] or 0) for r in rows)
+    lbf_lics_adj  = sum(1 for r in rows if float(r["lbf_adj"]  or 0) > 0)
+    comp_lics_adj = sum(1 for r in rows if float(r["comp_adj"] or 0) > 0)
+
+    licitaciones = []
+    for r in rows:
+        la = float(r["lbf_adj"]  or 0)
+        ca = float(r["comp_adj"] or 0)
+        if la > 0 and ca > 0:
+            ganador = "AMBOS"
+        elif la > 0:
+            ganador = "LBF"
+        elif ca > 0:
+            ganador = "COMPETIDOR"
+        else:
+            ganador = "OTRO"
+        licitaciones.append({
+            "licitacion_id": r["licitacion_id"],
+            "nombre":        (r["nombre"] or "")[:120],
+            "organismo":     r["organismo"] or "",
+            "region":        r["region"] or "",
+            "tipo":          r["tipo"] or "",
+            "periodo":       r["periodo"] or "",
+            "lbf_items":     int(r["lbf_items"] or 0),
+            "lbf_adj":       round(la),
+            "comp_items":    int(r["comp_items"] or 0),
+            "comp_adj":      round(ca),
+            "ganador":       ganador,
+        })
+
+    return {
+        "comp_rut":       comp_rut,
+        "comp_nombre":    comp_nombre,
+        "ids_compartidas": len(rows),
+        "lbf_total":      round(lbf_total),
+        "comp_total":     round(comp_total),
+        "lbf_lics_adj":   lbf_lics_adj,
+        "comp_lics_adj":  comp_lics_adj,
+        "licitaciones":   licitaciones,
+    }
+
+
+@router.get("/vs-competidor")
+async def get_vs_competidor(
+    rut:  str = Query(...),
+    ano:  int = Query(2026),
+    tipo: str = Query(""),
+    current_user: dict = Depends(get_current_user),
+):
+    ck = f"mp:vs:{rut}:{ano}:{tipo}"
+    cached = mem_get(ck)
+    if cached:
+        return cached
+    data = _load_vs_competidor(rut, ano, tipo)
+    mem_set(ck, data)
+    return data

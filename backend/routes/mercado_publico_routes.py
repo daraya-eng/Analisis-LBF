@@ -401,7 +401,7 @@ def _load_region(ano: int, tipo: str) -> list:
             "total_adj":        round(total_adj),
             "total_participado":round(total_part),
             "pct_adj":          round(total_adj / total_part * 100, 1) if total_part > 0 else 0,
-            "pct_of":           round(ofertas_adj / ofertas * 100, 1) if ofertas > 0 else 0,
+            "pct_of":           round(int(r["ids_adj"]) / int(r["ids_part"]) * 100, 1) if int(r["ids_part"] or 0) > 0 else 0,
         })
     return result
 
@@ -542,7 +542,7 @@ def _load_clientes(ano: int, tipo: str) -> list:
             "total_participado":round(total_part),
             "total_no_adj":     round(max(total_part - total_adj, 0)),
             "pct_adj":          round(total_adj / total_part * 100, 1) if total_part > 0 else 0,
-            "pct_ef":           round(ofertas_adj / ofertas * 100, 1) if ofertas > 0 else 0,
+            "pct_ef":           round(int(r["ids_adj"]) / int(r["ids_part"]) * 100, 1) if int(r["ids_part"] or 0) > 0 else 0,
         })
     return result
 

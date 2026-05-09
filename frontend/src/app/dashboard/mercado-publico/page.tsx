@@ -231,15 +231,10 @@ function EmptyRow({ cols, msg }: { cols: number; msg?: string }) {
 function TabCompetencia({ data }: { data: Data }) {
   const lbf = data.lbf;
 
-  // Porcentajes calculados en frontend
-  const lbfPct =
-    lbf.total_participado > 0
-      ? (lbf.total_adj / lbf.total_participado) * 100
-      : 0;
-  const lbfEf =
-    lbf.ofertas_realizadas > 0
-      ? (lbf.ofertas_adj / lbf.ofertas_realizadas) * 100
-      : 0;
+  // MS% = total_adj LBF / total mercado (ya calculado en backend)
+  const lbfPct = lbf.part_valor;
+  // Efectividad a nivel licitación (más robusta que ítems — evita 100% por JSONB antiguo)
+  const lbfEf = lbf.efectividad_lics;
 
   return (
     <>
@@ -293,7 +288,7 @@ function TabCompetencia({ data }: { data: Data }) {
               <tr>
                 <th style={{ ...thS, width: 32 }}>#</th>
                 <th style={thS}>Proveedor</th>
-                <th style={thR}>% S.Part.</th>
+                <th style={thR}>MS%</th>
                 <th style={thR}>% Efect.</th>
                 <th style={thR}>Total Participado</th>
                 <th style={thR}>Total Adjudicado</th>
@@ -342,12 +337,11 @@ function TabCompetencia({ data }: { data: Data }) {
               </tr>
 
               {data.top20.map((c, i) => {
-                const cPct =
-                  c.total_ofertado > 0
-                    ? (c.total_adj / c.total_ofertado) * 100
-                    : 0;
+                // MS% = adj competidor / total mercado (calculado en backend)
+                const cPct = c.part_valor;
+                // Efectividad a nivel licitación (evita 100% por JSONB formato antiguo)
                 const cEf =
-                  c.ofertas > 0 ? (c.ofertas_adj / c.ofertas) * 100 : 0;
+                  c.ids_part > 0 ? (c.ids_adj / c.ids_part) * 100 : 0;
                 return (
                   <tr key={i} style={rowBg(i)}>
                     <td style={{ ...tdS, color: "#94A3B8", fontWeight: 600 }}>
@@ -418,8 +412,8 @@ function TabClientes({
             <tr>
               <th style={{ ...thS, width: 32 }}>#</th>
               <th style={thS}>Organismo</th>
-              <th style={thR}>% S.Part.</th>
-              <th style={thR}>% Efect.</th>
+              <th style={thR}>% Éxito</th>
+              <th style={thR}>% Efect. Lic.</th>
               <th style={thR}>Total Part.</th>
               <th style={thR}>Total Adj.</th>
               <th style={thR}>No Adj. $</th>
@@ -752,7 +746,7 @@ export default function MercadoPublicoPage() {
     try {
       const params = new URLSearchParams({ ano: String(ano), tipo });
       const res = await api.get(`/api/mercado-publico/participacion?${params}`);
-      setData(res);
+      setData(res as Data);
       setLoadedComp(true);
     } catch (e: unknown) {
       setErrorComp(e instanceof Error ? e.message : "Error al cargar datos");
@@ -769,7 +763,7 @@ export default function MercadoPublicoPage() {
     try {
       const params = new URLSearchParams({ ano: String(ano), tipo });
       const res = await api.get(`/api/mercado-publico/clientes?${params}`);
-      setClientes(res);
+      setClientes(res as Cliente[]);
       setLoadedCli(true);
     } catch (e: unknown) {
       setErrorCli(e instanceof Error ? e.message : "Error al cargar clientes");
@@ -786,7 +780,7 @@ export default function MercadoPublicoPage() {
     try {
       const params = new URLSearchParams({ ano: String(ano), tipo });
       const res = await api.get(`/api/mercado-publico/region?${params}`);
-      setRegiones(res);
+      setRegiones(res as RegionData[]);
       setLoadedReg(true);
     } catch (e: unknown) {
       setErrorReg(e instanceof Error ? e.message : "Error al cargar regiones");

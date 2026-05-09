@@ -341,10 +341,11 @@ function TabCompetencia({ data }: { data: Data }) {
 
               {data.top20.map((c, i) => {
                 // % adj / participado por proveedor
-                const cPct =
-                  c.total_ofertado > 0
-                    ? (c.total_adj / c.total_ofertado) * 100
-                    : 0;
+                // Si adj > ofertado, los datos de oferta están incompletos (JSONB antiguo)
+                const cPctValid = c.total_ofertado > 0 && c.total_adj <= c.total_ofertado;
+                const cPct = cPctValid
+                  ? (c.total_adj / c.total_ofertado) * 100
+                  : null;
                 // Efectividad a nivel licitación (evita 100% por JSONB formato antiguo)
                 const cEf =
                   c.ids_part > 0 ? (c.ids_adj / c.ids_part) * 100 : 0;
@@ -355,7 +356,7 @@ function TabCompetencia({ data }: { data: Data }) {
                     </td>
                     <td style={tdS}>{c.competidor}</td>
                     <td style={tdR}>
-                      <PartBar pct={cPct} />
+                      {cPct !== null ? <PartBar pct={cPct} /> : <span style={{ color: "#94A3B8", fontSize: 12 }}>—</span>}
                     </td>
                     <td
                       style={{

@@ -467,18 +467,18 @@ function TabCompetencia({ data, ano, tipo }: { data: Data; ano: number; tipo: st
 
             {/* Gráfico 2 — Barras verticales por tipo */}
             <div style={card}>
-              <div style={{ marginBottom: 12 }}>
+              <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 8 }}>
                 <div style={{ fontSize: 14, fontWeight: 700, color: "#0F172A" }}>
-                  Adjudicado LBF por tipo de licitación
+                  Por tipo de licitación
                 </div>
-                <div style={{ fontSize: 22, fontWeight: 800, color: "#0F172A", fontVariantNumeric: "tabular-nums", marginTop: 4 }}>
+                <div style={{ fontSize: 18, fontWeight: 800, color: "#0F172A", fontVariantNumeric: "tabular-nums" }}>
                   {fmtCLP(totalTipo)}
                 </div>
-                <div style={{ fontSize: 11, color: "#94A3B8", marginTop: 2 }}>total adjudicado</div>
+                <div style={{ fontSize: 11, color: "#94A3B8" }}>total adj.</div>
               </div>
               {(() => {
                 if (porTipo.length === 0) return <div style={{ color: "#94A3B8", fontSize: 13 }}>Sin datos</div>;
-                const CHART_H = 160;
+                const CHART_H = 240;
                 const maxAdj  = Math.max(...porTipo.map((t) => t.total_adj), 1);
                 const vals = porTipo.map((t) => ({
                   pctVal: totalTipo > 0 ? (t.total_adj / totalTipo) * 100 : 0,

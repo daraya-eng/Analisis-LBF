@@ -430,116 +430,138 @@ let data_ano_ref = 2026;
 
 /* ─── Gráfico evolución mensual ──────────────────────────────────────────── */
 function EvoChart({ meses }: { meses: MesEvo[] }) {
-  const [animated, setAnimated] = useState(false);
+  // visibleCount: cuántas barras se han "revelado" en la animación
+  const [visibleCount, setVisibleCount] = useState(0);
+  const [playing, setPlaying] = useState(false);
 
+  // Al cambiar datos, resetear a estado estático (barras completas, sin animación activa)
   useEffect(() => {
-    const t = setTimeout(() => setAnimated(true), 60);
-    return () => clearTimeout(t);
+    setVisibleCount(meses.length);
+    setPlaying(false);
   }, [meses]);
 
-  const max = Math.max(...meses.map((m) => m.total_adj), 1);
-  const hoy = new Date().getMonth() + 1; // 1-12
-  const BAR_COLOR  = "#2563EB";
-  const FUT_COLOR  = "#E2E8F0";
-  const BAR_W      = 28;
-  const CHART_H    = 120;
+  // Motor de animación: revela una barra cada 180ms
+  useEffect(() => {
+    if (!playing) return;
+    if (visibleCount >= meses.length) { setPlaying(false); return; }
+    const t = setTimeout(() => setVisibleCount((v) => v + 1), 180);
+    return () => clearTimeout(t);
+  }, [playing, visibleCount, meses.length]);
 
-  // acumulado hasta cada mes
+  const handlePlay = () => {
+    setVisibleCount(0);
+    setPlaying(true);
+  };
+
+  const max    = Math.max(...meses.map((m) => m.total_adj), 1);
+  const hoy    = new Date().getMonth() + 1;
+  const BAR_W  = 28;
+  const CHART_H = 128;
+  const svgW   = meses.length * (BAR_W + 8) + 16;
+  const svgH   = CHART_H + 28;
+
+  // acumulados para la línea
   let acum = 0;
-  const acums = meses.map((m) => {
-    acum += m.total_adj;
-    return acum;
-  });
+  const acums = meses.map((m) => { acum += m.total_adj; return acum; });
   const maxAcum = acums[acums.length - 1] || 1;
 
-  // posiciones para la línea acumulada
-  const svgW = meses.length * (BAR_W + 8) + 16;
-  const svgH = CHART_H + 24; // espacio label abajo
-  const pts = meses.map((_, i) => {
-    const x = 8 + i * (BAR_W + 8) + BAR_W / 2;
-    const y = 4 + (1 - acums[i] / maxAcum) * (CHART_H - 8);
-    return `${x},${y}`;
-  });
+  // puntos de la línea (solo meses pasados/actuales y visibles)
+  const linePts = meses
+    .map((m, i) => {
+      if (m.mes_num > hoy || i >= visibleCount) return null;
+      const x = 8 + i * (BAR_W + 8) + BAR_W / 2;
+      const y = 4 + (1 - acums[i] / maxAcum) * (CHART_H - 12);
+      return { x, y, mes: m.mes, acum: acums[i] };
+    })
+    .filter(Boolean) as { x: number; y: number; mes: string; acum: number }[];
 
   return (
-    <div style={{ overflowX: "auto" }}>
-      <svg width={svgW} height={svgH} style={{ display: "block" }}>
+    <div>
+      <svg width={svgW} height={svgH} style={{ display: "block", overflow: "visible" }}>
         {meses.map((m, i) => {
-          const x = 8 + i * (BAR_W + 8);
+          const x        = 8 + i * (BAR_W + 8);
+          const cx       = x + BAR_W / 2;
           const isFuture = m.mes_num > hoy;
-          const barH = animated && m.total_adj > 0 ? (m.total_adj / max) * (CHART_H - 8) : 0;
-          const y = 4 + (CHART_H - 8) - barH;
           const isActive = m.mes_num === hoy;
+          const visible  = i < visibleCount;
+          const frac     = visible && !isFuture && m.total_adj > 0
+            ? m.total_adj / max : 0;
+          const barH     = frac * (CHART_H - 12);
+          const baseY    = 4 + (CHART_H - 12);
+          const color    = isActive ? "#1D4ED8" : isFuture ? "#E2E8F0" : "#2563EB";
+
           return (
             <g key={m.mes}>
+              {/* Track (fondo) */}
+              <rect x={x} y={4} width={BAR_W} height={CHART_H - 12} rx={4}
+                fill={isFuture ? "#F1F5F9" : "#EFF6FF"} />
+              {/* Barra real — scaleY desde la base */}
               <rect
-                x={x} y={isFuture ? 4 + CHART_H - 8 : y}
-                width={BAR_W} height={isFuture ? 0 : barH}
-                rx={4}
-                fill={isActive ? "#1D4ED8" : isFuture ? FUT_COLOR : BAR_COLOR}
-                opacity={isFuture ? 0.5 : 1}
-                style={{ transition: "y 0.6s ease, height 0.6s ease" }}
+                x={x} y={baseY - barH} width={BAR_W} height={barH} rx={4}
+                fill={color}
+                style={{
+                  transition: playing
+                    ? "y 0.35s cubic-bezier(.22,1,.36,1), height 0.35s cubic-bezier(.22,1,.36,1)"
+                    : "none",
+                }}
               >
                 <title>{m.mes}: {fmtCLP(m.total_adj)}</title>
               </rect>
-              {/* placeholder barra futura */}
-              {isFuture && (
-                <rect x={x} y={4} width={BAR_W} height={CHART_H - 8} rx={4}
-                  fill={FUT_COLOR} opacity={0.5} />
-              )}
-              {/* label mes */}
-              <text
-                x={x + BAR_W / 2} y={svgH - 4}
-                textAnchor="middle" fontSize={9}
-                fill={isActive ? "#1D4ED8" : "#94A3B8"}
-                fontWeight={isActive ? "700" : "400"}
-              >
-                {m.mes}
-              </text>
-              {/* monto encima de barra (solo meses con datos) */}
-              {!isFuture && m.total_adj > 0 && animated && (
-                <text
-                  x={x + BAR_W / 2} y={y - 3}
-                  textAnchor="middle" fontSize={8} fill="#374151"
-                  style={{ transition: "y 0.6s ease" }}
-                >
+              {/* Label monto encima */}
+              {visible && !isFuture && m.total_adj > 0 && (
+                <text x={cx} y={baseY - barH - 4} textAnchor="middle"
+                  fontSize={8} fill="#1D4ED8" fontWeight="600">
                   {(m.total_adj / 1_000_000).toFixed(0)}M
                 </text>
               )}
+              {/* Label mes */}
+              <text x={cx} y={svgH - 4} textAnchor="middle" fontSize={9}
+                fill={isActive ? "#1D4ED8" : "#94A3B8"}
+                fontWeight={isActive ? "700" : "400"}>
+                {m.mes}
+              </text>
             </g>
           );
         })}
+
         {/* Línea acumulada */}
-        {animated && (
+        {linePts.length > 1 && (
           <polyline
-            points={pts.filter((_, i) => meses[i].mes_num <= hoy).join(" ")}
-            fill="none"
-            stroke="#F59E0B"
-            strokeWidth={2}
-            strokeLinejoin="round"
-            opacity={0.85}
+            points={linePts.map((p) => `${p.x},${p.y}`).join(" ")}
+            fill="none" stroke="#F59E0B" strokeWidth={2.5}
+            strokeLinejoin="round" strokeLinecap="round" opacity={0.9}
           />
         )}
-        {/* Puntos en la línea */}
-        {animated && pts.map((pt, i) => {
-          if (meses[i].mes_num > hoy) return null;
-          const [px, py] = pt.split(",").map(Number);
-          return (
-            <circle key={i} cx={px} cy={py} r={3} fill="#F59E0B">
-              <title>Acum. {meses[i].mes}: {fmtCLP(acums[i])}</title>
-            </circle>
-          );
-        })}
+        {linePts.map((p, i) => (
+          <circle key={i} cx={p.x} cy={p.y} r={3.5} fill="#F59E0B" stroke="white" strokeWidth={1.5}>
+            <title>Acum. {p.mes}: {fmtCLP(p.acum)}</title>
+          </circle>
+        ))}
       </svg>
-      {/* leyenda */}
-      <div style={{ display: "flex", gap: 16, marginTop: 8, fontSize: 11, color: "#64748B" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-          <div style={{ width: 10, height: 10, borderRadius: 2, background: BAR_COLOR }} />
-          Adj. mensual
-        </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-          <div style={{ width: 16, height: 2, background: "#F59E0B", borderRadius: 1 }} />
-          Acumulado anual
+
+      {/* Controles */}
+      <div style={{ display: "flex", alignItems: "center", gap: 16, marginTop: 10 }}>
+        <button
+          onClick={handlePlay}
+          disabled={playing}
+          style={{
+            display: "flex", alignItems: "center", gap: 6,
+            padding: "5px 14px", borderRadius: 6, border: "none", cursor: playing ? "default" : "pointer",
+            background: playing ? "#E2E8F0" : "#2563EB", color: playing ? "#94A3B8" : "white",
+            fontSize: 12, fontWeight: 600, transition: "background 0.2s",
+          }}
+        >
+          {playing ? "▶ Reproduciendo..." : "▶ Reproducir"}
+        </button>
+        <div style={{ display: "flex", gap: 14, fontSize: 11, color: "#64748B" }}>
+          <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
+            <span style={{ display: "inline-block", width: 10, height: 10, borderRadius: 2, background: "#2563EB" }} />
+            Adj. mensual
+          </span>
+          <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
+            <span style={{ display: "inline-block", width: 16, height: 2.5, background: "#F59E0B", borderRadius: 1 }} />
+            Acumulado
+          </span>
         </div>
       </div>
     </div>

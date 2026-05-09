@@ -433,7 +433,7 @@ function TabCompetencia({ data, ano, tipo }: { data: Data; ano: number; tipo: st
   const [vsLoading, setVsLoading] = useState(false);
 
   useEffect(() => {
-    if (!selectedComp) { setVsData(null); return; }
+    if (!selectedComp) { setVsData(null); setVsLoading(false); return; }
     setVsLoading(true);
     setVsData(null);
     const params = new URLSearchParams({ rut: selectedComp.rut, ano: String(ano), tipo });
@@ -487,7 +487,7 @@ function TabCompetencia({ data, ano, tipo }: { data: Data; ano: number; tipo: st
       </div>
 
       {/* Modal comparación */}
-      {(vsLoading || vsData) && (
+      {selectedComp && (
         <VsModal
           vs={vsData}
           loading={vsLoading}

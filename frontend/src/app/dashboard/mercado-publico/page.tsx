@@ -231,8 +231,11 @@ function EmptyRow({ cols, msg }: { cols: number; msg?: string }) {
 function TabCompetencia({ data }: { data: Data }) {
   const lbf = data.lbf;
 
-  // MS% = total_adj LBF / total mercado (ya calculado en backend)
-  const lbfPct = lbf.part_valor;
+  // % adj / participado (cuánto de lo ofertado fue adjudicado)
+  const lbfPct =
+    lbf.total_participado > 0
+      ? (lbf.total_adj / lbf.total_participado) * 100
+      : 0;
   // Efectividad a nivel licitación (más robusta que ítems — evita 100% por JSONB antiguo)
   const lbfEf = lbf.efectividad_lics;
 
@@ -288,8 +291,8 @@ function TabCompetencia({ data }: { data: Data }) {
               <tr>
                 <th style={{ ...thS, width: 32 }}>#</th>
                 <th style={thS}>Proveedor</th>
-                <th style={thR}>MS%</th>
-                <th style={thR}>% Efect.</th>
+                <th style={thR}>% Adj/Part.</th>
+                <th style={thR}>% Efect. Lic.</th>
                 <th style={thR}>Total Participado</th>
                 <th style={thR}>Total Adjudicado</th>
                 <th style={thR}>Ofertas Real.</th>
@@ -337,8 +340,11 @@ function TabCompetencia({ data }: { data: Data }) {
               </tr>
 
               {data.top20.map((c, i) => {
-                // MS% = adj competidor / total mercado (calculado en backend)
-                const cPct = c.part_valor;
+                // % adj / participado por proveedor
+                const cPct =
+                  c.total_ofertado > 0
+                    ? (c.total_adj / c.total_ofertado) * 100
+                    : 0;
                 // Efectividad a nivel licitación (evita 100% por JSONB formato antiguo)
                 const cEf =
                   c.ids_part > 0 ? (c.ids_adj / c.ids_part) * 100 : 0;

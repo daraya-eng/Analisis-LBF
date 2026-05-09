@@ -75,11 +75,19 @@ interface Lbf {
   efectividad_lics: number;
   part_ids: number;
   part_valor: number;
+  total_adj_prev: number;
+  adj_from_prev_pub: number;
 }
 interface Mercado {
   ids_total: number;
   items_total: number;
   valor_total: number;
+  valor_total_prev: number;
+}
+interface ClienteCat {
+  categoria: string;
+  monto_adj: number;
+  pct: number;
 }
 interface Comp {
   competidor: string;
@@ -262,26 +270,50 @@ function TabCompetencia({ data, ano, tipo }: { data: Data; ano: number; tipo: st
   return (
     <>
       {/* ── 3 tarjetas principales ───────────────────────────────────────────── */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 14, marginBottom: 14 }}>
-        {/* 1. Mercado total */}
-        <div style={{ ...card, borderTop: "3px solid #64748B" }}>
-          <div style={{ fontSize: 11, color: "#64748B", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6 }}>
-            Mercado total insumos médicos
-          </div>
-          <div style={{ fontSize: 26, fontWeight: 800, color: "#0F172A", fontVariantNumeric: "tabular-nums" }}>
-            {fmtCLP(data.mercado.valor_total)}
-          </div>
-          <div style={{ fontSize: 12, color: "#94A3B8", marginTop: 4 }}>
-            {fmtN(data.mercado.ids_total)} licitaciones adjudicadas · {data.ano}
-          </div>
-        </div>
+      {(() => {
+        const mktDelta = data.mercado.valor_total_prev > 0
+          ? ((data.mercado.valor_total - data.mercado.valor_total_prev) / data.mercado.valor_total_prev) * 100
+          : null;
+        const adjDelta = lbf.total_adj_prev > 0
+          ? ((lbf.total_adj - lbf.total_adj_prev) / lbf.total_adj_prev) * 100
+          : null;
+        const deltaStyle = (d: number | null): React.CSSProperties => ({
+          fontSize: 12, fontWeight: 700,
+          color: d === null ? "#94A3B8" : d >= 0 ? "#059669" : "#EF4444",
+          marginLeft: 6,
+        });
+        const deltaLabel = (d: number | null) =>
+          d === null ? "" : `${d >= 0 ? "▲" : "▼"} ${Math.abs(d).toFixed(1)}% vs ${data.ano - 1}`;
+        const pctMercado = data.mercado.valor_total > 0
+          ? (lbf.total_participado / data.mercado.valor_total) * 100 : 0;
+        const pctPart = lbf.total_participado > 0
+          ? (lbf.total_adj / lbf.total_participado) * 100 : 0;
+        const pctMkt = data.mercado.valor_total > 0
+          ? (lbf.total_adj / data.mercado.valor_total) * 100 : 0;
+        return (
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 14, marginBottom: 14 }}>
+            {/* 1. Mercado total */}
+            <div style={{ ...card, borderTop: "3px solid #64748B" }}>
+              <div style={{ fontSize: 11, color: "#64748B", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6 }}>
+                Mercado total insumos médicos
+              </div>
+              <div style={{ display: "flex", alignItems: "baseline", flexWrap: "wrap" }}>
+                <div style={{ fontSize: 26, fontWeight: 800, color: "#0F172A", fontVariantNumeric: "tabular-nums" }}>
+                  {fmtCLP(data.mercado.valor_total)}
+                </div>
+                <span style={deltaStyle(mktDelta)}>{deltaLabel(mktDelta)}</span>
+              </div>
+              <div style={{ fontSize: 12, color: "#94A3B8", marginTop: 4 }}>
+                {fmtN(data.mercado.ids_total)} licitaciones adjudicadas · {data.ano}
+              </div>
+              {data.mercado.valor_total_prev > 0 && (
+                <div style={{ fontSize: 11, color: "#94A3B8", marginTop: 2 }}>
+                  {data.ano - 1}: {fmtCLP(data.mercado.valor_total_prev)}
+                </div>
+              )}
+            </div>
 
-        {/* 2. LBF participó */}
-        {(() => {
-          const pctMercado = data.mercado.valor_total > 0
-            ? (lbf.total_participado / data.mercado.valor_total) * 100 : 0;
-          const barW = Math.min(pctMercado, 100);
-          return (
+            {/* 2. LBF participó */}
             <div style={{ ...card, borderTop: "3px solid #2563EB" }}>
               <div style={{ fontSize: 11, color: "#2563EB", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6 }}>
                 LBF participó
@@ -293,37 +325,42 @@ function TabCompetencia({ data, ano, tipo }: { data: Data; ano: number; tipo: st
                 {fmtN(lbf.ids_participadas)} licitaciones · {pctMercado.toFixed(1)}% del mercado
               </div>
               <div style={{ height: 6, background: "#EFF6FF", borderRadius: 3, overflow: "hidden" }}>
-                <div style={{ width: `${barW}%`, height: "100%", background: "#2563EB", borderRadius: 3 }} />
+                <div style={{ width: `${Math.min(pctMercado, 100)}%`, height: "100%", background: "#2563EB", borderRadius: 3 }} />
               </div>
             </div>
-          );
-        })()}
 
-        {/* 3. LBF adjudicó */}
-        {(() => {
-          const pctPart = lbf.total_participado > 0
-            ? (lbf.total_adj / lbf.total_participado) * 100 : 0;
-          const pctMkt = data.mercado.valor_total > 0
-            ? (lbf.total_adj / data.mercado.valor_total) * 100 : 0;
-          const barW = Math.min(pctPart, 100);
-          return (
+            {/* 3. LBF adjudicó */}
             <div style={{ ...card, borderTop: "3px solid #059669" }}>
               <div style={{ fontSize: 11, color: "#059669", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6 }}>
                 LBF adjudicó
               </div>
-              <div style={{ fontSize: 26, fontWeight: 800, color: "#059669", fontVariantNumeric: "tabular-nums" }}>
-                {fmtCLP(lbf.total_adj)}
+              <div style={{ display: "flex", alignItems: "baseline", flexWrap: "wrap" }}>
+                <div style={{ fontSize: 26, fontWeight: 800, color: "#059669", fontVariantNumeric: "tabular-nums" }}>
+                  {fmtCLP(lbf.total_adj)}
+                </div>
+                <span style={deltaStyle(adjDelta)}>{deltaLabel(adjDelta)}</span>
               </div>
               <div style={{ fontSize: 12, color: "#94A3B8", marginTop: 4, marginBottom: 8 }}>
                 {pctPart.toFixed(1)}% de lo participado · {pctMkt.toFixed(1)}% del mercado
               </div>
               <div style={{ height: 6, background: "#F0FDF4", borderRadius: 3, overflow: "hidden" }}>
-                <div style={{ width: `${barW}%`, height: "100%", background: "#059669", borderRadius: 3 }} />
+                <div style={{ width: `${Math.min(pctPart, 100)}%`, height: "100%", background: "#059669", borderRadius: 3 }} />
               </div>
+              {lbf.adj_from_prev_pub > 0 && (
+                <div style={{ fontSize: 11, color: "#94A3B8", marginTop: 6 }}>
+                  {fmtCLP(lbf.adj_from_prev_pub)} provienen de lics publicadas en {data.ano - 1}
+                  {" "}({lbf.total_adj > 0 ? ((lbf.adj_from_prev_pub / lbf.total_adj) * 100).toFixed(1) : 0}%)
+                </div>
+              )}
+              {lbf.total_adj_prev > 0 && (
+                <div style={{ fontSize: 11, color: "#94A3B8", marginTop: 2 }}>
+                  {data.ano - 1}: {fmtCLP(lbf.total_adj_prev)}
+                </div>
+              )}
             </div>
-          );
-        })()}
-      </div>
+          </div>
+        );
+      })()}
 
       {/* ── Métricas secundarias ─────────────────────────────────────────────── */}
       <div style={{ display: "flex", gap: 10, marginBottom: 20, flexWrap: "wrap" }}>
@@ -411,12 +448,17 @@ function TabCompetencia({ data, ano, tipo }: { data: Data; ano: number; tipo: st
                         opacity: row.isLbf ? 1 : 0.75,
                       }} />
                     </div>
-                    <div style={{
-                      width: 44, fontSize: 11, fontWeight: row.isLbf ? 700 : 400,
-                      color: row.isLbf ? "#2563EB" : "#374151",
-                      textAlign: "right", flexShrink: 0, fontVariantNumeric: "tabular-nums",
-                    }}>
-                      {pctVal.toFixed(1)}%
+                    <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", flexShrink: 0 }}>
+                      <div style={{
+                        fontSize: 11, fontWeight: row.isLbf ? 700 : 400,
+                        color: row.isLbf ? "#2563EB" : "#374151",
+                        fontVariantNumeric: "tabular-nums",
+                      }}>
+                        {pctVal.toFixed(1)}%
+                      </div>
+                      <div style={{ fontSize: 10, color: "#94A3B8", fontVariantNumeric: "tabular-nums" }}>
+                        {fmtCLP(row.adj)}
+                      </div>
                     </div>
                   </div>
                 );
@@ -425,51 +467,54 @@ function TabCompetencia({ data, ano, tipo }: { data: Data; ano: number; tipo: st
 
             {/* Gráfico 2 — Barras verticales por tipo */}
             <div style={card}>
-              <div style={{ marginBottom: 18 }}>
+              <div style={{ marginBottom: 12 }}>
                 <div style={{ fontSize: 14, fontWeight: 700, color: "#0F172A" }}>
                   Adjudicado LBF por tipo de licitación
                 </div>
-                <div style={{ fontSize: 11, color: "#94A3B8", marginTop: 2 }}>
-                  total {fmtCLP(totalTipo)}
+                <div style={{ fontSize: 22, fontWeight: 800, color: "#0F172A", fontVariantNumeric: "tabular-nums", marginTop: 4 }}>
+                  {fmtCLP(totalTipo)}
                 </div>
+                <div style={{ fontSize: 11, color: "#94A3B8", marginTop: 2 }}>total adjudicado</div>
               </div>
               {(() => {
                 if (porTipo.length === 0) return <div style={{ color: "#94A3B8", fontSize: 13 }}>Sin datos</div>;
-                const abbr = (n: number) =>
-                  n >= 1e9 ? `$${(n/1e9).toFixed(2)}MM`
-                  : n >= 1e6 ? `$${(n/1e6).toFixed(0)}M`
-                  : `$${(n/1e3).toFixed(0)}K`;
-                const CHART_H = 180;
+                const CHART_H = 160;
                 const maxAdj  = Math.max(...porTipo.map((t) => t.total_adj), 1);
                 return (
-                  <div style={{ display: "flex", alignItems: "flex-end", gap: 10, height: CHART_H + 52, paddingTop: 28 }}>
-                    {porTipo.map((t, i) => {
-                      const pctVal = totalTipo > 0 ? (t.total_adj / totalTipo) * 100 : 0;
-                      const barH   = (t.total_adj / maxAdj) * CHART_H;
-                      const color  = tipoColor(t.tipo);
-                      return (
-                        <div key={i} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}>
-                          {/* monto encima */}
-                          <div style={{ fontSize: 11, fontWeight: 700, color, textAlign: "center", whiteSpace: "nowrap" }}>
-                            {abbr(t.total_adj)}
+                  <div style={{ overflowX: "auto" }}>
+                    <div style={{ display: "flex", alignItems: "flex-end", gap: 8, minWidth: porTipo.length * 90, paddingTop: 8 }}>
+                      {porTipo.map((t, i) => {
+                        const pctVal = totalTipo > 0 ? (t.total_adj / totalTipo) * 100 : 0;
+                        const barH   = (t.total_adj / maxAdj) * CHART_H;
+                        const color  = tipoColor(t.tipo);
+                        return (
+                          <div key={i} style={{ flex: 1, minWidth: 80, display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
+                            {/* monto completo */}
+                            <div style={{ fontSize: 10, fontWeight: 700, color, textAlign: "center", whiteSpace: "nowrap" }}>
+                              {fmtCLP(t.total_adj)}
+                            </div>
+                            {/* % */}
+                            <div style={{ fontSize: 13, fontWeight: 800, color: "#0F172A", textAlign: "center" }}>
+                              {pctVal.toFixed(1)}%
+                            </div>
+                            {/* lics */}
+                            <div style={{ fontSize: 10, color: "#94A3B8", textAlign: "center" }}>
+                              {fmtN(t.ids_adj)} lics.
+                            </div>
+                            {/* barra */}
+                            <div style={{ width: "100%", height: CHART_H, display: "flex", alignItems: "flex-end" }}>
+                              <div style={{
+                                width: "100%", height: barH, background: color,
+                                borderRadius: "5px 5px 0 0", transition: "height 0.5s ease",
+                                minHeight: t.total_adj > 0 ? 4 : 0,
+                              }} />
+                            </div>
+                            {/* label tipo */}
+                            <div style={{ fontSize: 13, fontWeight: 800, color, textAlign: "center" }}>{t.tipo}</div>
                           </div>
-                          {/* % */}
-                          <div style={{ fontSize: 12, fontWeight: 700, color: "#0F172A", textAlign: "center" }}>
-                            {pctVal.toFixed(1)}%
-                          </div>
-                          {/* barra */}
-                          <div style={{ width: "100%", height: CHART_H, display: "flex", alignItems: "flex-end" }}>
-                            <div style={{
-                              width: "100%", height: barH, background: color,
-                              borderRadius: "5px 5px 0 0", transition: "height 0.5s ease",
-                              minHeight: t.total_adj > 0 ? 4 : 0,
-                            }} />
-                          </div>
-                          {/* label tipo */}
-                          <div style={{ fontSize: 12, fontWeight: 700, color, textAlign: "center" }}>{t.tipo}</div>
-                        </div>
-                      );
-                    })}
+                        );
+                      })}
+                    </div>
                   </div>
                 );
               })()}
@@ -602,24 +647,41 @@ function TabClientes({
   clientes,
   loading,
   error,
+  ano,
+  tipo,
 }: {
   clientes: Cliente[] | null;
   loading: boolean;
   error: string | null;
+  ano: number;
+  tipo: string;
 }) {
-  // Totales para barra de referencia
-  const maxAdj = clientes
-    ? Math.max(...clientes.map((c) => c.total_adj), 1)
-    : 1;
+  const maxAdj = clientes ? Math.max(...clientes.map((c) => c.total_adj), 1) : 1;
+  const [expanded, setExpanded] = useState<string | null>(null);
+  const [catData, setCatData]   = useState<Record<string, ClienteCat[]>>({});
+  const [catLoading, setCatLoading] = useState<string | null>(null);
+
+  const handleRowClick = useCallback((organismo: string) => {
+    if (expanded === organismo) { setExpanded(null); return; }
+    setExpanded(organismo);
+    if (catData[organismo]) return;
+    setCatLoading(organismo);
+    const params = new URLSearchParams({ organismo, ano: String(ano), tipo });
+    api.get(`/api/mercado-publico/clientes-categorias?${params}`)
+      .then((r) => setCatData((prev) => ({ ...prev, [organismo]: r as ClienteCat[] })))
+      .finally(() => setCatLoading(null));
+  }, [expanded, catData, ano, tipo]);
+
+  const totalAdj = clientes ? clientes.reduce((s, c) => s + c.total_adj, 0) : 0;
 
   return (
     <div style={card}>
       <div style={{ marginBottom: 14 }}>
         <span style={{ fontSize: 15, fontWeight: 700, color: "#0F172A" }}>
-          Top 30 Organismos
+          Top 30 Organismos Compradores
         </span>
         <span style={{ fontSize: 12, color: "#94A3B8", marginLeft: 8 }}>
-          por valor adjudicado a LBF
+          por monto adjudicado a LBF · clic para ver categorías
         </span>
       </div>
       <div style={{ overflowX: "auto" }}>
@@ -628,98 +690,108 @@ function TabClientes({
             <tr>
               <th style={{ ...thS, width: 32 }}>#</th>
               <th style={thS}>Organismo</th>
-              <th style={thR}>% Éxito</th>
-              <th style={thR}>% Efect. Lic.</th>
-              <th style={thR}>Total Part.</th>
-              <th style={thR}>Total Adj.</th>
-              <th style={thR}>No Adj. $</th>
-              <th style={thR}>Ofertas Real.</th>
-              <th style={thR}>Ofertas Adj.</th>
-              <th style={thR}>Ids Part.</th>
-              <th style={thR}>Ids Adj.</th>
+              <th style={{ ...thR, color: "#059669" }}>
+                <span title="Monto adjudicado a LBF / Monto total ofertado por LBF">% Éxito ($)</span>
+              </th>
+              <th style={{ ...thR, color: "#2563EB" }}>
+                <span title="Licitaciones donde LBF fue adjudicado / Licitaciones donde LBF participó">% Éxito Lics.</span>
+              </th>
+              <th style={thR}>Monto Ofertado</th>
+              <th style={thR}>Monto Adj. LBF</th>
+              <th style={{ ...thR, color: "#EF4444" }}>Monto No Adj.</th>
+              <th style={thR}>Ítems Ofertados</th>
+              <th style={thR}>Ítems Adj.</th>
+              <th style={thR}>Lics. Part.</th>
+              <th style={thR}>Lics. Adj.</th>
             </tr>
           </thead>
           <tbody>
             {loading && <LoadingRow cols={11} />}
             {!loading && error && (
               <tr>
-                <td
-                  colSpan={11}
-                  style={{ ...tdS, color: "#EF4444", textAlign: "center" }}
-                >
-                  {error}
-                </td>
+                <td colSpan={11} style={{ ...tdS, color: "#EF4444", textAlign: "center" }}>{error}</td>
               </tr>
             )}
             {!loading && !error && clientes && clientes.length === 0 && (
               <EmptyRow cols={11} msg="Sin datos para los filtros seleccionados" />
             )}
-            {!loading &&
-              !error &&
-              clientes &&
-              clientes.map((c, i) => {
-                const barW = maxAdj > 0 ? (c.total_adj / maxAdj) * 100 : 0;
-                return (
-                  <tr key={i} style={rowBg(i)}>
-                    <td style={{ ...tdS, color: "#94A3B8", fontWeight: 600 }}>
-                      {i + 1}
-                    </td>
-                    <td style={{ ...tdS, maxWidth: 260, overflow: "hidden", textOverflow: "ellipsis" }}>
+            {!loading && !error && clientes && clientes.map((c, i) => {
+              const barW = totalAdj > 0 ? (c.total_adj / totalAdj) * 100 : 0;
+              const isExp = expanded === c.organismo;
+              return (
+                <>
+                  <tr
+                    key={i}
+                    onClick={() => handleRowClick(c.organismo)}
+                    style={{
+                      ...rowBg(i),
+                      cursor: "pointer",
+                      outline: isExp ? "2px solid #2563EB" : "none",
+                      outlineOffset: -1,
+                    }}
+                    title="Clic para ver desglose por categoría"
+                  >
+                    <td style={{ ...tdS, color: "#94A3B8", fontWeight: 600 }}>{i + 1}</td>
+                    <td style={{ ...tdS, maxWidth: 260, overflow: "hidden", textOverflow: "ellipsis", color: isExp ? "#2563EB" : undefined, fontWeight: isExp ? 700 : undefined }}>
                       {c.organismo}
                     </td>
-                    <td style={tdR}>
+                    <td style={{ ...tdR, color: c.pct_adj >= 30 ? "#059669" : c.pct_adj >= 10 ? "#D97706" : "#374151" }}>
                       <PartBar pct={c.pct_adj} />
                     </td>
-                    <td
-                      style={{
-                        ...tdR,
-                        color:
-                          c.pct_ef >= 20
-                            ? "#059669"
-                            : c.pct_ef >= 10
-                            ? "#D97706"
-                            : "#374151",
-                      }}
-                    >
+                    <td style={{ ...tdR, color: c.pct_ef >= 20 ? "#059669" : c.pct_ef >= 10 ? "#D97706" : "#374151" }}>
                       {pct(c.pct_ef)}
                     </td>
                     <td style={tdR}>{fmtCLP(c.total_participado)}</td>
                     <td style={tdR}>
-                      {/* mini bar inline */}
                       <div style={{ display: "flex", alignItems: "center", gap: 6, justifyContent: "flex-end" }}>
-                        <div
-                          style={{
-                            width: 60,
-                            height: 4,
-                            background: "#E2E8F0",
-                            borderRadius: 2,
-                            overflow: "hidden",
-                          }}
-                        >
-                          <div
-                            style={{
-                              width: `${barW}%`,
-                              height: "100%",
-                              background: "#2563EB",
-                              borderRadius: 2,
-                            }}
-                          />
+                        <div style={{ width: 60, height: 4, background: "#E2E8F0", borderRadius: 2, overflow: "hidden" }}>
+                          <div style={{ width: `${barW}%`, height: "100%", background: "#2563EB", borderRadius: 2 }} />
                         </div>
-                        <span style={{ fontVariantNumeric: "tabular-nums" }}>
-                          {fmtCLP(c.total_adj)}
-                        </span>
+                        <span style={{ fontVariantNumeric: "tabular-nums" }}>{fmtCLP(c.total_adj)}</span>
                       </div>
                     </td>
-                    <td style={{ ...tdR, color: "#EF4444" }}>
-                      {fmtCLP(c.total_no_adj)}
-                    </td>
+                    <td style={{ ...tdR, color: "#EF4444" }}>{fmtCLP(c.total_no_adj)}</td>
                     <td style={tdR}>{fmtN(c.ofertas)}</td>
                     <td style={tdR}>{fmtN(c.ofertas_adj)}</td>
                     <td style={tdR}>{fmtN(c.ids_part)}</td>
                     <td style={tdR}>{fmtN(c.ids_adj)}</td>
                   </tr>
-                );
-              })}
+                  {isExp && (
+                    <tr key={`${i}-cat`}>
+                      <td colSpan={11} style={{ padding: "12px 24px", background: "#F0F7FF", borderBottom: "2px solid #BFDBFE" }}>
+                        {catLoading === c.organismo ? (
+                          <span style={{ fontSize: 12, color: "#94A3B8" }}>Cargando categorías…</span>
+                        ) : catData[c.organismo] ? (
+                          <div>
+                            <div style={{ fontSize: 12, fontWeight: 700, color: "#2563EB", marginBottom: 8 }}>
+                              Desglose por categoría — {c.organismo}
+                            </div>
+                            <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                              {catData[c.organismo].map((cat, ci) => (
+                                <div key={ci} style={{
+                                  background: "white", border: "1px solid #BFDBFE", borderRadius: 8,
+                                  padding: "8px 14px", minWidth: 160,
+                                }}>
+                                  <div style={{ fontSize: 11, color: "#64748B", marginBottom: 2, maxWidth: 200, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                                    {cat.categoria}
+                                  </div>
+                                  <div style={{ fontSize: 16, fontWeight: 800, color: "#2563EB" }}>
+                                    {cat.pct.toFixed(1)}%
+                                  </div>
+                                  <div style={{ fontSize: 11, color: "#64748B", fontVariantNumeric: "tabular-nums" }}>
+                                    {fmtCLP(cat.monto_adj)}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        ) : null}
+                      </td>
+                    </tr>
+                  )}
+                </>
+              );
+            })}
           </tbody>
         </table>
       </div>
@@ -1139,6 +1211,8 @@ export default function MercadoPublicoPage() {
           clientes={clientes}
           loading={loadingCli}
           error={errorCli}
+          ano={ano}
+          tipo={tipo}
         />
       )}
 

@@ -148,20 +148,43 @@ def _load_participacion(ano: int, tipo: str) -> dict:
     ef_lics  = round(ids_adj / ids_part * 100, 1) if ids_part > 0 else 0
 
     # ── Mercado total (misma categoría y filtro tipo) ─────────────────────────
-    # Suma de monto_adjudicado (precio × cant_adj vía rut_proveedor_adj) — consistente
-    # con el método LBF. Se usa para calcular participación de mercado por valor.
-    cur.execute(f"""
-        SELECT
-            COUNT(DISTINCT li.licitacion_id)                               AS ids_total,
-            COUNT(li.id)                                                   AS items_total,
-            SUM(COALESCE(li.monto_adjudicado, 0))                         AS valor_total_adj
-        FROM licitaciones_items li
-        JOIN licitaciones l ON l.id = li.licitacion_id
-        WHERE upper(li.categoria_nivel1) LIKE '{CAT_LIKE}'
-          AND li.rut_proveedor_adj IS NOT NULL
-          AND EXTRACT(YEAR FROM COALESCE(l.fecha_adjudicacion, l.fecha_publicacion)) = {ano}
-          {tf}
-    """)
+    # Combina rut_proveedor_adj (datos modernos) con JSONB seleccionada (datos 2024/2025
+    # donde rut_proveedor_adj puede estar vacío).
+    def _mkt_query(year_val: int) -> str:
+        return f"""
+            SELECT
+                COUNT(DISTINCT li.licitacion_id)   AS ids_total,
+                COUNT(DISTINCT li.id)              AS items_total,
+                SUM(
+                    CASE WHEN li.rut_proveedor_adj IS NOT NULL
+                         THEN COALESCE(li.monto_adjudicado
+                              * COALESCE(li.cantidad_adjudicada, li.cantidad, 1), 0)
+                         ELSE COALESCE((
+                             SELECT NULLIF((o->>'monto_adjudicado')::numeric, 0)
+                             FROM jsonb_array_elements(li.oferentes) o
+                             WHERE (o->>'seleccionada')::boolean = true LIMIT 1
+                         ), (
+                             SELECT (o->>'total')::numeric
+                             FROM jsonb_array_elements(li.oferentes) o
+                             WHERE (o->>'seleccionada')::boolean = true LIMIT 1
+                         ), 0)
+                    END
+                )                                  AS valor_total_adj
+            FROM licitaciones_items li
+            JOIN licitaciones l ON l.id = li.licitacion_id
+            WHERE upper(li.categoria_nivel1) LIKE '{CAT_LIKE}'
+              AND EXTRACT(YEAR FROM COALESCE(l.fecha_adjudicacion, l.fecha_publicacion)) = {year_val}
+              {tf}
+              AND (
+                  li.rut_proveedor_adj IS NOT NULL
+                  OR EXISTS (
+                      SELECT 1 FROM jsonb_array_elements(li.oferentes) o2
+                      WHERE (o2->>'seleccionada')::boolean = true
+                  )
+              )
+        """
+
+    cur.execute(_mkt_query(ano))
     r = cur.fetchone()
     mkt_ids   = int(r[0] or 0)
     mkt_items = int(r[1] or 0)
@@ -169,6 +192,77 @@ def _load_participacion(ano: int, tipo: str) -> dict:
 
     part_ids   = round(ids_part / mkt_ids * 100, 1) if mkt_ids > 0 else 0
     part_valor = round(total_adj / mkt_valor * 100, 1) if mkt_valor > 0 else 0
+
+    # ── Datos año anterior para comparativa ──────────────────────────────────
+    prev_ano = ano - 1
+
+    cur.execute(f"""
+        WITH adj_j AS (
+            SELECT COALESCE(NULLIF((o->>'monto_adjudicado')::numeric,0),(o->>'total')::numeric,0) AS m
+            FROM licitaciones_items li
+            JOIN licitaciones l ON l.id = li.licitacion_id
+            CROSS JOIN LATERAL jsonb_array_elements(li.oferentes) o
+            WHERE o->>'rut' = '{LBF_RUT}' AND (o->>'seleccionada')::boolean = true
+              AND upper(li.categoria_nivel1) LIKE '{CAT_LIKE}'
+              AND EXTRACT(YEAR FROM COALESCE(l.fecha_adjudicacion, l.fecha_publicacion)) = {prev_ano}
+              {tf}
+        ),
+        adj_r AS (
+            SELECT li.monto_adjudicado * COALESCE(li.cantidad_adjudicada, li.cantidad) AS m
+            FROM licitaciones_items li
+            JOIN licitaciones l ON l.id = li.licitacion_id
+            WHERE li.rut_proveedor_adj = '{LBF_RUT}'
+              AND upper(li.categoria_nivel1) LIKE '{CAT_LIKE}'
+              AND EXTRACT(YEAR FROM COALESCE(l.fecha_adjudicacion, l.fecha_publicacion)) = {prev_ano}
+              {tf}
+              AND NOT EXISTS (
+                  SELECT 1 FROM jsonb_array_elements(li.oferentes) o2
+                  WHERE o2->>'rut' = '{LBF_RUT}' AND (o2->>'seleccionada')::boolean = true
+              )
+        )
+        SELECT SUM(m) FROM (SELECT * FROM adj_j UNION ALL SELECT * FROM adj_r) x
+    """)
+    r = cur.fetchone()
+    total_adj_prev = round(float(r[0] or 0)) if r and r[0] else 0
+
+    cur.execute(_mkt_query(prev_ano))
+    r = cur.fetchone()
+    mkt_valor_prev = round(float(r[2] or 0)) if r and r[2] else 0
+
+    # ── Adj año actual procedente de lics publicadas en año anterior ─────────
+    cur.execute(f"""
+        WITH adj_j AS (
+            SELECT li.licitacion_id,
+                COALESCE(NULLIF((o->>'monto_adjudicado')::numeric,0),(o->>'total')::numeric,0) AS m
+            FROM licitaciones_items li
+            JOIN licitaciones l ON l.id = li.licitacion_id
+            CROSS JOIN LATERAL jsonb_array_elements(li.oferentes) o
+            WHERE o->>'rut' = '{LBF_RUT}' AND (o->>'seleccionada')::boolean = true
+              AND upper(li.categoria_nivel1) LIKE '{CAT_LIKE}'
+              AND EXTRACT(YEAR FROM COALESCE(l.fecha_adjudicacion, l.fecha_publicacion)) = {ano}
+              {tf}
+        ),
+        adj_r AS (
+            SELECT li.licitacion_id,
+                li.monto_adjudicado * COALESCE(li.cantidad_adjudicada, li.cantidad) AS m
+            FROM licitaciones_items li
+            JOIN licitaciones l ON l.id = li.licitacion_id
+            WHERE li.rut_proveedor_adj = '{LBF_RUT}'
+              AND upper(li.categoria_nivel1) LIKE '{CAT_LIKE}'
+              AND EXTRACT(YEAR FROM COALESCE(l.fecha_adjudicacion, l.fecha_publicacion)) = {ano}
+              {tf}
+              AND NOT EXISTS (
+                  SELECT 1 FROM jsonb_array_elements(li.oferentes) o2
+                  WHERE o2->>'rut' = '{LBF_RUT}' AND (o2->>'seleccionada')::boolean = true
+              )
+        )
+        SELECT SUM(a.m)
+        FROM (SELECT * FROM adj_j UNION ALL SELECT * FROM adj_r) a
+        JOIN licitaciones l ON l.id = a.licitacion_id
+        WHERE EXTRACT(YEAR FROM l.fecha_publicacion) = {prev_ano}
+    """)
+    r = cur.fetchone()
+    adj_from_prev_pub = round(float(r[0] or 0)) if r and r[0] else 0
 
     # ── Adjudicado LBF por tipo de licitación ────────────────────────────────
     cur.execute(f"""
@@ -341,11 +435,14 @@ def _load_participacion(ano: int, tipo: str) -> dict:
             "efectividad_lics":  ef_lics,
             "part_ids":          part_ids,
             "part_valor":        part_valor,
+            "total_adj_prev":    total_adj_prev,
+            "adj_from_prev_pub": adj_from_prev_pub,
         },
         "mercado": {
-            "ids_total":  mkt_ids,
-            "items_total":mkt_items,
-            "valor_total":round(mkt_valor),
+            "ids_total":       mkt_ids,
+            "items_total":     mkt_items,
+            "valor_total":     round(mkt_valor),
+            "valor_total_prev":mkt_valor_prev,
         },
         "top20":    top20,
         "por_tipo": por_tipo,
@@ -647,6 +744,81 @@ async def get_clientes(
     if cached:
         return cached
     data = _load_clientes(ano, tipo)
+    mem_set(ck, data)
+    return data
+
+
+# ── /clientes-categorias ──────────────────────────────────────────────────────
+
+def _load_clientes_categorias(organismo: str, ano: int, tipo: str) -> list:
+    tf = _tipo_filter(tipo)
+    conn = get_pg_conn()
+    cur = conn.cursor()
+
+    cur.execute(f"""
+        WITH adj_jsonb AS (
+            SELECT li.categoria_nivel1 AS cat,
+                COALESCE(NULLIF((o->>'monto_adjudicado')::numeric,0),(o->>'total')::numeric,0) AS monto
+            FROM licitaciones_items li
+            JOIN licitaciones l ON l.id = li.licitacion_id
+            CROSS JOIN LATERAL jsonb_array_elements(li.oferentes) o
+            WHERE o->>'rut' = '{LBF_RUT}'
+              AND (o->>'seleccionada')::boolean = true
+              AND upper(li.categoria_nivel1) LIKE '{CAT_LIKE}'
+              AND l.comprador_nombre_organismo = %(org)s
+              AND EXTRACT(YEAR FROM COALESCE(l.fecha_adjudicacion, l.fecha_publicacion)) = {ano}
+              {tf}
+        ),
+        adj_rut AS (
+            SELECT li.categoria_nivel1 AS cat,
+                li.monto_adjudicado * COALESCE(li.cantidad_adjudicada, li.cantidad) AS monto
+            FROM licitaciones_items li
+            JOIN licitaciones l ON l.id = li.licitacion_id
+            WHERE li.rut_proveedor_adj = '{LBF_RUT}'
+              AND upper(li.categoria_nivel1) LIKE '{CAT_LIKE}'
+              AND l.comprador_nombre_organismo = %(org)s
+              AND EXTRACT(YEAR FROM COALESCE(l.fecha_adjudicacion, l.fecha_publicacion)) = {ano}
+              {tf}
+              AND NOT EXISTS (
+                  SELECT 1 FROM jsonb_array_elements(li.oferentes) o2
+                  WHERE o2->>'rut' = '{LBF_RUT}' AND (o2->>'seleccionada')::boolean = true
+              )
+        ),
+        all_adj AS (SELECT * FROM adj_jsonb UNION ALL SELECT * FROM adj_rut),
+        total AS (SELECT SUM(monto) AS t FROM all_adj)
+        SELECT
+            COALESCE(cat, 'Sin categoría')                                       AS categoria,
+            SUM(monto)                                                            AS monto_adj,
+            ROUND(SUM(monto) * 100.0 / NULLIF((SELECT t FROM total), 0), 1)      AS pct
+        FROM all_adj
+        GROUP BY cat
+        ORDER BY monto_adj DESC
+    """, {"org": organismo})
+
+    result = []
+    for row in cur.fetchall():
+        result.append({
+            "categoria": row[0],
+            "monto_adj": round(float(row[1] or 0)),
+            "pct":       float(row[2] or 0),
+        })
+    conn.close()
+    return result
+
+
+@router.get("/clientes-categorias")
+async def get_clientes_categorias(
+    organismo: str = Query(...),
+    ano:       int = Query(2026),
+    tipo:      str = Query(""),
+    current_user: dict = Depends(get_current_user),
+):
+    import urllib.parse
+    ck = f"mp:cli_cat:{urllib.parse.quote(organismo)}:{ano}:{tipo}"
+    cached = mem_get(ck)
+    if cached:
+        return cached
+    data = _load_clientes_categorias(organismo, ano, tipo)
     mem_set(ck, data)
     return data
 

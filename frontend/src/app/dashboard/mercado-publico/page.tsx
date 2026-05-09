@@ -947,7 +947,6 @@ export default function MercadoPublicoPage() {
   const [clientes, setClientes] = useState<Cliente[] | null>(null);
   const [regiones, setRegiones] = useState<RegionData[] | null>(null);
 
-  // Estados de carga independientes
   const [loadingComp, setLoadingComp] = useState(false);
   const [loadingCli,  setLoadingCli]  = useState(false);
   const [loadingReg,  setLoadingReg]  = useState(false);
@@ -956,86 +955,57 @@ export default function MercadoPublicoPage() {
   const [errorCli,  setErrorCli]  = useState<string | null>(null);
   const [errorReg,  setErrorReg]  = useState<string | null>(null);
 
-  // Registrar qué tabs ya se cargaron con los filtros actuales
-  const [loadedComp, setLoadedComp] = useState(false);
-  const [loadedCli,  setLoadedCli]  = useState(false);
-  const [loadedReg,  setLoadedReg]  = useState(false);
-
-  // Reset al cambiar filtros
+  // Al cambiar filtros: limpiar datos y recargar tab activo + competencia siempre
   useEffect(() => {
     setData(null);
     setClientes(null);
     setRegiones(null);
-    setLoadedComp(false);
-    setLoadedCli(false);
-    setLoadedReg(false);
-    setErrorComp(null);
-    setErrorCli(null);
-    setErrorReg(null);
+    setErrorComp(null); setErrorCli(null); setErrorReg(null);
+
+    const params = new URLSearchParams({ ano: String(ano), tipo });
+
+    setLoadingComp(true);
+    api.get(`/api/mercado-publico/participacion?${params}`)
+      .then((r) => setData(r as Data))
+      .catch((e: unknown) => setErrorComp(e instanceof Error ? e.message : "Error"))
+      .finally(() => setLoadingComp(false));
+
+    if (tab === "clientes") {
+      setLoadingCli(true);
+      api.get(`/api/mercado-publico/clientes?${params}`)
+        .then((r) => setClientes(r as Cliente[]))
+        .catch((e: unknown) => setErrorCli(e instanceof Error ? e.message : "Error"))
+        .finally(() => setLoadingCli(false));
+    }
+    if (tab === "region") {
+      setLoadingReg(true);
+      api.get(`/api/mercado-publico/region?${params}`)
+        .then((r) => setRegiones(r as RegionData[]))
+        .catch((e: unknown) => setErrorReg(e instanceof Error ? e.message : "Error"))
+        .finally(() => setLoadingReg(false));
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ano, tipo]);
 
-  // Carga tab Competencia
-  const loadComp = useCallback(async () => {
-    if (loadedComp) return;
-    setLoadingComp(true);
-    setErrorComp(null);
-    try {
-      const params = new URLSearchParams({ ano: String(ano), tipo });
-      const res = await api.get(`/api/mercado-publico/participacion?${params}`);
-      setData(res as Data);
-      setLoadedComp(true);
-    } catch (e: unknown) {
-      setErrorComp(e instanceof Error ? e.message : "Error al cargar datos");
-    } finally {
-      setLoadingComp(false);
-    }
-  }, [ano, tipo, loadedComp]);
-
-  // Carga tab Clientes (lazy)
-  const loadCli = useCallback(async () => {
-    if (loadedCli) return;
-    setLoadingCli(true);
-    setErrorCli(null);
-    try {
-      const params = new URLSearchParams({ ano: String(ano), tipo });
-      const res = await api.get(`/api/mercado-publico/clientes?${params}`);
-      setClientes(res as Cliente[]);
-      setLoadedCli(true);
-    } catch (e: unknown) {
-      setErrorCli(e instanceof Error ? e.message : "Error al cargar clientes");
-    } finally {
-      setLoadingCli(false);
-    }
-  }, [ano, tipo, loadedCli]);
-
-  // Carga tab Región (lazy)
-  const loadReg = useCallback(async () => {
-    if (loadedReg) return;
-    setLoadingReg(true);
-    setErrorReg(null);
-    try {
-      const params = new URLSearchParams({ ano: String(ano), tipo });
-      const res = await api.get(`/api/mercado-publico/region?${params}`);
-      setRegiones(res as RegionData[]);
-      setLoadedReg(true);
-    } catch (e: unknown) {
-      setErrorReg(e instanceof Error ? e.message : "Error al cargar regiones");
-    } finally {
-      setLoadingReg(false);
-    }
-  }, [ano, tipo, loadedReg]);
-
-  // Disparar carga según tab activo
+  // Al cambiar tab: cargar datos si aún no están
   useEffect(() => {
-    if (tab === "competencia") loadComp();
-    else if (tab === "clientes") loadCli();
-    else if (tab === "region") loadReg();
-  }, [tab, loadComp, loadCli, loadReg]);
-
-  // Siempre cargar competencia primero al montar o cambiar filtros
-  useEffect(() => {
-    loadComp();
-  }, [loadComp]);
+    const params = new URLSearchParams({ ano: String(ano), tipo });
+    if (tab === "clientes" && !clientes && !loadingCli) {
+      setLoadingCli(true);
+      api.get(`/api/mercado-publico/clientes?${params}`)
+        .then((r) => setClientes(r as Cliente[]))
+        .catch((e: unknown) => setErrorCli(e instanceof Error ? e.message : "Error"))
+        .finally(() => setLoadingCli(false));
+    }
+    if (tab === "region" && !regiones && !loadingReg) {
+      setLoadingReg(true);
+      api.get(`/api/mercado-publico/region?${params}`)
+        .then((r) => setRegiones(r as RegionData[]))
+        .catch((e: unknown) => setErrorReg(e instanceof Error ? e.message : "Error"))
+        .finally(() => setLoadingReg(false));
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab]);
 
   const loading = tab === "competencia" ? loadingComp
     : tab === "clientes" ? loadingCli

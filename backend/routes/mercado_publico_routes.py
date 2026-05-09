@@ -226,6 +226,7 @@ def _load_participacion(ano: int, tipo: str) -> dict:
         of_c       = float(row[7] or 0)
         top20.append({
             "competidor":    comp_name,
+            "rut":           str(row[1] or ""),
             "ids_part":      ids_part_c,
             "ofertas":       of_tot_c,
             "ofertas_adj":   of_adj_c,

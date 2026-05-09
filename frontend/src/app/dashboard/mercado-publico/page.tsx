@@ -530,7 +530,7 @@ function TabCompetencia({ data, ano, tipo }: { data: Data; ano: number; tipo: st
                   LBF (tú)
                 </td>
                 <td style={{ ...tdR, fontWeight: 700 }}>
-                  <PartBar pct={lbfPct} />
+                  {pct(lbfPct)}
                 </td>
                 <td style={{ ...tdR, fontWeight: 700, color: "#059669" }}>
                   {pct(lbfEf)}
@@ -584,8 +584,8 @@ function TabCompetencia({ data, ano, tipo }: { data: Data; ano: number; tipo: st
                     <td style={{ ...tdS, color: isSelected ? "#2563EB" : undefined, fontWeight: isSelected ? 700 : undefined }}>
                       {c.competidor}
                     </td>
-                    <td style={tdR}>
-                      {cPct !== null ? <PartBar pct={cPct} /> : <span style={{ color: "#94A3B8", fontSize: 12 }}>—</span>}
+                    <td style={{ ...tdR, color: cPct !== null ? "#374151" : "#94A3B8" }}>
+                      {cPct !== null ? pct(cPct) : "—"}
                     </td>
                     <td
                       style={{

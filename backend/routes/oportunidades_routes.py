@@ -10,7 +10,7 @@ from datetime import date
 from fastapi import APIRouter, Depends, Query
 from typing import Optional
 from auth import get_current_user
-from db import get_conn, hoy, MESES_NOMBRE, filtro_guias
+from db import get_conn, hoy, MESES_NOMBRE, filtro_guias, calc_dias_habiles
 from cache import mem_get, mem_set
 import traceback
 
@@ -58,18 +58,8 @@ def _zona_raw_filters(zona_label: str) -> str:
 
 def _dias_habiles(ano: int, mes: int) -> tuple[int, int]:
     """Return (dias habiles transcurridos, dias habiles totales) for a month."""
-    hoy_date = date.today()
-    _, total_days = calendar.monthrange(ano, mes)
-    total_hab = sum(1 for d in range(1, total_days + 1)
-                    if date(ano, mes, d).weekday() < 5)
-    if ano == hoy_date.year and mes == hoy_date.month:
-        trans = sum(1 for d in range(1, hoy_date.day + 1)
-                    if date(ano, mes, d).weekday() < 5)
-    elif date(ano, mes, 1) < hoy_date:
-        trans = total_hab  # month completed
-    else:
-        trans = 0
-    return trans, total_hab
+    trans, _, total = calc_dias_habiles([mes], ano)
+    return trans, total
 
 
 def _parse_periodo(periodo: str, mes: int | None) -> tuple[list[int], str]:

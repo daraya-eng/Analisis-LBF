@@ -135,7 +135,7 @@ function CumplLabel(props: { x?: number; y?: number; width?: number; value?: num
   if (value === undefined || value === null) return null;
   return (
     <text x={x + width + 4} y={y + 12} fill="#374151" fontSize={11} fontWeight={700}>
-      {value.toFixed(1)}%
+      {value.toFixed(2)}%
     </text>
   );
 }
@@ -259,9 +259,10 @@ export default function ZonaPage() {
   // Progress bar
   const cumplPct = t.cumpl;
   const pctBar = Math.min(cumplPct, 100);
-  const barColor = cumplPct >= 100 ? "#10B981" : cumplPct >= 80 ? "#F59E0B" : "#EF4444";
-
   const showRitmo = data.ritmo && !data.ritmo.periodo_completo && data.ritmo.time_pct > 0;
+  const timePct = showRitmo ? (data.ritmo?.time_pct ?? 100) : 100;
+  const cumplColor = (c: number) => c >= timePct ? "#10B981" : c >= timePct * 0.8 ? "#F59E0B" : "#EF4444";
+  const barColor = cumplColor(cumplPct);
   const colSpanTotal = showRitmo ? 13 : 9;
 
   return (
@@ -332,7 +333,7 @@ export default function ZonaPage() {
           label="Cumpl. Meta"
           value={`${semaforo(t.cumpl)} ${fmtPct(t.cumpl)}`}
           sub={`Gap: ${fmtAbs(t.gap)}`}
-          color={t.cumpl >= 100 ? "#10B981" : t.cumpl >= 80 ? "#F59E0B" : "#EF4444"}
+          color={cumplColor(t.cumpl)}
         />
         {data.ritmo && !data.ritmo.periodo_completo && data.ritmo.time_pct > 0 ? (
           <StatCard
@@ -390,7 +391,7 @@ export default function ZonaPage() {
               <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" horizontal={false} />
               <XAxis type="number" domain={[0, "dataMax"]} tickFormatter={(v) => `${v}%`} tick={{ fontSize: 11 }} />
               <YAxis type="category" dataKey="zona" width={120} tick={{ fontSize: 11, fill: "#374151" }} />
-              <Tooltip formatter={(v) => `${Number(v).toFixed(1)}%`} />
+              <Tooltip formatter={(v) => `${Number(v).toFixed(2)}%`} />
               {data.ritmo && !data.ritmo.periodo_completo && data.ritmo.time_pct > 0 && (
                 <ReferenceLine
                   x={data.ritmo.time_pct}
@@ -469,8 +470,12 @@ export default function ZonaPage() {
               <tr style={{ borderTop: "2px solid #CBD5E1", background: "#F8FAFC" }}>
                 <td style={{ padding: "8px 10px", fontWeight: 800, color: "#0F172A" }}>Total</td>
                 {CATS_MIX.map(cat => {
-                  const vPct = t.categorias[cat]?.pct_zona || 0;
-                  const pPct = t.categorias[cat]?.ppto_pct || 0;
+                  const totalVenta = zonas.reduce((s, z) => s + z.venta, 0);
+                  const totalPpto = zonas.reduce((s, z) => s + z.meta_periodo, 0);
+                  const catVenta = zonas.reduce((s, z) => s + (z.categorias[cat]?.venta || 0), 0);
+                  const catPpto = zonas.reduce((s, z) => s + z.meta_periodo * (z.categorias[cat]?.ppto_pct || 0) / 100, 0);
+                  const vPct = totalVenta > 0 ? catVenta / totalVenta * 100 : 0;
+                  const pPct = totalPpto > 0 ? catPpto / totalPpto * 100 : 0;
                   const delta = Math.round((vPct - pPct) * 10) / 10;
                   const deltaColor = delta > 2 ? "#10B981" : delta < -2 ? "#EF4444" : "#94A3B8";
                   return (
@@ -537,7 +542,7 @@ export default function ZonaPage() {
           <tbody>
             {zonas.map((row, i) => {
               const isExpanded = expanded === row.zona;
-              const cumplColor = row.cumpl >= 100 ? "#10B981" : row.cumpl >= 80 ? "#F59E0B" : "#EF4444";
+              const rowCumplColor = cumplColor(row.cumpl);
               const crecColor = row.crec_vs_25 >= 0 ? "#10B981" : "#EF4444";
               const rows = [];
               rows.push(
@@ -559,7 +564,7 @@ export default function ZonaPage() {
                   <td style={tdR}>{fmtAbs(row.meta_periodo)}</td>
                   <td style={{ ...tdR, fontWeight: 600 }}>{fmtAbs(row.venta)}</td>
                   <td style={{ ...tdR, color: row.gap >= 0 ? "#10B981" : "#EF4444" }}>{fmtAbs(row.gap)}</td>
-                  <td style={{ ...tdR, fontWeight: 600, color: cumplColor }}>
+                  <td style={{ ...tdR, fontWeight: 600, color: rowCumplColor }}>
                     {semaforo(row.cumpl)} {fmtPct(row.cumpl)}
                   </td>
                   <td style={tdR}>{fmtAbs(row.venta_25)}</td>
@@ -667,7 +672,7 @@ export default function ZonaPage() {
               <td style={tdR}>{fmtAbs(t.meta_periodo)}</td>
               <td style={{ ...tdR, fontWeight: 800 }}>{fmtAbs(t.venta)}</td>
               <td style={{ ...tdR, color: t.gap >= 0 ? "#10B981" : "#EF4444" }}>{fmtAbs(t.gap)}</td>
-              <td style={{ ...tdR, fontWeight: 800, color: t.cumpl >= 100 ? "#10B981" : t.cumpl >= 80 ? "#F59E0B" : "#EF4444" }}>
+              <td style={{ ...tdR, fontWeight: 800, color: cumplColor(t.cumpl) }}>
                 {semaforo(t.cumpl)} {fmtPct(t.cumpl)}
               </td>
               <td style={tdR}>{fmtAbs(t.venta_25)}</td>

@@ -21,18 +21,32 @@ import {
   Target,
   ShieldAlert,
   LineChart,
+  BookMarked,
+  ArrowLeftRight,
 } from "lucide-react";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
-const NAV_ITEMS = [
+interface NavChild { href: string; label: string }
+interface NavItem {
+  href: string; label: string; icon: React.ElementType;
+  module: string; children?: NavChild[];
+}
+
+const NAV_ITEMS: NavItem[] = [
   { href: "/dashboard", label: "Panel Principal", icon: LayoutDashboard, module: "dashboard" },
   { href: "/dashboard/televentas", label: "Televentas", icon: Phone, module: "televentas" },
   { href: "/dashboard/zona", label: "KAM", icon: Building2, module: "zona" },
   { href: "/dashboard/oportunidades", label: "Oportunidades", icon: Target, module: "zona" },
-  { href: "/dashboard/clientes", label: "Clientes", icon: Users, module: "clientes" },
+  {
+    href: "/dashboard/clientes", label: "Clientes", icon: Users, module: "clientes",
+    children: [
+      { href: "/dashboard/clientes/efecto-pv", label: "Efecto P/V" },
+    ],
+  },
   { href: "/dashboard/categoria", label: "Compra Agil", icon: Package, module: "categoria" },
   { href: "/dashboard/facturacion", label: "Adj. vs Facturado", icon: Receipt, module: "facturacion" },
   { href: "/dashboard/mercado-publico", label: "Mercado Publico", icon: TrendingUp, module: "mercado_publico" },
+  { href: "/dashboard/maestro-mp", label: "Maestro Productos MP", icon: BookMarked, module: "mercado_publico" },
   { href: "/dashboard/stock", label: "Inventario", icon: Warehouse, module: "stock" },
   { href: "/dashboard/ma", label: "M&A Targets", icon: Target, module: "ma" },
   { href: "/dashboard/guantes", label: "Monitor Guantes", icon: ShieldAlert, module: "guantes" },
@@ -41,10 +55,24 @@ const NAV_ITEMS = [
   { href: "/dashboard/glosario", label: "Glosario", icon: BookOpen, module: "dashboard" },
 ];
 
+const API = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:8000";
+
+interface InfoData { fecha_sp: string; fecha_datos: string; dia_datos: string; es_lunes: boolean }
+
 export default function Sidebar() {
   const pathname = usePathname();
   const { user, logout } = useAuth();
   const [collapsed, setCollapsed] = useState(false);
+  const [info, setInfo] = useState<InfoData | null>(null);
+
+  useEffect(() => {
+    const token = localStorage.getItem("lbf_token") || "";
+    if (!token) return;
+    fetch(`${API}/api/info`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.json())
+      .then(d => setInfo(d))
+      .catch(() => {});
+  }, []);
 
   const isSuperAdmin = user?.role === "superadmin";
   const userModules = isSuperAdmin ? NAV_ITEMS.map((i) => i.module) : (user?.modules ?? []);
@@ -125,46 +153,79 @@ export default function Sidebar() {
               ? pathname === "/dashboard"
               : pathname.startsWith(item.href);
           const Icon = item.icon;
+          const hasChildren = item.children && item.children.length > 0;
           return (
-            <Link
-              key={item.href}
-              href={item.href}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 12,
-                padding: collapsed ? "10px 0" : "10px 12px",
-                justifyContent: collapsed ? "center" : "flex-start",
-                borderRadius: 8,
-                fontSize: 14,
-                fontWeight: isActive ? 600 : 400,
-                color: isActive ? "white" : "rgba(148,163,184,0.85)",
-                background: isActive
-                  ? "rgba(59,130,246,0.15)"
-                  : "transparent",
-                textDecoration: "none",
-                transition: "all 0.15s ease",
-                position: "relative",
-              }}
-              title={collapsed ? item.label : undefined}
-            >
-              {isActive && (
-                <div
-                  style={{
-                    position: "absolute",
-                    left: 0,
-                    top: "50%",
-                    transform: "translateY(-50%)",
-                    width: 3,
-                    height: 20,
-                    borderRadius: 4,
-                    background: "#3B82F6",
-                  }}
-                />
+            <div key={item.href}>
+              <Link
+                href={item.href}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 12,
+                  padding: collapsed ? "10px 0" : "10px 12px",
+                  justifyContent: collapsed ? "center" : "flex-start",
+                  borderRadius: 8,
+                  fontSize: 14,
+                  fontWeight: isActive ? 600 : 400,
+                  color: isActive ? "white" : "rgba(148,163,184,0.85)",
+                  background: isActive
+                    ? "rgba(59,130,246,0.15)"
+                    : "transparent",
+                  textDecoration: "none",
+                  transition: "all 0.15s ease",
+                  position: "relative",
+                }}
+                title={collapsed ? item.label : undefined}
+              >
+                {isActive && (
+                  <div
+                    style={{
+                      position: "absolute",
+                      left: 0,
+                      top: "50%",
+                      transform: "translateY(-50%)",
+                      width: 3,
+                      height: 20,
+                      borderRadius: 4,
+                      background: "#3B82F6",
+                    }}
+                  />
+                )}
+                <Icon size={18} style={{ flexShrink: 0 }} />
+                {!collapsed && <span style={{ whiteSpace: "nowrap" }}>{item.label}</span>}
+              </Link>
+              {/* Sub-menu children */}
+              {hasChildren && isActive && !collapsed && (
+                <div style={{ marginLeft: 16, marginTop: 2, display: "flex", flexDirection: "column", gap: 1 }}>
+                  {item.children!.map((child) => {
+                    const childActive = pathname === child.href || pathname.startsWith(child.href + "/");
+                    return (
+                      <Link
+                        key={child.href}
+                        href={child.href}
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 8,
+                          padding: "7px 12px 7px 14px",
+                          borderRadius: 6,
+                          fontSize: 13,
+                          fontWeight: childActive ? 600 : 400,
+                          color: childActive ? "white" : "rgba(148,163,184,0.75)",
+                          background: childActive ? "rgba(59,130,246,0.12)" : "transparent",
+                          textDecoration: "none",
+                          transition: "all 0.15s ease",
+                          borderLeft: "1px solid rgba(59,130,246,0.3)",
+                        }}
+                      >
+                        <ArrowLeftRight size={13} style={{ flexShrink: 0, opacity: 0.7 }} />
+                        <span style={{ whiteSpace: "nowrap" }}>{child.label}</span>
+                      </Link>
+                    );
+                  })}
+                </div>
               )}
-              <Icon size={18} style={{ flexShrink: 0 }} />
-              {!collapsed && <span style={{ whiteSpace: "nowrap" }}>{item.label}</span>}
-            </Link>
+            </div>
           );
         })}
 
@@ -211,6 +272,47 @@ export default function Sidebar() {
           </>
         )}
       </nav>
+
+      {/* Fechas de datos */}
+      {info && (
+        <div style={{
+          padding: collapsed ? "8px 4px" : "10px 14px",
+          borderTop: "1px solid rgba(255,255,255,0.06)",
+          background: "rgba(0,0,0,0.15)",
+        }}>
+          {collapsed ? (
+            <div title={`Datos al ${info.dia_datos} ${info.fecha_datos}\nBD: ${info.fecha_sp}`}
+              style={{ display: "flex", justifyContent: "center", fontSize: 14, cursor: "default" }}>
+              🗓
+            </div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span style={{ fontSize: 10, color: "rgba(148,163,184,0.6)", textTransform: "uppercase", letterSpacing: "0.06em" }}>
+                  Datos al
+                </span>
+                <span style={{
+                  fontSize: 11, fontWeight: 700,
+                  color: info.es_lunes ? "#FBBF24" : "#60A5FA",
+                  background: info.es_lunes ? "rgba(245,158,11,0.12)" : "rgba(59,130,246,0.12)",
+                  padding: "1px 7px", borderRadius: 4,
+                }}>
+                  {info.dia_datos} {info.fecha_datos}
+                  {info.es_lunes && <span style={{ fontSize: 9, marginLeft: 4, opacity: 0.8 }}>sem. cerrada</span>}
+                </span>
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span style={{ fontSize: 10, color: "rgba(148,163,184,0.6)", textTransform: "uppercase", letterSpacing: "0.06em" }}>
+                  BD actualizada
+                </span>
+                <span style={{ fontSize: 11, color: "rgba(148,163,184,0.8)", fontVariantNumeric: "tabular-nums" }}>
+                  {info.fecha_sp}
+                </span>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Bottom: user + collapse toggle */}
       <div style={{ padding: "12px 8px", borderTop: "1px solid rgba(255,255,255,0.06)" }}>

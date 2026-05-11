@@ -8,6 +8,60 @@ import datetime
 import queue
 import pyodbc
 
+# ── Feriados chilenos 2025-2027 ──────────────────────────────────────
+# Fuente: Ley 2.977 + modificaciones. Actualizar anualmente.
+FERIADOS_CL: set[datetime.date] = {
+    # 2025
+    datetime.date(2025, 1, 1),   # Año Nuevo
+    datetime.date(2025, 4, 18),  # Viernes Santo
+    datetime.date(2025, 4, 19),  # Sábado Santo
+    datetime.date(2025, 5, 1),   # Día del Trabajador
+    datetime.date(2025, 5, 21),  # Glorias Navales
+    datetime.date(2025, 6, 20),  # Día Nacional de los Pueblos Indígenas
+    datetime.date(2025, 6, 29),  # San Pedro y San Pablo
+    datetime.date(2025, 7, 16),  # Virgen del Carmen
+    datetime.date(2025, 8, 15),  # Asunción de la Virgen
+    datetime.date(2025, 9, 18),  # Independencia Nacional
+    datetime.date(2025, 9, 19),  # Glorias del Ejército
+    datetime.date(2025, 10, 13), # Encuentro de Dos Mundos (Oct 12 domingo → lunes)
+    datetime.date(2025, 10, 31), # Día Iglesias Evangélicas
+    datetime.date(2025, 11, 1),  # Día de Todos los Santos
+    datetime.date(2025, 12, 8),  # Inmaculada Concepción
+    datetime.date(2025, 12, 25), # Navidad
+    # 2026
+    datetime.date(2026, 1, 1),   # Año Nuevo
+    datetime.date(2026, 4, 3),   # Viernes Santo
+    datetime.date(2026, 4, 4),   # Sábado Santo
+    datetime.date(2026, 5, 1),   # Día del Trabajador
+    datetime.date(2026, 5, 21),  # Glorias Navales
+    datetime.date(2026, 6, 21),  # Día Nacional de los Pueblos Indígenas
+    datetime.date(2026, 6, 29),  # San Pedro y San Pablo
+    datetime.date(2026, 7, 16),  # Virgen del Carmen
+    datetime.date(2026, 8, 15),  # Asunción de la Virgen
+    datetime.date(2026, 9, 18),  # Independencia Nacional
+    datetime.date(2026, 9, 19),  # Glorias del Ejército
+    datetime.date(2026, 10, 12), # Encuentro de Dos Mundos
+    datetime.date(2026, 11, 1),  # Día de Todos los Santos
+    datetime.date(2026, 12, 8),  # Inmaculada Concepción
+    datetime.date(2026, 12, 25), # Navidad
+    # 2027
+    datetime.date(2027, 1, 1),   # Año Nuevo
+    datetime.date(2027, 3, 26),  # Viernes Santo
+    datetime.date(2027, 3, 27),  # Sábado Santo
+    datetime.date(2027, 5, 1),   # Día del Trabajador
+    datetime.date(2027, 5, 21),  # Glorias Navales
+    datetime.date(2027, 6, 21),  # Día Nacional de los Pueblos Indígenas
+    datetime.date(2027, 6, 28),  # San Pedro y San Pablo (Jun 29 martes → lunes)
+    datetime.date(2027, 7, 16),  # Virgen del Carmen
+    datetime.date(2027, 8, 15),  # Asunción de la Virgen (domingo → lunes)
+    datetime.date(2027, 9, 18),  # Independencia Nacional
+    datetime.date(2027, 9, 19),  # Glorias del Ejército (sábado → no traslado)
+    datetime.date(2027, 10, 12), # Encuentro de Dos Mundos
+    datetime.date(2027, 11, 1),  # Día de Todos los Santos
+    datetime.date(2027, 12, 8),  # Inmaculada Concepción
+    datetime.date(2027, 12, 25), # Navidad
+}
+
 CONN_STR = os.getenv("DB_CONN_STR", (
     "DRIVER={ODBC Driver 18 for SQL Server};"
     "SERVER=192.0.0.48;DATABASE=BI;UID=daraya;PWD=Dar4y4$+;"
@@ -80,11 +134,42 @@ MESES_NOMBRE = {1:'Enero',2:'Febrero',3:'Marzo',4:'Abril',5:'Mayo',6:'Junio',
                 7:'Julio',8:'Agosto',9:'Septiembre',10:'Octubre',11:'Noviembre',12:'Diciembre'}
 
 
+def calc_dias_habiles(meses: list[int], ano: int) -> tuple[int, int, int]:
+    """Shared utility — (habiles_transcurridos, habiles_restantes, habiles_totales).
+    Excluye fines de semana y feriados chilenos. El lunes usa el viernes anterior."""
+    import calendar as _cal
+    ref = ref_date()
+    habiles_transcurridos = 0
+    habiles_totales = 0
+    for m in meses:
+        for d in range(1, _cal.monthrange(ano, m)[1] + 1):
+            dt = datetime.date(ano, m, d)
+            if dt.weekday() < 5 and dt not in FERIADOS_CL:
+                habiles_totales += 1
+                if dt <= ref:
+                    habiles_transcurridos += 1
+    return habiles_transcurridos, habiles_totales - habiles_transcurridos, habiles_totales
+
+
+def ref_date() -> datetime.date:
+    """Fecha de corte para datos: el lunes usa el viernes anterior (semana cerrada).
+    El resto de la semana usa ayer (datos del SP que corre a las 6am)."""
+    today = datetime.date.today()
+    if today.weekday() == 0:  # Lunes → viernes anterior
+        return today - datetime.timedelta(days=3)
+    return today - datetime.timedelta(days=1)
+
+
 def filtro_guias() -> str:
     """Excluir guías pendientes (DOC_CODE='GF') de meses cerrados.
-    Solo el mes actual puede incluir guías; meses anteriores solo facturas."""
+    Solo el mes actual puede incluir guías; meses anteriores solo facturas.
+    Los lunes el corte es el viernes anterior (semana cerrada)."""
     t = datetime.date.today()
-    return f"(DOC_CODE <> 'GF' OR (ANO = {t.year} AND MES = {t.month}))"
+    ref = ref_date()
+    return (
+        f"(DOC_CODE <> 'GF' OR "
+        f"(ANO = {t.year} AND MES = {t.month} AND CAST(DIA AS date) <= '{ref}'))"
+    )
 
 
 def hoy():

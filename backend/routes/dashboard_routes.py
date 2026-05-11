@@ -12,7 +12,7 @@ import datetime
 from fastapi import APIRouter, Depends, Query
 from typing import Optional
 from auth import get_current_user
-from db import get_conn, hoy, MESES_NOMBRE, filtro_guias
+from db import get_conn, hoy, MESES_NOMBRE, filtro_guias, calc_dias_habiles, ref_date, FERIADOS_CL
 from cache import mem_get, mem_set
 
 router = APIRouter()
@@ -54,21 +54,7 @@ def _calc_ritmo_days(meses: list[int], ano: int) -> tuple[int, int, bool]:
 
 
 def _calc_dias_habiles(meses: list[int], ano: int) -> tuple[int, int, int]:
-    """Returns (habiles_transcurridos, habiles_restantes, habiles_totales).
-    Business days = Mon-Fri. Usa ayer como corte (datos disponibles hasta ayer a las 6am)."""
-    ref = datetime.date.today() - datetime.timedelta(days=1)
-    habiles_transcurridos = 0
-    habiles_totales = 0
-    for m in meses:
-        days_in_m = calendar.monthrange(ano, m)[1]
-        for d in range(1, days_in_m + 1):
-            dt = datetime.date(ano, m, d)
-            if dt.weekday() < 5:  # Mon-Fri
-                habiles_totales += 1
-                if dt <= ref:
-                    habiles_transcurridos += 1
-    habiles_restantes = habiles_totales - habiles_transcurridos
-    return habiles_transcurridos, habiles_restantes, habiles_totales
+    return calc_dias_habiles(meses, ano)
 
 
 def _load_dashboard_raw() -> dict:
@@ -240,7 +226,7 @@ def _load_dashboard_raw() -> dict:
         guias_seg_mes[seg][mes][cat] = guias_seg_mes[seg][mes].get(cat, 0) + venta
 
     # ═══ 6. VENTA 2025 parcial: hasta día X del mes actual (mismo corte que ritmo: ayer) ═══
-    ref_dia = (datetime.date.today() - datetime.timedelta(days=1)).day
+    ref_dia = ref_date().day
     cur.execute(f"""
         SELECT SUM(CAST(VENTA AS float))
         FROM BI_TOTAL_FACTURA
@@ -410,7 +396,7 @@ def _build_for_period(raw: dict, meses: list[int]) -> dict:
     # ═══ RITMO / PACE ═══
     h = hoy()
     elapsed, total_d, periodo_completo = _calc_ritmo_days(meses, h["ano"])
-    time_pct = (elapsed / total_d * 100) if total_d > 0 else 100
+    time_pct = (hab_trans / hab_total * 100) if hab_total > 0 else 100
     actual_pct = (total_venta / meta_periodo * 100) if meta_periodo > 0 else 0
     diff_pct = actual_pct - time_pct
 
@@ -427,7 +413,7 @@ def _build_for_period(raw: dict, meses: list[int]) -> dict:
     proyeccion = total_venta + (ritmo_diario * hab_rest) if hab_trans > 0 else 0
 
     ritmo = {
-        "time_pct": round(time_pct, 1),
+        "time_pct": round(time_pct, 2),
         "actual_pct": round(actual_pct, 1),
         "diff_pct": round(diff_pct, 1),
         "status": status,
@@ -686,8 +672,9 @@ async def get_dashboard_diario(
         acum_25 = 0.0
         rows = []
         for d in all_dias:
-            # Excluir fines de semana (sábado=5, domingo=6)
-            if datetime.date(_ANO, _MES, d).weekday() >= 5:
+            # Excluir fines de semana y feriados
+            dt_d = datetime.date(_ANO, _MES, d)
+            if dt_d.weekday() >= 5 or dt_d in FERIADOS_CL:
                 continue
             v26 = dias_26.get(d, 0)
             v25 = dias_25.get(d, 0)

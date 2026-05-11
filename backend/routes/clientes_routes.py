@@ -146,8 +146,6 @@ def _load_clientes_data(meses: list[int]) -> dict:
         cd["pct"] = round(cd["venta_26"] / total_venta_26 * 100, 1) if total_venta_26 > 0 else 0
     cat_data.sort(key=lambda x: -x["venta_26"])
 
-    conn.close()
-
     # ═══ 4. Merge: unir 2026 (por cat) + 2025 (total) ═══
     all_ruts = set(cli_26.keys()) | set(cli_25.keys())
     clientes = []
@@ -241,6 +239,8 @@ def _load_clientes_data(meses: list[int]) -> dict:
             "efecto_volumen": round(ef_volumen),
             "diff":           round(v26 - v25),
         }
+
+    conn.close()
 
     # ═══ 6. Todos los clientes ordenados por diferencia ═══
     with_history = [c for c in clientes if c["venta_25"] > 0 or c["venta_26"] > 0]
@@ -406,3 +406,339 @@ async def get_cliente_detalle(
     except Exception as e:
         return {"error": str(e), "efecto_precio": 0, "efecto_volumen": 0,
                 "productos": [], "productos_perdidos": [], "productos_nuevos": []}
+
+
+def _load_efecto_pv(meses: list[int]) -> dict:
+    """P/V effect aggregated by total, segment, category.
+    Calculated at (RUT x CODIGO) level for accurate unit prices.
+    """
+    _ANO = hoy()["ano"]
+    _FG = filtro_guias()
+    conn = get_conn()
+    cur = conn.cursor()
+    mes_list = ",".join(str(m) for m in meses)
+
+    # seg_map: resolve real segmento by RUT
+    cur.execute("""
+        SELECT RUT, MAX(LTRIM(RTRIM(SEGMENTO)))
+        FROM DW_TOTAL_FACTURA
+        WHERE SEGMENTO IS NOT NULL AND SEGMENTO <> ''
+        GROUP BY RUT
+    """)
+    seg_map: dict = {str(r[0]).strip(): str(r[1]).strip() for r in cur.fetchall()}
+
+    def _seg(rut: str, seg_raw: str) -> str:
+        s = seg_raw.strip() if seg_raw else seg_map.get(rut.strip(), "PRIVADO")
+        return "PUBLICO" if "PUBLICO" in s else "PRIVADO"
+
+    # Year 2026: product x client (active categories only)
+    cur.execute(f"""
+        SELECT LTRIM(RTRIM(RUT)), LTRIM(RTRIM(CODIGO)),
+               {_CAT_CASE} AS cat,
+               MAX(LTRIM(RTRIM(ISNULL(SEGMENTO,'')))) AS seg_raw,
+               SUM(CAST(VENTA AS float)), SUM(CAST(CANT AS float))
+        FROM BI_TOTAL_FACTURA
+        WHERE ANO = {_ANO} AND MES IN ({mes_list})
+          AND {_EXCL_DW} AND {_FG}
+          AND {_CAT_CASE} IN ({_CATS_IN})
+        GROUP BY LTRIM(RTRIM(RUT)), LTRIM(RTRIM(CODIGO)), {_CAT_CASE}
+    """)
+    data_26: dict = {}
+    for r in cur.fetchall():
+        rut, cod = str(r[0]).strip(), str(r[1]).strip()
+        cat = str(r[2] or "").strip()
+        seg = _seg(rut, str(r[3] or ""))
+        key = (rut, cod)
+        if key in data_26:
+            data_26[key]["v"] += float(r[4] or 0)
+            data_26[key]["c"] += float(r[5] or 0)
+        else:
+            data_26[key] = {"cat": cat, "seg": seg, "v": float(r[4] or 0), "c": float(r[5] or 0)}
+
+    # Mapa CODIGO → categoría 2026 (para asignar a productos 2025)
+    cod_to_cat26: dict[str, str] = {}
+    for (rut, cod), d in data_26.items():
+        if cod not in cod_to_cat26:
+            cod_to_cat26[cod] = d["cat"]
+
+    # Mapeo estructural histórico: categorías 2025 que fueron renombradas en 2026
+    # GD → EQM, SH → EVA (confirmado por análisis de 212 productos)
+    _HIST_CAT: dict[str, str | None] = {
+        "GD": "EQM", "SH": "EVA", "SERVICIOS": "EQM",
+    }
+
+    def _resolve_cat_25(cod: str, cat_raw: str) -> str | None:
+        # Prioridad 1: categoría real del producto en 2026
+        if cod in cod_to_cat26:
+            return cod_to_cat26[cod]
+        # Prioridad 2: mapeo estructural histórico
+        cat = (cat_raw or "").strip().upper()
+        if cat in _CATS_VALIDAS:
+            return cat
+        return _HIST_CAT.get(cat)  # None = excluir
+
+    # Year 2025: sin filtro de categoría → se asigna la cat 2026 del producto
+    cur.execute(f"""
+        SELECT LTRIM(RTRIM(RUT)), LTRIM(RTRIM(CODIGO)),
+               MAX(LTRIM(RTRIM(ISNULL(CATEGORIA,'')))) AS cat_raw,
+               MAX(LTRIM(RTRIM(ISNULL(SEGMENTO,'')))) AS seg_raw,
+               SUM(CAST(VENTA AS float)), SUM(CAST(CANT AS float))
+        FROM BI_TOTAL_FACTURA
+        WHERE ANO = {_ANO - 1} AND MES IN ({mes_list})
+          AND {_EXCL_DW} AND {_FG}
+        GROUP BY LTRIM(RTRIM(RUT)), LTRIM(RTRIM(CODIGO))
+    """)
+    data_25: dict = {}
+    for r in cur.fetchall():
+        rut, cod = str(r[0]).strip(), str(r[1]).strip()
+        cat_raw = str(r[2] or "").strip()
+        seg = _seg(rut, str(r[3] or ""))
+        cat = _resolve_cat_25(cod, cat_raw)
+        if cat is None:
+            continue  # producto sin categoría activa en 2026 ni mapeo histórico
+        data_25[(rut, cod)] = {"cat": cat, "seg": seg, "v": float(r[4] or 0), "c": float(r[5] or 0)}
+
+    conn.close()
+
+    # Accumulators — iterate over union of both years so lost products are counted in v25
+    from collections import defaultdict
+    acc_seg: dict = defaultdict(lambda: {"ef_p": 0.0, "ef_v": 0.0, "v25": 0.0, "v26": 0.0})
+    acc_cat: dict = defaultdict(lambda: {"ef_p": 0.0, "ef_v": 0.0, "v25": 0.0, "v26": 0.0})
+    total   = {"ef_p": 0.0, "ef_v": 0.0, "v25": 0.0, "v26": 0.0}
+
+    all_keys = set(data_26.keys()) | set(data_25.keys())
+    for key in all_keys:
+        d26 = data_26.get(key)
+        d25 = data_25.get(key)
+        # Resolve seg/cat: prefer 2026 metadata, fall back to 2025
+        meta = d26 or d25
+        seg = meta["seg"]
+        cat = meta["cat"]
+
+        v26 = d26["v"] if d26 else 0.0
+        c26 = d26["c"] if d26 else 0.0
+        v25 = d25["v"] if d25 else 0.0
+        c25 = d25["c"] if d25 else 0.0
+
+        acc_seg[seg]["v26"] += v26
+        acc_cat[cat]["v26"] += v26
+        total["v26"] += v26
+        acc_seg[seg]["v25"] += v25
+        acc_cat[cat]["v25"] += v25
+        total["v25"] += v25
+
+        if v25 > 0 and v26 > 0 and c25 > 0 and c26 > 0:
+            p25, p26 = v25 / c25, v26 / c26
+            ef_p = (p26 - p25) * c26
+            ef_v = (c26 - c25) * p25
+            acc_seg[seg]["ef_p"] += ef_p
+            acc_seg[seg]["ef_v"] += ef_v
+            acc_cat[cat]["ef_p"] += ef_p
+            acc_cat[cat]["ef_v"] += ef_v
+            total["ef_p"] += ef_p
+            total["ef_v"] += ef_v
+        elif v25 != 0 or v26 != 0:
+            # Casos restantes: valores negativos (NC/devoluciones), sin cantidad, o producto nuevo/perdido
+            # Toda la diferencia va a efecto volumen para garantizar balance del waterfall
+            ev = v26 - v25
+            acc_seg[seg]["ef_v"] += ev
+            acc_cat[cat]["ef_v"] += ev
+            total["ef_v"] += ev
+
+    def _fmt(a):
+        return {
+            "venta_25":      round(a["v25"]),
+            "venta_26":      round(a["v26"]),
+            "efecto_precio":  round(a["ef_p"]),
+            "efecto_volumen": round(a["ef_v"]),
+        }
+
+    cat_order = ["MAH", "EQM", "SQ", "EVA"]
+    categorias = [
+        {"categoria": cat, **_fmt(acc_cat[cat])}
+        for cat in cat_order if cat in acc_cat
+    ]
+    # Append any unexpected categories
+    for cat in acc_cat:
+        if cat not in cat_order:
+            categorias.append({"categoria": cat, **_fmt(acc_cat[cat])})
+
+    return {
+        "total":      _fmt(total),
+        "segmentos":  {seg: _fmt(vals) for seg, vals in acc_seg.items()},
+        "categorias": categorias,
+    }
+
+
+def _load_efecto_pv_productos(meses: list[int]) -> list[dict]:
+    """P/V effect at product (CODIGO) level.
+    Same category mapping logic as _load_efecto_pv.
+    Returns list sorted by abs(efecto_precio) desc."""
+    _ANO = hoy()["ano"]
+    _FG = filtro_guias()
+    conn = get_conn()
+    cur = conn.cursor()
+    mes_list = ",".join(str(m) for m in meses)
+
+    # 2026: active categories, RUT x CODIGO x CAT
+    cur.execute(f"""
+        SELECT LTRIM(RTRIM(RUT)), LTRIM(RTRIM(CODIGO)),
+               MAX(ISNULL(DESCRIPCION,'')) AS nom,
+               {_CAT_CASE} AS cat,
+               SUM(CAST(VENTA AS float)), SUM(CAST(CANT AS float))
+        FROM BI_TOTAL_FACTURA
+        WHERE ANO = {_ANO} AND MES IN ({mes_list})
+          AND {_EXCL_DW} AND {_FG}
+          AND {_CAT_CASE} IN ({_CATS_IN})
+        GROUP BY LTRIM(RTRIM(RUT)), LTRIM(RTRIM(CODIGO)), {_CAT_CASE}
+    """)
+    data_26: dict = {}
+    cod_meta: dict = {}  # cod -> {desc, cat}
+    for r in cur.fetchall():
+        rut, cod = str(r[0]).strip(), str(r[1]).strip()
+        desc = str(r[2] or "").strip()
+        cat = str(r[3] or "").strip()
+        key = (rut, cod)
+        if cod not in cod_meta:
+            cod_meta[cod] = {"desc": desc, "cat": cat}
+        v, c = float(r[4] or 0), float(r[5] or 0)
+        if key in data_26:
+            data_26[key]["v"] += v
+            data_26[key]["c"] += c
+        else:
+            data_26[key] = {"v": v, "c": c}
+
+    cod_to_cat26: dict[str, str] = {cod: m["cat"] for cod, m in cod_meta.items()}
+
+    _HIST_CAT: dict[str, str | None] = {"GD": "EQM", "SH": "EVA", "SERVICIOS": "EQM"}
+
+    def _resolve_cat_25(cod: str, cat_raw: str) -> str | None:
+        if cod in cod_to_cat26:
+            return cod_to_cat26[cod]
+        cat = (cat_raw or "").strip().upper()
+        if cat in _CATS_VALIDAS:
+            return cat
+        return _HIST_CAT.get(cat)
+
+    # 2025: no category filter, RUT x CODIGO
+    cur.execute(f"""
+        SELECT LTRIM(RTRIM(RUT)), LTRIM(RTRIM(CODIGO)),
+               MAX(ISNULL(CATEGORIA,'')) AS cat_raw,
+               MAX(ISNULL(DESCRIPCION,'')) AS nom,
+               SUM(CAST(VENTA AS float)), SUM(CAST(CANT AS float))
+        FROM BI_TOTAL_FACTURA
+        WHERE ANO = {_ANO - 1} AND MES IN ({mes_list})
+          AND {_EXCL_DW} AND {_FG}
+        GROUP BY LTRIM(RTRIM(RUT)), LTRIM(RTRIM(CODIGO))
+    """)
+    data_25: dict = {}
+    for r in cur.fetchall():
+        rut, cod = str(r[0]).strip(), str(r[1]).strip()
+        cat_raw = str(r[2] or "").strip()
+        desc = str(r[3] or "").strip()
+        cat = _resolve_cat_25(cod, cat_raw)
+        if cat is None:
+            continue
+        if cod not in cod_meta:
+            cod_meta[cod] = {"desc": desc, "cat": cat}
+        data_25[(rut, cod)] = {"v": float(r[4] or 0), "c": float(r[5] or 0), "cat": cat}
+
+    conn.close()
+
+    # Accumulate per CODIGO
+    from collections import defaultdict
+    by_cod: dict = defaultdict(lambda: {"v25": 0.0, "c25": 0.0, "v26": 0.0, "c26": 0.0, "ef_p": 0.0, "ef_v": 0.0})
+
+    all_keys = set(data_26.keys()) | set(data_25.keys())
+    for key in all_keys:
+        rut, cod = key
+        d26 = data_26.get(key)
+        d25 = data_25.get(key)
+        v26 = d26["v"] if d26 else 0.0
+        c26 = d26["c"] if d26 else 0.0
+        v25 = d25["v"] if d25 else 0.0
+        c25 = d25["c"] if d25 else 0.0
+
+        by_cod[cod]["v25"] += v25
+        by_cod[cod]["c25"] += c25
+        by_cod[cod]["v26"] += v26
+        by_cod[cod]["c26"] += c26
+
+        if v25 > 0 and v26 > 0 and c25 > 0 and c26 > 0:
+            p25, p26 = v25 / c25, v26 / c26
+            by_cod[cod]["ef_p"] += (p26 - p25) * c26
+            by_cod[cod]["ef_v"] += (c26 - c25) * p25
+        elif v25 != 0 or v26 != 0:
+            by_cod[cod]["ef_v"] += (v26 - v25)
+
+    productos = []
+    for cod, a in by_cod.items():
+        v25, v26, c25, c26 = a["v25"], a["v26"], a["c25"], a["c26"]
+        p25 = v25 / c25 if c25 > 0 else 0.0
+        p26 = v26 / c26 if c26 > 0 else 0.0
+        if p25 > 0:
+            delta_pct = ((p26 / p25) - 1) * 100
+        else:
+            delta_pct = 100.0 if p26 > 0 else 0.0
+        meta = cod_meta.get(cod, {"desc": "", "cat": ""})
+        productos.append({
+            "codigo":        cod,
+            "descripcion":   meta["desc"],
+            "categoria":     meta["cat"],
+            "venta_25":      round(v25),
+            "venta_26":      round(v26),
+            "cant_25":       round(c25),
+            "cant_26":       round(c26),
+            "precio_25":     round(p25),
+            "precio_26":     round(p26),
+            "delta_precio_pct": round(delta_pct, 1),
+            "efecto_precio": round(a["ef_p"]),
+            "efecto_volumen": round(a["ef_v"]),
+        })
+
+    return sorted(productos, key=lambda p: abs(p["efecto_precio"]), reverse=True)
+
+
+@router.get("/efecto-pv/productos")
+async def get_efecto_pv_productos(
+    periodo: str = Query("mes"),
+    mes: Optional[int] = Query(None),
+    current_user: dict = Depends(get_current_user),
+):
+    try:
+        if mes is None:
+            mes = hoy()["mes"]
+        meses, _ = _parse_periodo(periodo, mes)
+        ck = f"cli:efecto_pv_prod:{periodo}:{mes}"
+        cached = mem_get(ck)
+        if cached:
+            return cached
+        data = _load_efecto_pv_productos(meses)
+        mem_set(ck, data)
+        return data
+    except Exception as e:
+        import traceback; traceback.print_exc()
+        return {"error": str(e)}
+
+
+@router.get("/efecto-pv")
+async def get_efecto_pv(
+    periodo: str = Query("mes"),
+    mes: Optional[int] = Query(None),
+    current_user: dict = Depends(get_current_user),
+):
+    try:
+        if mes is None:
+            mes = hoy()["mes"]
+        meses, label = _parse_periodo(periodo, mes)
+        ck = f"cli:efecto_pv:{periodo}:{mes}"
+        cached = mem_get(ck)
+        if cached:
+            return cached
+        data = _load_efecto_pv(meses)
+        data["label"] = label
+        mem_set(ck, data)
+        return data
+    except Exception as e:
+        import traceback; traceback.print_exc()
+        return {"error": str(e)}

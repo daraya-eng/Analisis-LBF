@@ -9,7 +9,7 @@ from fastapi import FastAPI, Depends, BackgroundTasks, Request
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 from jose import JWTError, jwt
-from routes import auth_routes, dashboard_routes, zona_routes, categoria_routes, resumen_routes, televentas_routes, multiproducto_routes, clientes_routes, mercado_routes, facturacion_routes, stock_routes, mercado_publico_routes, ma_routes, oportunidades_routes, guantes_routes, e1_routes, incentivos_routes
+from routes import auth_routes, dashboard_routes, zona_routes, categoria_routes, resumen_routes, televentas_routes, multiproducto_routes, clientes_routes, mercado_routes, facturacion_routes, stock_routes, mercado_publico_routes, ma_routes, oportunidades_routes, guantes_routes, e1_routes, incentivos_routes, maestro_mp_routes
 from auth import get_current_user, track_request, SECRET_KEY, ALGORITHM
 from cache import clear_mem_cache
 
@@ -22,6 +22,7 @@ def _warm_cache():
         "dashboard": _warm_dashboard,
         "zona": _warm_zona,
         "televentas": _warm_televentas,
+        "maestro_mp": _warm_maestro_mp,
     }
     for name, fn in warmups.items():
         try:
@@ -93,6 +94,19 @@ def _warm_televentas():
     mem_set(ck, data)
 
 
+def _warm_maestro_mp():
+    from cache import mem_get, mem_set
+    ano = 2026
+    ck_lid = f"maestro_mp:liderazgo:{ano}"
+    ck_opp = f"maestro_mp:oportunidades:{ano}"
+    if not mem_get(ck_lid):
+        data = maestro_mp_routes._load_liderazgo(ano)
+        mem_set(ck_lid, data)
+    if not mem_get(ck_opp):
+        data = maestro_mp_routes._load_oportunidades(ano)
+        mem_set(ck_opp, data)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup: warm cache in background thread
@@ -153,11 +167,38 @@ app.include_router(oportunidades_routes.router, prefix="/api/oportunidades", tag
 app.include_router(guantes_routes.router, prefix="/api/guantes", tags=["guantes"])
 app.include_router(e1_routes.router, prefix="/api/e1", tags=["e1"])
 app.include_router(incentivos_routes.router, prefix="/api/incentivos", tags=["incentivos"])
+app.include_router(maestro_mp_routes.router, prefix="/api/maestro-mp", tags=["maestro_mp"])
 
 
 @app.get("/api/health")
 async def health():
     return {"status": "ok", "app": "LBF Advanced Analytics"}
+
+
+@app.get("/api/info")
+async def info(current_user: dict = Depends(get_current_user)):
+    """Retorna fecha de última actualización de BD y fecha de corte de datos."""
+    import datetime
+    from db import get_conn, ref_date
+    rd = ref_date()
+    fecha_sp = None
+    try:
+        conn = get_conn()
+        cur = conn.cursor()
+        cur.execute("SELECT TOP 1 FechaActualizacion FROM Fecha_Actualizacion_BI ORDER BY FechaActualizacion DESC")
+        row = cur.fetchone()
+        if row and row[0]:
+            fecha_sp = row[0].strftime("%d/%m/%Y %H:%M")
+        conn.close()
+    except Exception:
+        pass
+    dias_es = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"]
+    return {
+        "fecha_sp":    fecha_sp or "—",
+        "fecha_datos": rd.strftime("%d/%m/%Y"),
+        "dia_datos":   dias_es[rd.weekday()],
+        "es_lunes":    datetime.date.today().weekday() == 0,
+    }
 
 
 @app.post("/api/refresh")

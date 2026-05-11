@@ -36,7 +36,7 @@ export function fmtAbs(n: number): string {
  */
 export function fmtPct(n: number): string {
   if (!isFinite(n)) return "—%";
-  return `${n.toFixed(1)}%`;
+  return `${n.toFixed(2)}%`;
 }
 
 /**

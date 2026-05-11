@@ -9,7 +9,7 @@ import pandas as pd
 from fastapi import APIRouter, Depends, Query
 from typing import Optional
 from auth import get_current_user
-from db import get_conn, DW_FILTRO, hoy, MESES_NOMBRE, filtro_guias
+from db import get_conn, DW_FILTRO, hoy, MESES_NOMBRE, filtro_guias, calc_dias_habiles
 from cache import mem_get, mem_set
 
 router = APIRouter()
@@ -26,21 +26,7 @@ def _calc_crec(v26: float, v25: float) -> float:
 
 
 def _calc_dias_habiles(meses: list[int], ano: int) -> tuple[int, int, int]:
-    """Returns (habiles_transcurridos, habiles_restantes, habiles_totales).
-    Usa ayer como corte: SP corre a las 6am con datos de ayer."""
-    ref = datetime.date.today() - datetime.timedelta(days=1)
-    habiles_transcurridos = 0
-    habiles_totales = 0
-    for m in meses:
-        days_in_m = calendar.monthrange(ano, m)[1]
-        for d in range(1, days_in_m + 1):
-            dt = datetime.date(ano, m, d)
-            if dt.weekday() < 5:
-                habiles_totales += 1
-                if dt <= ref:
-                    habiles_transcurridos += 1
-    habiles_restantes = habiles_totales - habiles_transcurridos
-    return habiles_transcurridos, habiles_restantes, habiles_totales
+    return calc_dias_habiles(meses, ano)
 
 
 def _parse_periodo(periodo: str, mes: int | None) -> tuple[list[int], str]:

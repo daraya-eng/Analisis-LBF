@@ -8,7 +8,7 @@ import datetime
 from fastapi import APIRouter, Depends, Query
 from typing import Optional
 from auth import get_current_user
-from db import get_conn, hoy, MESES_NOMBRE, filtro_guias
+from db import get_conn, hoy, MESES_NOMBRE, filtro_guias, ref_date, FERIADOS_CL, calc_dias_habiles
 from cache import mem_get, mem_set
 
 router = APIRouter()
@@ -33,8 +33,8 @@ _CATS_VALIDAS = ('SQ', 'EVA', 'MAH', 'EQM')
 
 def _calc_ritmo_days(meses: list[int], ano: int) -> tuple[int, int, bool]:
     """Returns (elapsed_days, total_days, periodo_completo).
-    Usa ayer como corte: SP corre a las 6am con datos de ayer."""
-    ref = datetime.date.today() - datetime.timedelta(days=1)
+    El lunes usa el viernes anterior como corte (semana cerrada)."""
+    ref = ref_date()
     mes_actual = ref.month if ref.year == ano else (13 if ref.year > ano else 0)
     total_days = 0
     elapsed_days = 0
@@ -49,21 +49,7 @@ def _calc_ritmo_days(meses: list[int], ano: int) -> tuple[int, int, bool]:
 
 
 def _calc_dias_habiles(meses: list[int], ano: int) -> tuple[int, int, int]:
-    """Returns (habiles_transcurridos, habiles_restantes, habiles_totales).
-    Usa ayer como corte: SP corre a las 6am con datos de ayer."""
-    ref = datetime.date.today() - datetime.timedelta(days=1)
-    habiles_transcurridos = 0
-    habiles_totales = 0
-    for m in meses:
-        days_in_m = calendar.monthrange(ano, m)[1]
-        for d in range(1, days_in_m + 1):
-            dt = datetime.date(ano, m, d)
-            if dt.weekday() < 5:
-                habiles_totales += 1
-                if dt <= ref:
-                    habiles_transcurridos += 1
-    habiles_restantes = habiles_totales - habiles_transcurridos
-    return habiles_transcurridos, habiles_restantes, habiles_totales
+    return calc_dias_habiles(meses, ano)
 
 # V REGION unification: both zones map to a single display name
 _ZONA_MERGE = {
@@ -296,8 +282,9 @@ def _load_zona_data(meses: list[int]) -> dict:
     # ═══ 6. Build response rows ═══
     # Ritmo: calcular días una vez (compartido para todas las zonas)
     elapsed, total_d, periodo_completo = _calc_ritmo_days(meses, _ANO)
-    time_pct = (elapsed / total_d * 100) if total_d > 0 else 100
     hab_trans, hab_rest, hab_total = _calc_dias_habiles(meses, _ANO)
+    # Usar días hábiles para time_pct (consistente con Power BI que mide avance en días hábiles)
+    time_pct = (hab_trans / hab_total * 100) if hab_total > 0 else 100
 
     rows = []
     for label, z in zona_merged.items():
@@ -356,7 +343,7 @@ def _load_zona_data(meses: list[int]) -> dict:
             "contrib": round(contrib_total),
             "margen": round(margen, 1),
             "gap": round(gap),
-            "cumpl": round(cumpl, 1),
+            "cumpl": round(cumpl, 2),
             "venta_25": round(z["v25"]),
             "crec_vs_25": round(crec, 1),
             "ritmo_meta": round(z_ritmo_meta, 1),
@@ -419,7 +406,7 @@ def _load_zona_data(meses: list[int]) -> dict:
         "contrib": round(t_contrib),
         "margen": round(t_margen, 1),
         "gap": round(t_venta - t_meta_p),
-        "cumpl": round(t_cumpl, 1),
+        "cumpl": round(t_cumpl, 2),
         "venta_25": round(t_v25),
         "crec_vs_25": round(t_crec, 1),
         "ritmo_meta": round(t_ritmo_meta, 1),
@@ -435,9 +422,9 @@ def _load_zona_data(meses: list[int]) -> dict:
         "total": total_row,
         "margen_meta_cat": {cat: round(v, 1) for cat, v in margen_meta_cat.items()},
         "ritmo": {
-            "time_pct": round(time_pct, 1),
-            "dias_transcurridos": elapsed,
-            "dias_totales": total_d,
+            "time_pct": round(time_pct, 2),
+            "dias_transcurridos": hab_trans,
+            "dias_totales": hab_total,
             "periodo_completo": periodo_completo,
             "hab_restantes": hab_rest,
         },

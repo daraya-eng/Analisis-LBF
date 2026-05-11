@@ -161,14 +161,18 @@ def ref_date() -> datetime.date:
 
 
 def filtro_guias() -> str:
-    """Excluir guías pendientes (DOC_CODE='GF') de meses cerrados.
-    Solo el mes actual puede incluir guías; meses anteriores solo facturas.
-    Los lunes el corte es el viernes anterior (semana cerrada)."""
+    """Solo incluye GF del mes actual hasta ref_date Y cuyo GUIA_NUM aparece en
+    vw_guias_por_facturar en la fecha de corte (ref_date). Esto replica el criterio de
+    Power BI: solo guías pendientes al cierre del último día hábil, sin acumular
+    guías de días anteriores que ya fueron resueltas."""
     t = datetime.date.today()
     ref = ref_date()
     return (
         f"(DOC_CODE <> 'GF' OR "
-        f"(ANO = {t.year} AND MES = {t.month} AND CAST(DIA AS date) <= '{ref}'))"
+        f"(ANO = {t.year} AND MES = {t.month} AND CAST(DIA AS date) <= '{ref}' "
+        f"AND TRY_CAST(GUIA_NUM AS bigint) IN "
+        f"(SELECT DISTINCT guia_num FROM vw_guias_por_facturar "
+        f"WHERE CAST(fecha AS date) = '{ref}')))"
     )
 
 

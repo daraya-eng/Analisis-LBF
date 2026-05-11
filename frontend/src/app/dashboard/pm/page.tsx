@@ -561,7 +561,7 @@ export default function PlanDeMesPage() {
             fontSize: 14, fontWeight: 800, letterSpacing: "0.02em",
             whiteSpace: "nowrap",
           }}>
-            Plan de Mes
+            PM
           </div>
           {mesLabel && (
             <span style={{ fontSize: 13, color: "#64748B", fontWeight: 500 }}>

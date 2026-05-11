@@ -46,7 +46,7 @@ MODULE_LABELS = {
     "guantes": "Monitor Guantes EQM",
     "incentivos": "Incentivos",
     "e1": "Plan de Ventas E1",
-    "pm": "Plan de Mes",
+    "pm": "PM",
 }
 
 # ── User storage (JSON file) ─────────────────────────────────────────────────

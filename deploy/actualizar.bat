@@ -19,7 +19,9 @@ echo.
 :: --- Actualizar codigo ---
 echo Descargando ultima version...
 cd /d %APP_DIR%
+git stash
 git pull
+git stash drop >nul 2>&1
 echo.
 
 :: --- Backend ---

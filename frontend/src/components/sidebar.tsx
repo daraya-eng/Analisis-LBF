@@ -55,7 +55,7 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/dashboard/glosario", label: "Glosario", icon: BookOpen, module: "dashboard" },
 ];
 
-const API = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:8000";
+const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
 interface InfoData { fecha_sp: string; fecha_datos: string; dia_datos: string; es_lunes: boolean }
 

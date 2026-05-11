@@ -679,7 +679,7 @@ function TabClientes({
     const params = new URLSearchParams({ organismo, ano: String(ano), tipo });
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), 120_000);
-    fetch(`${process.env.NEXT_PUBLIC_API_BASE || "http://localhost:8000"}/api/mercado-publico/clientes-categorias?${params}`, {
+    fetch(`${process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000"}/api/mercado-publico/clientes-categorias?${params}`, {
       signal: ctrl.signal,
       headers: { Authorization: `Bearer ${localStorage.getItem("lbf_token") || ""}` },
     })

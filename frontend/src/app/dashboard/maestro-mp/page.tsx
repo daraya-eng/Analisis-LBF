@@ -110,11 +110,11 @@ export default function MaestroMPPage() {
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), 150_000); // 150s timeout
     Promise.all([
-      fetch(`${process.env.NEXT_PUBLIC_API_BASE || "http://localhost:8000"}/api/maestro-mp/liderazgo?ano=${a}`, {
+      fetch(`${process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000"}/api/maestro-mp/liderazgo?ano=${a}`, {
         signal: ctrl.signal,
         headers: { Authorization: `Bearer ${localStorage.getItem("lbf_token") || ""}` },
       }).then(r => r.json()),
-      fetch(`${process.env.NEXT_PUBLIC_API_BASE || "http://localhost:8000"}/api/maestro-mp/oportunidades?ano=${a}`, {
+      fetch(`${process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000"}/api/maestro-mp/oportunidades?ano=${a}`, {
         signal: ctrl.signal,
         headers: { Authorization: `Bearer ${localStorage.getItem("lbf_token") || ""}` },
       }).then(r => r.json()),

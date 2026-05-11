@@ -86,8 +86,9 @@ async def guantes_resumen(
     desde = today.replace(day=1) - timedelta(days=(meses - 1) * 30)
     desde = desde.replace(day=1)
 
-    conn = get_pg_conn()
+    conn = None
     try:
+        conn = get_pg_conn()
         cur = conn.cursor()
 
         # 1. Evolucion mensual por proveedor (precio ponderado)
@@ -227,19 +228,22 @@ async def guantes_resumen(
         cols4 = [d[0] for d in cur.description]
         lbf_evol = [dict(zip(cols4, r)) for r in cur.fetchall()]
 
+        result = {
+            "evolucion": evol_rows,
+            "transacciones": txn_rows,
+            "alzas": alzas,
+            "lbf": lbf_evol,
+            "desde": desde.isoformat(),
+            "hasta": today.isoformat(),
+        }
+        mem_set(ck, result)
+        return result
+    except Exception as e:
+        return {"evolucion": [], "transacciones": [], "alzas": [], "lbf": [],
+                "desde": "", "hasta": "", "error": str(e)}
     finally:
-        conn.close()
-
-    result = {
-        "evolucion": evol_rows,
-        "transacciones": txn_rows,
-        "alzas": alzas,
-        "lbf": lbf_evol,
-        "desde": desde.isoformat(),
-        "hasta": today.isoformat(),
-    }
-    mem_set(ck, result)
-    return result
+        if conn:
+            conn.close()
 
 
 @router.get("/producto")
@@ -264,8 +268,9 @@ async def guantes_por_producto(
     if tipo != "todos":
         tipo_filter = f"AND LOWER(oi.nombre) ILIKE '%%{tipo}%%'"
 
-    conn = get_pg_conn()
+    conn = None
     try:
+        conn = get_pg_conn()
         cur = conn.cursor()
 
         # Transacciones individuales con filtro de tipo
@@ -322,18 +327,21 @@ async def guantes_por_producto(
         cols2 = [d[0] for d in cur.description]
         evol = [dict(zip(cols2, r)) for r in cur.fetchall()]
 
+        result = {
+            "transacciones": rows,
+            "evolucion": evol,
+            "tipo": tipo,
+            "desde": desde.isoformat(),
+            "hasta": today.isoformat(),
+        }
+        mem_set(ck, result)
+        return result
+    except Exception as e:
+        return {"transacciones": [], "evolucion": [], "tipo": tipo,
+                "desde": "", "hasta": "", "error": str(e)}
     finally:
-        conn.close()
-
-    result = {
-        "transacciones": rows,
-        "evolucion": evol,
-        "tipo": tipo,
-        "desde": desde.isoformat(),
-        "hasta": today.isoformat(),
-    }
-    mem_set(ck, result)
-    return result
+        if conn:
+            conn.close()
 
 
 @router.get("/competidor")
@@ -355,8 +363,9 @@ async def guantes_competidor(
 
     safe_prov = proveedor.replace("'", "''")
 
-    conn = get_pg_conn()
+    conn = None
     try:
+        conn = get_pg_conn()
         cur = conn.cursor()
         cur.execute(f"""
             SELECT
@@ -386,12 +395,14 @@ async def guantes_competidor(
             r["fecha"] = str(r["fecha"])
             r["tipo"] = _classify_product(r["producto"])
 
+        result = {"proveedor": proveedor, "transacciones": rows}
+        mem_set(ck, result)
+        return result
+    except Exception as e:
+        return {"proveedor": proveedor, "transacciones": [], "error": str(e)}
     finally:
-        conn.close()
-
-    result = {"proveedor": proveedor, "transacciones": rows}
-    mem_set(ck, result)
-    return result
+        if conn:
+            conn.close()
 
 
 @router.get("/alertas")
@@ -412,8 +423,9 @@ async def guantes_alertas(
     # Baseline: 2 meses atras
     baseline_desde = (mes_actual - timedelta(days=60)).replace(day=1)
 
-    conn = get_pg_conn()
+    conn = None
     try:
+        conn = get_pg_conn()
         cur = conn.cursor()
         cur.execute(f"""
             WITH baseline AS (
@@ -475,14 +487,16 @@ async def guantes_alertas(
             r["pct_alza"] = float(r["pct_alza"])
             r["tipo"] = _classify_product(r["producto"])
 
+        result = {
+            "alertas": rows,
+            "umbral": umbral,
+            "mes": mes_actual.isoformat(),
+            "n_alertas": len(rows),
+        }
+        mem_set(ck, result)
+        return result
+    except Exception as e:
+        return {"alertas": [], "umbral": umbral, "mes": "", "n_alertas": 0, "error": str(e)}
     finally:
-        conn.close()
-
-    result = {
-        "alertas": rows,
-        "umbral": umbral,
-        "mes": mes_actual.isoformat(),
-        "n_alertas": len(rows),
-    }
-    mem_set(ck, result)
-    return result
+        if conn:
+            conn.close()

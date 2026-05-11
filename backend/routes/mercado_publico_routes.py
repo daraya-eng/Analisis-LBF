@@ -16,9 +16,11 @@ Montos ofertados:
   - Formato nuevo: o->>'valor_total_ofertado'
   - Formato antiguo: o->>'total'
 """
+import re
 from fastapi import APIRouter, Depends, Query
 from auth import get_current_user
 from db_mp import get_pg_conn
+from db import get_conn as get_ss_conn, DW_FILTRO, filtro_guias, hoy
 from cache import mem_get, mem_set
 
 router = APIRouter()
@@ -151,22 +153,48 @@ def _load_participacion(ano: int, tipo: str) -> dict:
     # Combina rut_proveedor_adj (datos modernos) con JSONB seleccionada (datos 2024/2025
     # donde rut_proveedor_adj puede estar vacío).
     def _mkt_query(year_val: int) -> str:
-        # monto_adjudicado > 0 es el marcador universal de "item adjudicado" —
-        # funciona para todos los años independientemente de rut_proveedor_adj o JSONB.
+        # Tres caminos para capturar todos los años:
+        # 1. rut_proveedor_adj poblado (datos modernos 2026): monto_adjudicado × cantidad
+        # 2. JSONB seleccionada=true (datos 2024): monto_adjudicado o total del JSONB
+        # 3. monto_adjudicado > 0 sin los marcadores anteriores (datos 2025)
         return f"""
             SELECT
                 COUNT(DISTINCT li.licitacion_id)   AS ids_total,
                 COUNT(DISTINCT li.id)              AS items_total,
                 SUM(
-                    li.monto_adjudicado
-                    * COALESCE(li.cantidad_adjudicada, li.cantidad, 1)
+                    CASE WHEN li.rut_proveedor_adj IS NOT NULL
+                         THEN COALESCE(li.monto_adjudicado
+                              * COALESCE(li.cantidad_adjudicada, li.cantidad, 1), 0)
+                         WHEN EXISTS (
+                             SELECT 1 FROM jsonb_array_elements(li.oferentes) o2
+                             WHERE (o2->>'seleccionada')::boolean = true
+                         )
+                         THEN COALESCE((
+                             SELECT NULLIF((o->>'monto_adjudicado')::numeric, 0)
+                             FROM jsonb_array_elements(li.oferentes) o
+                             WHERE (o->>'seleccionada')::boolean = true LIMIT 1
+                         ), (
+                             SELECT (o->>'total')::numeric
+                             FROM jsonb_array_elements(li.oferentes) o
+                             WHERE (o->>'seleccionada')::boolean = true LIMIT 1
+                         ), 0)
+                         ELSE li.monto_adjudicado
+                              * COALESCE(li.cantidad_adjudicada, li.cantidad, 1)
+                    END
                 )                                  AS valor_total_adj
             FROM licitaciones_items li
             JOIN licitaciones l ON l.id = li.licitacion_id
             WHERE upper(li.categoria_nivel1) LIKE '{CAT_LIKE}'
-              AND li.monto_adjudicado > 0
               AND EXTRACT(YEAR FROM COALESCE(l.fecha_adjudicacion, l.fecha_publicacion)) = {year_val}
               {tf}
+              AND (
+                  li.rut_proveedor_adj IS NOT NULL
+                  OR EXISTS (
+                      SELECT 1 FROM jsonb_array_elements(li.oferentes) o2
+                      WHERE (o2->>'seleccionada')::boolean = true
+                  )
+                  OR li.monto_adjudicado > 0
+              )
         """
 
     cur.execute(_mkt_query(ano))
@@ -444,9 +472,12 @@ async def get_participacion(
     cached = mem_get(ck)
     if cached:
         return cached
-    data = _load_participacion(ano, tipo)
-    mem_set(ck, data)
-    return data
+    try:
+        data = _load_participacion(ano, tipo)
+        mem_set(ck, data)
+        return data
+    except Exception as e:
+        return {"error": str(e), "kpis": {}, "detalle": [], "top20": [], "por_tipo": []}
 
 
 # ── /region ───────────────────────────────────────────────────────────────────
@@ -587,9 +618,12 @@ async def get_region(
     cached = mem_get(ck)
     if cached:
         return cached
-    data = _load_region(ano, tipo)
-    mem_set(ck, data)
-    return data
+    try:
+        data = _load_region(ano, tipo)
+        mem_set(ck, data)
+        return data
+    except Exception as e:
+        return {"error": str(e), "data": []}
 
 
 # ── /clientes ─────────────────────────────────────────────────────────────────
@@ -728,9 +762,12 @@ async def get_clientes(
     cached = mem_get(ck)
     if cached:
         return cached
-    data = _load_clientes(ano, tipo)
-    mem_set(ck, data)
-    return data
+    try:
+        data = _load_clientes(ano, tipo)
+        mem_set(ck, data)
+        return data
+    except Exception as e:
+        return {"error": str(e), "data": []}
 
 
 # ── /clientes-categorias ──────────────────────────────────────────────────────
@@ -803,9 +840,12 @@ async def get_clientes_categorias(
     cached = mem_get(ck)
     if cached:
         return cached
-    data = _load_clientes_categorias(organismo, ano, tipo)
-    mem_set(ck, data)
-    return data
+    try:
+        data = _load_clientes_categorias(organismo, ano, tipo)
+        mem_set(ck, data)
+        return data
+    except Exception as e:
+        return {"error": str(e), "data": []}
 
 
 # ── /vs-competidor ────────────────────────────────────────────────────────────
@@ -1040,9 +1080,12 @@ async def get_evolucion(
     cached = mem_get(ck)
     if cached:
         return cached
-    data = _load_evolucion(ano, tipo)
-    mem_set(ck, data)
-    return data
+    try:
+        data = _load_evolucion(ano, tipo)
+        mem_set(ck, data)
+        return data
+    except Exception as e:
+        return {"error": str(e), "data": []}
 
 
 @router.get("/vs-competidor")
@@ -1056,6 +1099,465 @@ async def get_vs_competidor(
     cached = mem_get(ck)
     if cached:
         return cached
-    data = _load_vs_competidor(rut, ano, tipo)
-    mem_set(ck, data)
+    try:
+        data = _load_vs_competidor(rut, ano, tipo)
+        mem_set(ck, data)
+        return data
+    except Exception as e:
+        return {"error": str(e), "kpis": {}, "categorias": [], "evolucion": [], "clientes": []}
+
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# COMPRA ÁGIL — Multiproducto, Segundo Llamado, Revendedores
+# Fuente: PostgreSQL (compras_agiles) + SQL Server (BI_TOTAL_FACTURA)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+MESES_AG = ["", "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
+            "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
+
+MP_RUT = "77.619.564-2"   # Multiproducto SPA en PostgreSQL
+
+
+def _norm_rut(rut: str) -> str:
+    return re.sub(r"[.\-\s]", "", str(rut or "")).upper().lstrip("0")
+
+
+# ── Multiproducto YTD ────────────────────────────────────────────────────────
+
+def _load_ag_multiproducto(ano: int) -> dict:
+    try:
+        _FG = filtro_guias()
+        ss = get_ss_conn()
+        ss_cur = ss.cursor()
+        ss_cur.execute(f"""
+            SELECT MES, SUM(CAST(VENTA AS float))
+            FROM BI_TOTAL_FACTURA
+            WHERE ANO = {ano}
+              AND (UPPER(NOMBRE) LIKE '%RENHET%' OR UPPER(NOMBRE) LIKE '%MULTIPRODUCTO%')
+              AND {DW_FILTRO} AND {_FG}
+            GROUP BY MES
+        """)
+        compra_by_mes = {int(r[0]): float(r[1] or 0) for r in ss_cur.fetchall()}
+        ss.close()
+
+        pg = get_pg_conn()
+        cur = pg.cursor()
+        cur.execute("""
+            SELECT EXTRACT(MONTH FROM fecha_publicacion)::int AS mes,
+                   SUM(monto_adjudicado) AS monto
+            FROM compras_agiles
+            WHERE rut_adjudicado = %s
+              AND EXTRACT(YEAR FROM fecha_publicacion) = %s
+              AND monto_adjudicado > 0
+            GROUP BY 1
+        """, (MP_RUT, ano))
+        venta_by_mes = {r[0]: float(r[1] or 0) for r in cur.fetchall()}
+
+        cur.execute("""
+            SELECT proveedor_adjudicado, SUM(monto_adjudicado) AS monto, COUNT(*) AS n_ocs
+            FROM compras_agiles
+            WHERE EXTRACT(YEAR FROM fecha_publicacion) = %s
+              AND monto_adjudicado > 0
+              AND rut_adjudicado IS NOT NULL
+              AND rut_adjudicado != %s
+              AND proveedor_adjudicado IS NOT NULL
+            GROUP BY proveedor_adjudicado
+            ORDER BY monto DESC
+            LIMIT 20
+        """, (ano, MP_RUT))
+        competidores = [
+            {"empresa": r[0], "monto": round(float(r[1] or 0)), "n_ocs": int(r[2] or 0)}
+            for r in cur.fetchall()
+        ]
+        pg.close()
+
+        mensual = [
+            {
+                "mes": m, "mes_nombre": MESES_AG[m],
+                "compra_lbf": round(compra_by_mes.get(m, 0)),
+                "venta_ag":   round(venta_by_mes.get(m, 0)),
+            }
+            for m in range(1, 13)
+            if compra_by_mes.get(m, 0) > 0 or venta_by_mes.get(m, 0) > 0
+        ]
+        return {
+            "total_compra_lbf": round(sum(compra_by_mes.values())),
+            "total_venta_ag":   round(sum(venta_by_mes.values())),
+            "mensual":          mensual,
+            "competidores":     competidores,
+        }
+    except Exception as e:
+        return {"error": str(e), "total_compra_lbf": 0, "total_venta_ag": 0, "mensual": [], "competidores": []}
+
+
+@router.get("/ag-multiproducto")
+async def get_ag_multiproducto(
+    ano: int = Query(2026),
+    current_user: dict = Depends(get_current_user),
+):
+    ck = f"mp:ag_mp:{ano}"
+    cached = mem_get(ck)
+    if cached:
+        return cached
+    data = _load_ag_multiproducto(ano)
+    if "error" not in data:
+        mem_set(ck, data)
     return data
+
+
+# ── Multiproducto Mes ────────────────────────────────────────────────────────
+
+def _load_ag_multiproducto_mes(ano: int, mes: int) -> dict:
+    try:
+        _FG = filtro_guias()
+        ss = get_ss_conn()
+        ss_cur = ss.cursor()
+        ss_cur.execute(f"""
+            SELECT LTRIM(RTRIM(CODIGO)), LTRIM(RTRIM(DESCRIPCION)),
+                   LTRIM(RTRIM(CATEGORIA)),
+                   SUM(CAST(CANT AS float)), SUM(CAST(VENTA AS float))
+            FROM BI_TOTAL_FACTURA
+            WHERE ANO = {ano} AND MES = {mes}
+              AND (UPPER(NOMBRE) LIKE '%RENHET%' OR UPPER(NOMBRE) LIKE '%MULTIPRODUCTO%')
+              AND {DW_FILTRO} AND {_FG}
+            GROUP BY CODIGO, DESCRIPCION, CATEGORIA
+            ORDER BY SUM(CAST(VENTA AS float)) DESC
+        """)
+        compras_lbf = []
+        for r in ss_cur.fetchall():
+            cant = float(r[3] or 0)
+            venta = float(r[4] or 0)
+            compras_lbf.append({
+                "codigo": str(r[0] or ""), "descripcion": str(r[1] or ""),
+                "categoria": str(r[2] or ""), "cantidad": round(cant),
+                "precio_unit": round(venta / cant) if cant > 0 else 0,
+                "venta": round(venta),
+            })
+        ss.close()
+
+        pg = get_pg_conn()
+        cur = pg.cursor()
+        cur.execute("""
+            SELECT ca.codigo, ca.organismo_comprador, ca.monto_adjudicado
+            FROM compras_agiles ca
+            WHERE ca.rut_adjudicado = %s
+              AND EXTRACT(YEAR  FROM ca.fecha_publicacion) = %s
+              AND EXTRACT(MONTH FROM ca.fecha_publicacion) = %s
+              AND ca.monto_adjudicado > 0
+            ORDER BY ca.monto_adjudicado DESC
+            LIMIT 200
+        """, (MP_RUT, ano, mes))
+        ocs = cur.fetchall()
+
+        ventas_ag = []
+        for oc in ocs:
+            cur.execute("""
+                SELECT nombre_producto, cantidad, unidad_medida
+                FROM compras_agiles_items
+                WHERE codigo_cotizacion = %s
+                LIMIT 3
+            """, (oc[0],))
+            items = cur.fetchall()
+            nombre = items[0][0] if items else oc[0]
+            cant = float(items[0][1] or 1) if items else 1
+            monto = float(oc[2] or 0)
+            ventas_ag.append({
+                "descripcion": nombre,
+                "tipo_producto": items[0][2] if items else "",
+                "institucion": str(oc[1] or ""),
+                "cantidad": cant,
+                "precio_unit": round(monto / cant) if cant > 0 else round(monto),
+                "monto": round(monto),
+            })
+        pg.close()
+
+        return {
+            "total_compra_lbf": sum(p["venta"] for p in compras_lbf),
+            "n_productos_lbf":  len(compras_lbf),
+            "total_venta_ag":   sum(p["monto"] for p in ventas_ag),
+            "n_productos_ag":   len(ventas_ag),
+            "compras_lbf":      compras_lbf,
+            "ventas_ag":        ventas_ag,
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@router.get("/ag-multiproducto-mes")
+async def get_ag_multiproducto_mes(
+    ano: int = Query(2026),
+    mes: int = Query(1),
+    current_user: dict = Depends(get_current_user),
+):
+    return _load_ag_multiproducto_mes(ano, mes)
+
+
+# ── Segundo Llamado ──────────────────────────────────────────────────────────
+
+def _load_segundo_llamado(ano: int, mes: int) -> dict:
+    try:
+        pg = get_pg_conn()
+        cur = pg.cursor()
+
+        mes_filter = f"AND EXTRACT(MONTH FROM ca.fecha_publicacion) = {mes}" if mes > 0 else ""
+
+        cur.execute(f"""
+            SELECT ca.codigo, ca.nombre, ca.organismo_comprador, ca.estado,
+                   ca.proveedor_adjudicado, ca.monto_adjudicado,
+                   c.monto_ofertado, c.seleccionado,
+                   EXTRACT(MONTH FROM ca.fecha_publicacion)::int AS mes,
+                   ca.presupuesto_estimado
+            FROM compras_agiles_cotizantes c
+            JOIN compras_agiles ca ON ca.codigo = c.codigo_cotizacion
+            WHERE c.rut_proveedor = '{LBF_RUT}'
+              AND EXTRACT(YEAR FROM ca.fecha_publicacion) = {ano}
+              {mes_filter}
+            ORDER BY ca.fecha_publicacion DESC
+        """)
+        rows = cur.fetchall()
+
+        from collections import defaultdict
+        by_mes: dict = defaultdict(lambda: {"total": 0, "adjudicadas": 0, "desiertas": 0})
+        for r in rows:
+            m = r[8] or 0
+            by_mes[m]["total"] += 1
+            if r[7]:
+                by_mes[m]["adjudicadas"] += 1
+            if "desierta" in (r[3] or "").lower():
+                by_mes[m]["desiertas"] += 1
+
+        mensual = [
+            {"mes": m, "mes_nombre": MESES_AG[m], **v}
+            for m, v in sorted(by_mes.items()) if m > 0
+        ]
+
+        lbf_cotizaciones = []
+        for r in rows[:50]:
+            cur.execute("""
+                SELECT nombre_producto, cantidad, unidad_medida
+                FROM compras_agiles_items WHERE codigo_cotizacion = %s
+            """, (r[0],))
+            items = [
+                {"producto": i[0], "descripcion": "", "cantidad": float(i[1] or 0), "unidad": i[2] or "", "codigo_producto": ""}
+                for i in cur.fetchall()
+            ]
+            cur.execute(f"""
+                SELECT razon_social, rut_proveedor, monto_ofertado, seleccionado
+                FROM compras_agiles_cotizantes
+                WHERE codigo_cotizacion = %s AND rut_proveedor != '{LBF_RUT}'
+                ORDER BY seleccionado DESC, monto_ofertado ASC
+            """, (r[0],))
+            cotizantes = [
+                {"empresa": c[0], "rut": c[1], "monto": float(c[2] or 0), "seleccionado": bool(c[3])}
+                for c in cur.fetchall()
+            ]
+            lbf_cotizaciones.append({
+                "codigo": str(r[0] or ""), "nombre": str(r[1] or ""),
+                "institucion": str(r[2] or ""), "estado": str(r[3] or ""),
+                "seleccionado": bool(r[7]),
+                "monto_ofertado": round(float(r[6] or 0)),
+                "proveedor_ganador": r[4],
+                "monto_ganador": round(float(r[5] or 0)),
+                "items": items, "cotizantes": cotizantes,
+            })
+
+        cur.execute(f"""
+            SELECT c.razon_social, COUNT(DISTINCT c.codigo_cotizacion) AS part,
+                   SUM(CASE WHEN c.seleccionado THEN 1 ELSE 0 END) AS sel
+            FROM compras_agiles_cotizantes c
+            JOIN compras_agiles ca ON ca.codigo = c.codigo_cotizacion
+            WHERE EXTRACT(YEAR FROM ca.fecha_publicacion) = {ano}
+              {mes_filter}
+              AND c.rut_proveedor != '{LBF_RUT}'
+              AND c.razon_social IS NOT NULL
+            GROUP BY c.razon_social
+            ORDER BY part DESC
+            LIMIT 20
+        """)
+        competidores = [
+            {"empresa": r[0], "participaciones": int(r[1]), "seleccionado": int(r[2])}
+            for r in cur.fetchall()
+        ]
+        pg.close()
+
+        adj = sum(1 for r in rows if r[7])
+        desiertas = sum(1 for r in rows if "desierta" in (r[3] or "").lower())
+        return {
+            "kpis": {
+                "total_cotizaciones": len(rows), "adjudicadas": adj, "desiertas": desiertas,
+                "presupuesto": round(sum(float(r[9] or 0) for r in rows)),
+                "adjudicado": round(sum(float(r[5] or 0) for r in rows if r[7])),
+            },
+            "mensual": mensual, "lbf_cotizaciones": lbf_cotizaciones, "competidores": competidores,
+        }
+    except Exception as e:
+        return {"error": str(e), "kpis": {}, "mensual": [], "lbf_cotizaciones": [], "competidores": []}
+
+
+@router.get("/segundo-llamado")
+async def get_segundo_llamado(
+    ano: int = Query(2026),
+    mes: int = Query(0),
+    current_user: dict = Depends(get_current_user),
+):
+    ck = f"mp:seg_llamado:{ano}:{mes}"
+    cached = mem_get(ck)
+    if cached:
+        return cached
+    data = _load_segundo_llamado(ano, mes)
+    if "error" not in data:
+        mem_set(ck, data)
+    return data
+
+
+# ── Revendedores ─────────────────────────────────────────────────────────────
+
+def _load_ag_resellers_base(ano: int, mes: int = 0) -> dict:
+    try:
+        _FG = filtro_guias()
+        mes_ss = f"AND MES = {mes}" if mes > 0 else ""
+        mes_pg = f"AND EXTRACT(MONTH FROM fecha_publicacion) = {mes}" if mes > 0 else ""
+
+        ss = get_ss_conn()
+        ss_cur = ss.cursor()
+        ss_cur.execute(f"""
+            SELECT LTRIM(RTRIM(RUT)), LTRIM(RTRIM(NOMBRE)),
+                   SUM(CAST(VENTA AS float)), MES
+            FROM BI_TOTAL_FACTURA
+            WHERE ANO = {ano} AND {DW_FILTRO} AND {_FG}
+              AND RUT IS NOT NULL AND RUT != ''
+              AND UPPER(NOMBRE) NOT LIKE '%RENHET%'
+              AND UPPER(NOMBRE) NOT LIKE '%MULTIPRODUCTO%'
+              {mes_ss}
+            GROUP BY RUT, NOMBRE, MES
+        """)
+        from collections import defaultdict
+        lbf_by_rut: dict = defaultdict(lambda: {"nombre": "", "total": 0.0, "meses": defaultdict(float)})
+        for r in ss_cur.fetchall():
+            rut_n = _norm_rut(str(r[0]))
+            lbf_by_rut[rut_n]["nombre"] = str(r[1] or "")
+            lbf_by_rut[rut_n]["total"] += float(r[2] or 0)
+            lbf_by_rut[rut_n]["meses"][int(r[3] or 0)] += float(r[2] or 0)
+        ss.close()
+
+        pg = get_pg_conn()
+        cur = pg.cursor()
+        cur.execute(f"""
+            SELECT rut_adjudicado, proveedor_adjudicado,
+                   SUM(monto_adjudicado) AS venta_ag,
+                   COUNT(*) AS n_ocs,
+                   COUNT(DISTINCT organismo_comprador) AS n_inst,
+                   EXTRACT(MONTH FROM fecha_publicacion)::int AS mes
+            FROM compras_agiles
+            WHERE EXTRACT(YEAR FROM fecha_publicacion) = {ano}
+              {mes_pg}
+              AND monto_adjudicado > 0
+              AND rut_adjudicado IS NOT NULL
+              AND rut_adjudicado != '{LBF_RUT}'
+              AND rut_adjudicado != '{MP_RUT}'
+            GROUP BY rut_adjudicado, proveedor_adjudicado,
+                     EXTRACT(MONTH FROM fecha_publicacion)::int
+        """)
+        ag_by_rut: dict = defaultdict(lambda: {"nombre_mp": "", "venta_ag": 0.0, "n_ocs": 0, "n_inst": set(), "meses": defaultdict(float)})
+        for r in cur.fetchall():
+            rut_n = _norm_rut(str(r[0]))
+            ag_by_rut[rut_n]["nombre_mp"] = str(r[1] or "")
+            ag_by_rut[rut_n]["venta_ag"] += float(r[2] or 0)
+            ag_by_rut[rut_n]["n_ocs"] += int(r[3] or 0)
+            ag_by_rut[rut_n]["n_inst"].add(str(r[4] or ""))
+            ag_by_rut[rut_n]["meses"][int(r[5] or 0)] += float(r[2] or 0)
+        pg.close()
+
+        lbf_rut_n = _norm_rut(LBF_RUT)
+        mp_rut_n  = _norm_rut(MP_RUT)
+        resellers = []
+        for rut_n, lbf in lbf_by_rut.items():
+            if rut_n not in ag_by_rut or rut_n in (lbf_rut_n, mp_rut_n):
+                continue
+            ag = ag_by_rut[rut_n]
+            meses_list = [
+                {"mes": m, "compra_lbf": round(lbf["meses"].get(m, 0)), "venta_ag": round(ag["meses"].get(m, 0))}
+                for m in range(1, 13)
+                if lbf["meses"].get(m, 0) > 0 or ag["meses"].get(m, 0) > 0
+            ]
+            resellers.append({
+                "rut": rut_n, "nombre_lbf": lbf["nombre"], "nombre_mp": ag["nombre_mp"],
+                "compra_lbf": round(lbf["total"]), "venta_ag": round(ag["venta_ag"]),
+                "n_ocs_ag": ag["n_ocs"], "n_instituciones": len(ag["n_inst"]),
+                "destacado": False, "meses": meses_list,
+            })
+
+        resellers.sort(key=lambda x: x["venta_ag"], reverse=True)
+        return {
+            "total_resellers": len(resellers),
+            "total_compra_lbf": sum(r["compra_lbf"] for r in resellers),
+            "total_venta_ag": sum(r["venta_ag"] for r in resellers),
+            "resellers": resellers,
+        }
+    except Exception as e:
+        return {"error": str(e), "total_resellers": 0, "total_compra_lbf": 0, "total_venta_ag": 0, "resellers": []}
+
+
+@router.get("/ag-resellers")
+async def get_ag_resellers(
+    ano: int = Query(2026),
+    current_user: dict = Depends(get_current_user),
+):
+    ck = f"mp:ag_resellers:{ano}"
+    cached = mem_get(ck)
+    if cached:
+        return cached
+    data = _load_ag_resellers_base(ano, 0)
+    if "error" not in data:
+        mem_set(ck, data)
+    return data
+
+
+@router.get("/ag-resellers-mes")
+async def get_ag_resellers_mes(
+    ano: int = Query(2026),
+    mes: int = Query(1),
+    current_user: dict = Depends(get_current_user),
+):
+    return _load_ag_resellers_base(ano, mes)
+
+
+@router.get("/ag-reseller-detalle")
+async def get_ag_reseller_detalle(
+    rut: str = Query(...),
+    ano: int = Query(2026),
+    current_user: dict = Depends(get_current_user),
+):
+    try:
+        _FG = filtro_guias()
+        rut_clean = re.sub(r"[^0-9kK]", "", rut)
+        ss = get_ss_conn()
+        ss_cur = ss.cursor()
+        ss_cur.execute(f"""
+            SELECT LTRIM(RTRIM(CODIGO)), LTRIM(RTRIM(DESCRIPCION)),
+                   LTRIM(RTRIM(CATEGORIA)),
+                   SUM(CAST(CANT AS float)), SUM(CAST(VENTA AS float))
+            FROM BI_TOTAL_FACTURA
+            WHERE ANO = {ano} AND {DW_FILTRO} AND {_FG}
+              AND REPLACE(REPLACE(LTRIM(RTRIM(RUT)), '.', ''), '-', '') = '{rut_clean}'
+            GROUP BY CODIGO, DESCRIPCION, CATEGORIA
+            ORDER BY SUM(CAST(VENTA AS float)) DESC
+        """)
+        resumen = []
+        total = 0.0
+        for r in ss_cur.fetchall():
+            cant = float(r[3] or 0)
+            venta = float(r[4] or 0)
+            total += venta
+            resumen.append({
+                "codigo": str(r[0] or ""), "descripcion": str(r[1] or ""),
+                "categoria": str(r[2] or ""),
+                "cantidad": round(cant),
+                "precio_unit": round(venta / cant) if cant > 0 else 0,
+                "venta": round(venta),
+            })
+        ss.close()
+        return {"n_productos": len(resumen), "total": round(total), "resumen": resumen}
+    except Exception as e:
+        return {"error": str(e), "n_productos": 0, "total": 0, "resumen": []}

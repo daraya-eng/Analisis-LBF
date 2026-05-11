@@ -170,9 +170,12 @@ def get_productos(
     cached = mem_get(ck)
     if cached:
         return cached
-    data = _load_maestro(ano)
-    mem_set(ck, data)
-    return data
+    try:
+        data = _load_maestro(ano)
+        mem_set(ck, data)
+        return data
+    except Exception as e:
+        return {"productos": [], "resumen": {}, "sin_cat": 0, "error": str(e)}
 
 
 def _load_categoria_ms(ano: int) -> list:
@@ -434,9 +437,12 @@ def get_liderazgo(
     cached = mem_get(ck)
     if cached:
         return cached
-    data = _load_liderazgo(ano)
-    mem_set(ck, data)
-    return data
+    try:
+        data = _load_liderazgo(ano)
+        mem_set(ck, data)
+        return data
+    except Exception as e:
+        return {"error": str(e), "data": []}
 
 
 @router.get("/oportunidades")

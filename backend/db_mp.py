@@ -54,11 +54,11 @@ def get_pg_conn():
     global _pg_poolobj
     if _pg_poolobj is None:
         _pg_poolobj = pg_pool.ThreadedConnectionPool(
-            2, 10, **PG_PARAMS, connect_timeout=30
+            2, 10, **PG_PARAMS, connect_timeout=5
         )
     try:
         raw = _pg_poolobj.getconn()
         return _PooledPgConn(raw, _pg_poolobj)
     except Exception:
         # Fallback: direct connection if pool fails
-        return psycopg2.connect(**PG_PARAMS, connect_timeout=30)
+        return psycopg2.connect(**PG_PARAMS, connect_timeout=5)

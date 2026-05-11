@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 import { api } from "@/lib/api";
 
 /* ─── Estilos compartidos ─────────────────────────────────────────────────── */
@@ -466,8 +466,8 @@ function TabCompetencia({ data, ano, tipo }: { data: Data; ano: number; tipo: st
             </div>
 
             {/* Gráfico 2 — Barras verticales por tipo */}
-            <div style={card}>
-              <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 8 }}>
+            <div style={{ ...card, display: "flex", flexDirection: "column" }}>
+              <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 8, flexShrink: 0 }}>
                 <div style={{ fontSize: 14, fontWeight: 700, color: "#0F172A" }}>
                   Por tipo de licitación
                 </div>
@@ -478,45 +478,46 @@ function TabCompetencia({ data, ano, tipo }: { data: Data; ano: number; tipo: st
               </div>
               {(() => {
                 if (porTipo.length === 0) return <div style={{ color: "#94A3B8", fontSize: 13 }}>Sin datos</div>;
-                const CHART_H = 240;
-                const maxAdj  = Math.max(...porTipo.map((t) => t.total_adj), 1);
+                const maxAdj = Math.max(...porTipo.map((t) => t.total_adj), 1);
                 const vals = porTipo.map((t) => ({
-                  pctVal: totalTipo > 0 ? (t.total_adj / totalTipo) * 100 : 0,
-                  barH:   Math.max((t.total_adj / maxAdj) * CHART_H, t.total_adj > 0 ? 4 : 0),
-                  color:  tipoColor(t.tipo),
+                  pctVal:    totalTipo > 0 ? (t.total_adj / totalTipo) * 100 : 0,
+                  barPct:    (t.total_adj / maxAdj) * 100,
+                  color:     tipoColor(t.tipo),
                 }));
                 return (
-                  <div style={{ overflowX: "auto" }}>
-                    <div style={{ minWidth: porTipo.length * 90 }}>
-                      {/* Fila 1 — textos (monto, %, lics) alineados al fondo */}
-                      <div style={{ display: "flex", gap: 8, alignItems: "flex-end", marginBottom: 6 }}>
+                  <div style={{ flex: 1, display: "flex", flexDirection: "column", overflowX: "auto", minHeight: 0 }}>
+                    <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: porTipo.length * 110 }}>
+                      {/* Fila 1 — textos */}
+                      <div style={{ display: "flex", gap: 8, flexShrink: 0, marginBottom: 6 }}>
                         {porTipo.map((t, i) => (
-                          <div key={i} style={{ flex: 1, minWidth: 80, textAlign: "center" }}>
-                            <div style={{ fontSize: 10, fontWeight: 700, color: vals[i].color, whiteSpace: "nowrap" }}>
+                          <div key={i} style={{ flex: 1, minWidth: 90, textAlign: "center" }}>
+                            <div style={{ fontSize: 11, fontWeight: 700, color: vals[i].color, whiteSpace: "nowrap" }}>
                               {fmtCLP(t.total_adj)}
                             </div>
-                            <div style={{ fontSize: 13, fontWeight: 800, color: "#0F172A" }}>
+                            <div style={{ fontSize: 15, fontWeight: 800, color: "#0F172A" }}>
                               {vals[i].pctVal.toFixed(1)}%
                             </div>
-                            <div style={{ fontSize: 10, color: "#94A3B8" }}>
+                            <div style={{ fontSize: 11, color: "#94A3B8" }}>
                               {fmtN(t.ids_adj)} lics.
                             </div>
                           </div>
                         ))}
                       </div>
-                      {/* Fila 2 — barras todas con el mismo baseline */}
-                      <div style={{ display: "flex", gap: 8, alignItems: "flex-end", height: CHART_H }}>
+                      {/* Fila 2 — barras que llenan el espacio restante */}
+                      <div style={{ flex: 1, display: "flex", gap: 8, alignItems: "flex-end", minHeight: 0 }}>
                         {porTipo.map((t, i) => (
-                          <div key={i} style={{
-                            flex: 1, minWidth: 80, height: vals[i].barH,
-                            background: vals[i].color,
-                            borderRadius: "5px 5px 0 0",
-                            transition: "height 0.5s ease",
-                          }} />
+                          <div key={i} style={{ flex: 1, minWidth: 80, height: `${vals[i].barPct}%`, minHeight: t.total_adj > 0 ? 4 : 0 }}>
+                            <div style={{
+                              width: "100%", height: "100%",
+                              background: vals[i].color,
+                              borderRadius: "5px 5px 0 0",
+                              transition: "height 0.5s ease",
+                            }} />
+                          </div>
                         ))}
                       </div>
                       {/* Fila 3 — etiquetas tipo */}
-                      <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
+                      <div style={{ display: "flex", gap: 8, marginTop: 6, flexShrink: 0 }}>
                         {porTipo.map((t, i) => (
                           <div key={i} style={{ flex: 1, minWidth: 80, textAlign: "center", fontSize: 13, fontWeight: 800, color: vals[i].color }}>
                             {t.tipo}
@@ -554,11 +555,11 @@ function TabCompetencia({ data, ano, tipo }: { data: Data; ano: number; tipo: st
                 <th style={thR}>% Éxito $</th>
                 <th style={{ ...thR, color: "#2563EB" }}>LBF adj en sus lics.</th>
                 <th style={{ ...thR, color: "#2563EB" }}>% LBF / Comp. ofertado</th>
-                <th style={thR}>% Efect. Lics.</th>
                 <th style={thR}>Ítems Ofertados</th>
                 <th style={thR}>Ítems Adj.</th>
                 <th style={thR}>Lics. Part.</th>
                 <th style={thR}>Lics. Adj.</th>
+                <th style={thR}>% Efect. Lics.</th>
               </tr>
             </thead>
             <tbody>
@@ -586,9 +587,6 @@ function TabCompetencia({ data, ano, tipo }: { data: Data; ano: number; tipo: st
                   {fmtCLP(lbf.total_adj)}
                 </td>
                 <td style={{ ...tdR, fontWeight: 700, color: "#2563EB" }}>—</td>
-                <td style={{ ...tdR, fontWeight: 700, color: "#059669" }}>
-                  {pct(lbfEf)}
-                </td>
                 <td style={{ ...tdR, fontWeight: 700 }}>
                   {fmtN(lbf.ofertas_realizadas)}
                 </td>
@@ -600,6 +598,9 @@ function TabCompetencia({ data, ano, tipo }: { data: Data; ano: number; tipo: st
                 </td>
                 <td style={{ ...tdR, fontWeight: 700 }}>
                   {fmtN(lbf.ids_adjudicadas)}
+                </td>
+                <td style={{ ...tdR, fontWeight: 700, color: "#059669" }}>
+                  {pct(lbfEf)}
                 </td>
               </tr>
 
@@ -630,16 +631,16 @@ function TabCompetencia({ data, ano, tipo }: { data: Data; ano: number; tipo: st
                     <td style={{ ...tdR, color: "#2563EB", fontWeight: 600 }}>
                       {c.total_ofertado > 0 ? pct((c.lbf_adj_compartido / c.total_ofertado) * 100) : "—"}
                     </td>
+                    <td style={tdR}>{fmtN(c.ofertas)}</td>
+                    <td style={tdR}>{fmtN(c.ofertas_adj)}</td>
+                    <td style={tdR}>{fmtN(c.ids_part)}</td>
+                    <td style={tdR}>{fmtN(c.ids_adj)}</td>
                     <td style={{
                       ...tdR,
                       color: cEf >= 20 ? "#059669" : cEf >= 10 ? "#D97706" : "#374151",
                     }}>
                       {pct(cEf)}
                     </td>
-                    <td style={tdR}>{fmtN(c.ofertas)}</td>
-                    <td style={tdR}>{fmtN(c.ofertas_adj)}</td>
-                    <td style={tdR}>{fmtN(c.ids_part)}</td>
-                    <td style={tdR}>{fmtN(c.ids_adj)}</td>
                   </tr>
                 );
               })}
@@ -676,9 +677,16 @@ function TabClientes({
     if (catData[organismo]) return;
     setCatLoading(organismo);
     const params = new URLSearchParams({ organismo, ano: String(ano), tipo });
-    api.get(`/api/mercado-publico/clientes-categorias?${params}`)
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 120_000);
+    fetch(`${process.env.NEXT_PUBLIC_API_BASE || "http://localhost:8000"}/api/mercado-publico/clientes-categorias?${params}`, {
+      signal: ctrl.signal,
+      headers: { Authorization: `Bearer ${localStorage.getItem("lbf_token") || ""}` },
+    })
+      .then((r) => r.json())
       .then((r) => setCatData((prev) => ({ ...prev, [organismo]: r as ClienteCat[] })))
-      .finally(() => setCatLoading(null));
+      .catch(() => {})
+      .finally(() => { clearTimeout(timer); setCatLoading(null); });
   }, [expanded, catData, ano, tipo]);
 
   const totalAdj = clientes ? clientes.reduce((s, c) => s + c.total_adj, 0) : 0;
@@ -728,9 +736,8 @@ function TabClientes({
               const barW = totalAdj > 0 ? (c.total_adj / totalAdj) * 100 : 0;
               const isExp = expanded === c.organismo;
               return (
-                <>
+                <React.Fragment key={i}>
                   <tr
-                    key={i}
                     onClick={() => handleRowClick(c.organismo)}
                     style={{
                       ...rowBg(i),
@@ -798,7 +805,7 @@ function TabClientes({
                       </td>
                     </tr>
                   )}
-                </>
+                </React.Fragment>
               );
             })}
           </tbody>

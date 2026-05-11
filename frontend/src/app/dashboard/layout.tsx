@@ -22,6 +22,7 @@ const PATH_TO_MODULE: Record<string, string> = {
   guantes: "guantes",
   e1: "e1",
   incentivos: "incentivos",
+  pm: "pm",
 };
 
 export default function DashboardLayout({

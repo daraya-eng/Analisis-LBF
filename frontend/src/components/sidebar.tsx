@@ -23,6 +23,7 @@ import {
   LineChart,
   BookMarked,
   ArrowLeftRight,
+  CalendarDays,
 } from "lucide-react";
 import { useState, useEffect } from "react";
 
@@ -35,6 +36,7 @@ interface NavItem {
 const NAV_ITEMS: NavItem[] = [
   { href: "/dashboard", label: "Panel Principal", icon: LayoutDashboard, module: "dashboard" },
   { href: "/dashboard/televentas", label: "Televentas", icon: Phone, module: "televentas" },
+  { href: "/dashboard/pm", label: "Plan de Mes", icon: CalendarDays, module: "pm" },
   { href: "/dashboard/zona", label: "KAM", icon: Building2, module: "zona" },
   { href: "/dashboard/oportunidades", label: "Oportunidades", icon: Target, module: "zona" },
   {

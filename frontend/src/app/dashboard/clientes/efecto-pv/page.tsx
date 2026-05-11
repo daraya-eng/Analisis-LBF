@@ -235,12 +235,15 @@ export default function EfectoPVPage() {
       signal: ctrl1.signal,
       headers: { Authorization: `Bearer ${token}` },
     })
-      .then(r => r.json())
+      .then(r => {
+        if (!r.ok) throw new Error(`HTTP ${r.status} ${r.statusText}`);
+        return r.json();
+      })
       .then((d: PVData) => {
         if (d.error) setError(d.error);
         else setData(d);
       })
-      .catch(e => { if (e.name !== "AbortError") setError("Error cargando datos"); })
+      .catch(e => { if (e.name !== "AbortError") setError(e.message || "Error cargando datos"); })
       .finally(() => setLoading(false));
 
     // Load product breakdown

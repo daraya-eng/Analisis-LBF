@@ -215,32 +215,91 @@ def _load_clientes_data(meses: list[int]) -> dict:
         seg = _resolver_seg(rut, str(r[0] or ""))
         seg_v25[seg] += float(r[2] or 0)
 
-    # Efecto precio/volumen sigue desde la lista de clientes (requiere granularidad cliente)
+    # ═══ 5b. Efecto P/V a nivel SKU (RUT × CODIGO) ═══
+    # Granularidad de producto garantiza unidades homogéneas. A nivel cliente
+    # la CANT mezcla cajas + kits + jeringas generando efectos precio falsos.
+    cur.execute(f"""
+        SELECT f.RUT,
+               LTRIM(RTRIM(ISNULL(f.SEGMENTO, ''))) AS seg_raw,
+               f.CODIGO,
+               {_CAT_CASE} AS categoria,
+               SUM(CAST(f.VENTA AS float)) AS venta_26,
+               SUM(CAST(f.CANT AS float)) AS cant_26
+        FROM BI_TOTAL_FACTURA f
+        WHERE f.ANO = {_ANO} AND f.MES IN ({mes_list}) AND {_EXCL_DW}
+          AND {_CAT_CASE} IN ({_CATS_IN})
+          AND {_FG}
+        GROUP BY f.RUT, LTRIM(RTRIM(ISNULL(f.SEGMENTO, ''))), f.CODIGO, {_CAT_CASE}
+    """)
+    sku_26: dict[tuple, dict] = {}
+    for r in cur.fetchall():
+        rut = str(r[0] or "").strip()
+        seg = _resolver_seg(rut, str(r[1] or ""))
+        cod = str(r[2] or "").strip()
+        cat = str(r[3] or "").strip()
+        sku_26[(rut, cod)] = {"seg": seg, "cat": cat,
+                               "venta_26": float(r[4] or 0), "cant_26": float(r[5] or 0)}
+
+    cur.execute(f"""
+        SELECT f.RUT, f.CODIGO,
+               SUM(CAST(f.VENTA AS float)) AS venta_25,
+               SUM(CAST(f.CANT AS float)) AS cant_25
+        FROM BI_TOTAL_FACTURA f
+        WHERE f.ANO = {_ANO - 1} AND f.MES IN ({mes_list}) AND {_EXCL_DW}
+          AND {_FG}
+        GROUP BY f.RUT, f.CODIGO
+    """)
+    sku_25: dict[tuple, dict] = {}
+    for r in cur.fetchall():
+        rut = str(r[0] or "").strip()
+        cod = str(r[1] or "").strip()
+        sku_25[(rut, cod)] = {"venta_25": float(r[2] or 0), "cant_25": float(r[3] or 0)}
+
+    conn.close()
+
+    # Acumular ef_precio / ef_volumen por segmento y categoría
+    ef_seg: dict[str, dict] = {
+        "PUBLICO": {"ef_p": 0.0, "ef_v": 0.0},
+        "PRIVADO": {"ef_p": 0.0, "ef_v": 0.0},
+    }
+    ef_cat: dict[str, dict] = {}
+    for key in set(sku_26.keys()) & set(sku_25.keys()):
+        d26 = sku_26[key]; d25 = sku_25[key]
+        c26 = d26["cant_26"]; c25 = d25["cant_25"]
+        if c25 <= 0 or c26 <= 0:
+            continue
+        p25 = d25["venta_25"] / c25
+        p26 = d26["venta_26"] / c26
+        ep = (p26 - p25) * c26
+        ev = (c26 - c25) * p25
+        seg = d26["seg"]
+        cat = d26["cat"]
+        ef_seg[seg]["ef_p"] += ep
+        ef_seg[seg]["ef_v"] += ev
+        ef_cat.setdefault(cat, {"ef_p": 0.0, "ef_v": 0.0})
+        ef_cat[cat]["ef_p"] += ep
+        ef_cat[cat]["ef_v"] += ev
+
+    # Enriquecer cat_data con efecto precio/volumen
+    for cd in cat_data:
+        ef = ef_cat.get(cd["categoria"], {"ef_p": 0.0, "ef_v": 0.0})
+        cd["efecto_precio"] = round(ef["ef_p"])
+        cd["efecto_volumen"] = round(ef["ef_v"])
+
     kpis_seg: dict[str, dict] = {}
     for seg in ("PUBLICO", "PRIVADO"):
-        seg_cli = [c for c in clientes if c["segmento"] == seg]
         v26 = seg_v26[seg]
         v25 = seg_v25[seg]
         crec = ((v26 / v25) - 1) * 100 if v25 > 0 else (100.0 if v26 > 0 else 0.0)
-        ef_precio = 0.0
-        ef_volumen = 0.0
-        for c in seg_cli:
-            if c["cant_25"] > 0 and c["cant_26"] > 0:
-                p25 = c["venta_25"] / c["cant_25"]
-                p26 = c["venta_26"] / c["cant_26"]
-                ef_precio  += (p26 - p25) * c["cant_26"]
-                ef_volumen += (c["cant_26"] - c["cant_25"]) * p25
         kpis_seg[seg] = {
             "venta_26":       round(v26),
             "venta_25":       round(v25),
             "crec":           round(crec, 1),
             "n_clientes":     len(seg_ruts_26[seg]),
-            "efecto_precio":  round(ef_precio),
-            "efecto_volumen": round(ef_volumen),
+            "efecto_precio":  round(ef_seg[seg]["ef_p"]),
+            "efecto_volumen": round(ef_seg[seg]["ef_v"]),
             "diff":           round(v26 - v25),
         }
-
-    conn.close()
 
     # ═══ 6. Todos los clientes ordenados por diferencia ═══
     with_history = [c for c in clientes if c["venta_25"] > 0 or c["venta_26"] > 0]
@@ -489,22 +548,35 @@ def _load_efecto_pv(meses: list[int]) -> dict:
         GROUP BY LTRIM(RTRIM(RUT)), LTRIM(RTRIM(CODIGO))
     """)
     data_25: dict = {}
+    # Productos 2025 sin mapeo de categoría: se incluyen en v25 total como
+    # "productos perdidos" para que el total cuadre con el módulo Clientes.
+    _lost_no_cat: list[tuple[str, float]] = []  # (seg, v25)
     for r in cur.fetchall():
         rut, cod = str(r[0]).strip(), str(r[1]).strip()
         cat_raw = str(r[2] or "").strip()
         seg = _seg(rut, str(r[3] or ""))
         cat = _resolve_cat_25(cod, cat_raw)
+        v25 = float(r[4] or 0)
+        c25 = float(r[5] or 0)
         if cat is None:
-            continue  # producto sin categoría activa en 2026 ni mapeo histórico
-        data_25[(rut, cod)] = {"cat": cat, "seg": seg, "v": float(r[4] or 0), "c": float(r[5] or 0)}
+            # Sin categoría activa en 2026: suma a v25 y ef_v negativo (producto perdido)
+            _lost_no_cat.append((seg, v25))
+            continue
+        data_25[(rut, cod)] = {"cat": cat, "seg": seg, "v": v25, "c": c25}
 
     conn.close()
 
     # Accumulators — iterate over union of both years so lost products are counted in v25
     from collections import defaultdict
-    acc_seg: dict = defaultdict(lambda: {"ef_p": 0.0, "ef_v": 0.0, "v25": 0.0, "v26": 0.0})
+    acc_seg: dict = defaultdict(lambda: {
+        "ef_p": 0.0, "ef_v": 0.0, "v25": 0.0, "v26": 0.0,
+        "ef_v_mismo": 0.0, "v_nuevos_p": 0.0, "v_perdidos_p": 0.0,
+    })
     acc_cat: dict = defaultdict(lambda: {"ef_p": 0.0, "ef_v": 0.0, "v25": 0.0, "v26": 0.0})
-    total   = {"ef_p": 0.0, "ef_v": 0.0, "v25": 0.0, "v26": 0.0}
+    total = {
+        "ef_p": 0.0, "ef_v": 0.0, "v25": 0.0, "v26": 0.0,
+        "ef_v_mismo": 0.0, "v_nuevos_p": 0.0, "v_perdidos_p": 0.0,
+    }
 
     all_keys = set(data_26.keys()) | set(data_25.keys())
     for key in all_keys:
@@ -533,24 +605,99 @@ def _load_efecto_pv(meses: list[int]) -> dict:
             ef_v = (c26 - c25) * p25
             acc_seg[seg]["ef_p"] += ef_p
             acc_seg[seg]["ef_v"] += ef_v
+            acc_seg[seg]["ef_v_mismo"] += ef_v
             acc_cat[cat]["ef_p"] += ef_p
             acc_cat[cat]["ef_v"] += ef_v
             total["ef_p"] += ef_p
             total["ef_v"] += ef_v
+            total["ef_v_mismo"] += ef_v
         elif v25 != 0 or v26 != 0:
-            # Casos restantes: valores negativos (NC/devoluciones), sin cantidad, o producto nuevo/perdido
             # Toda la diferencia va a efecto volumen para garantizar balance del waterfall
             ev = v26 - v25
             acc_seg[seg]["ef_v"] += ev
             acc_cat[cat]["ef_v"] += ev
             total["ef_v"] += ev
+            if v26 > 0 and v25 == 0:
+                acc_seg[seg]["v_nuevos_p"] += v26
+                total["v_nuevos_p"] += v26
+            elif v25 > 0 and v26 == 0:
+                acc_seg[seg]["v_perdidos_p"] += v25
+                total["v_perdidos_p"] += v25
+
+    # ── Productos 2025 sin categoría: agregar a totales como productos perdidos ──
+    # Garantiza que total.v25 coincida con el módulo Clientes (que no filtra por cat en 2025)
+    for seg, v25 in _lost_no_cat:
+        acc_seg[seg]["v25"] += v25
+        acc_seg[seg]["ef_v"] -= v25
+        acc_seg[seg]["v_perdidos_p"] += v25
+        total["v25"] += v25
+        total["ef_v"] -= v25
+        total["v_perdidos_p"] += v25
+
+    # ── Client-level decomposition (new/lost/existing clients per segment) ──
+    rut_v26: dict = {}
+    rut_v25: dict = {}
+    for (rut, cod), d in data_26.items():
+        if rut not in rut_v26:
+            rut_v26[rut] = {"v": 0.0, "seg": d["seg"]}
+        rut_v26[rut]["v"] += d["v"]
+    for (rut, cod), d in data_25.items():
+        if rut not in rut_v25:
+            rut_v25[rut] = {"v": 0.0, "seg": d["seg"]}
+        rut_v25[rut]["v"] += d["v"]
+
+    cli_seg: dict = defaultdict(lambda: {
+        "existentes_v26": 0.0, "existentes_v25": 0.0,
+        "nuevos_v26": 0.0, "perdidos_v25": 0.0,
+        "n_existentes": 0, "n_nuevos": 0, "n_perdidos": 0,
+    })
+    cli_total: dict = {
+        "existentes_v26": 0.0, "existentes_v25": 0.0,
+        "nuevos_v26": 0.0, "perdidos_v25": 0.0,
+        "n_existentes": 0, "n_nuevos": 0, "n_perdidos": 0,
+    }
+    for rut in set(rut_v26) | set(rut_v25):
+        r26 = rut_v26.get(rut)
+        r25 = rut_v25.get(rut)
+        seg = (r26 or r25)["seg"]  # type: ignore[index]
+        if r26 and r25:
+            cli_seg[seg]["existentes_v26"] += r26["v"]
+            cli_seg[seg]["existentes_v25"] += r25["v"]
+            cli_seg[seg]["n_existentes"] += 1
+            cli_total["existentes_v26"] += r26["v"]
+            cli_total["existentes_v25"] += r25["v"]
+            cli_total["n_existentes"] += 1
+        elif r26:
+            cli_seg[seg]["nuevos_v26"] += r26["v"]
+            cli_seg[seg]["n_nuevos"] += 1
+            cli_total["nuevos_v26"] += r26["v"]
+            cli_total["n_nuevos"] += 1
+        else:
+            cli_seg[seg]["perdidos_v25"] += r25["v"]  # type: ignore[index]
+            cli_seg[seg]["n_perdidos"] += 1
+            cli_total["perdidos_v25"] += r25["v"]  # type: ignore[index]
+            cli_total["n_perdidos"] += 1
+
+    def _fmt_cli(c: dict) -> dict:
+        return {
+            "existentes_v26": round(c["existentes_v26"]),
+            "existentes_v25": round(c["existentes_v25"]),
+            "nuevos_v26":     round(c["nuevos_v26"]),
+            "perdidos_v25":   round(c["perdidos_v25"]),
+            "n_existentes":   c["n_existentes"],
+            "n_nuevos":       c["n_nuevos"],
+            "n_perdidos":     c["n_perdidos"],
+        }
 
     def _fmt(a):
         return {
-            "venta_25":      round(a["v25"]),
-            "venta_26":      round(a["v26"]),
-            "efecto_precio":  round(a["ef_p"]),
-            "efecto_volumen": round(a["ef_v"]),
+            "venta_25":        round(a["v25"]),
+            "venta_26":        round(a["v26"]),
+            "efecto_precio":    round(a["ef_p"]),
+            "efecto_volumen":   round(a["ef_v"]),
+            "ef_v_mismo":      round(a.get("ef_v_mismo", 0)),
+            "v_nuevos_prod":    round(a.get("v_nuevos_p", 0)),
+            "v_perdidos_prod":  round(a.get("v_perdidos_p", 0)),
         }
 
     cat_order = ["MAH", "EQM", "SQ", "EVA"]
@@ -567,6 +714,10 @@ def _load_efecto_pv(meses: list[int]) -> dict:
         "total":      _fmt(total),
         "segmentos":  {seg: _fmt(vals) for seg, vals in acc_seg.items()},
         "categorias": categorias,
+        "clientes": {
+            "total":    _fmt_cli(cli_total),
+            "segmentos": {seg: _fmt_cli(vals) for seg, vals in cli_seg.items()},
+        },
     }
 
 

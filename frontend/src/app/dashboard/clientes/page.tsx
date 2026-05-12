@@ -37,6 +37,8 @@ interface CatRow {
   contrib_26: number;
   margen: number;
   pct: number;
+  efecto_precio?: number;
+  efecto_volumen?: number;
 }
 
 interface ClienteRow {
@@ -836,6 +838,63 @@ export default function ClientesPage() {
                 <Cell key={i} fill={d.sin_comparacion >= 0 ? CHART_COLORS.sin_comparacion.pos : CHART_COLORS.sin_comparacion.neg} />
               ))}
               <LabelList dataKey="sin_comparacion" content={<ValLabel />} />
+            </Bar>
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+
+      {/* ═══ Chart: Efecto P/V por Categoría ═══ */}
+      <div style={{ background: "white", borderRadius: 10, border: "1px solid #E2E8F0", padding: 24, marginBottom: 24 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 4 }}>
+          <h3 style={{ fontSize: 16, fontWeight: 700, color: "#0F172A", margin: 0 }}>
+            Efecto Precio / Volumen por Categoría
+          </h3>
+        </div>
+        <p style={{ fontSize: 12, color: "#475569", margin: "0 0 16px 0", lineHeight: 1.6 }}>
+          Descomposición a nivel SKU × cliente para productos con venta en <strong>ambos años</strong>. Excluye productos nuevos o perdidos (sin año base de comparación).
+        </p>
+        <ResponsiveContainer width="100%" height={220}>
+          <BarChart
+            data={(data.categorias ?? []).map((c) => ({
+              cat: c.categoria,
+              ef_precio: c.efecto_precio ?? 0,
+              ef_volumen: c.efecto_volumen ?? 0,
+            }))}
+            barCategoryGap="35%"
+            margin={{ top: 16, right: 16, bottom: 0, left: 0 }}
+          >
+            <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" />
+            <XAxis dataKey="cat" tick={{ fontSize: 13, fontWeight: 600 }} />
+            <YAxis
+              tickFormatter={(v) => {
+                const abs = Math.abs(Number(v));
+                if (abs >= 1e9) return `${(Number(v) / 1e9).toFixed(1)}MM`;
+                if (abs >= 1e6) return `${(Number(v) / 1e6).toFixed(0)}M`;
+                return String(v);
+              }}
+              tick={{ fontSize: 11 }}
+              width={70}
+            />
+            <Tooltip
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              formatter={(v: any, name: any) => {
+                const n = Number(v);
+                const sign = n >= 0 ? "+" : "-";
+                return [`${sign}${fmtAbs(Math.abs(n))}`, name];
+              }}
+              contentStyle={{ borderRadius: 8, fontSize: 13, border: "1px solid #E2E8F0", boxShadow: "0 4px 12px rgba(0,0,0,0.08)" }}
+            />
+            <Bar dataKey="ef_precio" name="Ef. Precio" radius={[4, 4, 0, 0]}>
+              {(data.categorias ?? []).map((d, i) => (
+                <Cell key={i} fill={(d.efecto_precio ?? 0) >= 0 ? CHART_COLORS.efecto_precio.pos : CHART_COLORS.efecto_precio.neg} />
+              ))}
+              <LabelList dataKey="ef_precio" content={<ValLabel />} />
+            </Bar>
+            <Bar dataKey="ef_volumen" name="Ef. Volumen" radius={[4, 4, 0, 0]}>
+              {(data.categorias ?? []).map((d, i) => (
+                <Cell key={i} fill={(d.efecto_volumen ?? 0) >= 0 ? CHART_COLORS.efecto_volumen.pos : CHART_COLORS.efecto_volumen.neg} />
+              ))}
+              <LabelList dataKey="ef_volumen" content={<ValLabel />} />
             </Bar>
           </BarChart>
         </ResponsiveContainer>

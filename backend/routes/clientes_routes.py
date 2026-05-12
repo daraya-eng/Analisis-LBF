@@ -241,44 +241,60 @@ def _load_clientes_data(meses: list[int]) -> dict:
                                "venta_26": float(r[4] or 0), "cant_26": float(r[5] or 0)}
 
     cur.execute(f"""
-        SELECT f.RUT, f.CODIGO,
+        SELECT f.RUT,
+               LTRIM(RTRIM(ISNULL(f.SEGMENTO, ''))) AS seg_raw,
+               f.CODIGO,
                SUM(CAST(f.VENTA AS float)) AS venta_25,
                SUM(CAST(f.CANT AS float)) AS cant_25
         FROM BI_TOTAL_FACTURA f
         WHERE f.ANO = {_ANO - 1} AND f.MES IN ({mes_list}) AND {_EXCL_DW}
           AND {_FG}
-        GROUP BY f.RUT, f.CODIGO
+        GROUP BY f.RUT, LTRIM(RTRIM(ISNULL(f.SEGMENTO, ''))), f.CODIGO
     """)
     sku_25: dict[tuple, dict] = {}
     for r in cur.fetchall():
         rut = str(r[0] or "").strip()
-        cod = str(r[1] or "").strip()
-        sku_25[(rut, cod)] = {"venta_25": float(r[2] or 0), "cant_25": float(r[3] or 0)}
+        seg = _resolver_seg(rut, str(r[1] or ""))
+        cod = str(r[2] or "").strip()
+        sku_25[(rut, cod)] = {"seg": seg, "venta_25": float(r[3] or 0), "cant_25": float(r[4] or 0)}
 
     conn.close()
 
-    # Acumular ef_precio / ef_volumen por segmento y categoría
+    # Acumular ef_precio / ef_volumen por segmento y categoría — UNIÓN de ambos años.
+    # Misma lógica que _load_efecto_pv(): nuevos → ef_v positivo, perdidos → ef_v negativo.
+    # Garantiza ef_p + ef_v = diff para que los dos módulos cuadren.
     ef_seg: dict[str, dict] = {
         "PUBLICO": {"ef_p": 0.0, "ef_v": 0.0},
         "PRIVADO": {"ef_p": 0.0, "ef_v": 0.0},
     }
     ef_cat: dict[str, dict] = {}
-    for key in set(sku_26.keys()) & set(sku_25.keys()):
-        d26 = sku_26[key]; d25 = sku_25[key]
-        c26 = d26["cant_26"]; c25 = d25["cant_25"]
-        if c25 <= 0 or c26 <= 0:
-            continue
-        p25 = d25["venta_25"] / c25
-        p26 = d26["venta_26"] / c26
-        ep = (p26 - p25) * c26
-        ev = (c26 - c25) * p25
-        seg = d26["seg"]
-        cat = d26["cat"]
-        ef_seg[seg]["ef_p"] += ep
-        ef_seg[seg]["ef_v"] += ev
-        ef_cat.setdefault(cat, {"ef_p": 0.0, "ef_v": 0.0})
-        ef_cat[cat]["ef_p"] += ep
-        ef_cat[cat]["ef_v"] += ev
+    for key in set(sku_26.keys()) | set(sku_25.keys()):
+        d26 = sku_26.get(key)
+        d25 = sku_25.get(key)
+        seg = d26["seg"] if d26 else d25["seg"]  # type: ignore[index]
+        cat = d26["cat"] if d26 else None
+        v26 = d26["venta_26"] if d26 else 0.0
+        c26 = d26["cant_26"] if d26 else 0.0
+        v25 = d25["venta_25"] if d25 else 0.0
+        c25 = d25["cant_25"] if d25 else 0.0
+
+        if v25 > 0 and v26 > 0 and c25 > 0 and c26 > 0:
+            p25, p26 = v25 / c25, v26 / c26
+            ep = (p26 - p25) * c26
+            ev = (c26 - c25) * p25
+            ef_seg[seg]["ef_p"] += ep
+            ef_seg[seg]["ef_v"] += ev
+            if cat:
+                ef_cat.setdefault(cat, {"ef_p": 0.0, "ef_v": 0.0})
+                ef_cat[cat]["ef_p"] += ep
+                ef_cat[cat]["ef_v"] += ev
+        elif v25 != 0 or v26 != 0:
+            # Producto nuevo (solo 2026) o perdido (solo 2025): diferencia completa a ef_v
+            ev = v26 - v25
+            ef_seg[seg]["ef_v"] += ev
+            if cat:
+                ef_cat.setdefault(cat, {"ef_p": 0.0, "ef_v": 0.0})
+                ef_cat[cat]["ef_v"] += ev
 
     # Enriquecer cat_data con efecto precio/volumen
     for cd in cat_data:

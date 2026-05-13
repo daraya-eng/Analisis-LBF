@@ -216,47 +216,47 @@ def _load_clientes_data(meses: list[int]) -> dict:
         seg_v25[seg] += float(r[2] or 0)
 
     # ═══ 5b. Efecto P/V a nivel SKU (RUT × CODIGO) ═══
-    # Granularidad de producto garantiza unidades homogéneas. A nivel cliente
-    # la CANT mezcla cajas + kits + jeringas generando efectos precio falsos.
+    # SQL idéntico a _load_efecto_pv(): GROUP BY sin SEGMENTO para evitar
+    # que el mismo (rut,cod) produzca filas duplicadas y se sobreescriba.
     cur.execute(f"""
-        SELECT f.RUT,
-               LTRIM(RTRIM(ISNULL(f.SEGMENTO, ''))) AS seg_raw,
-               f.CODIGO,
-               {_CAT_CASE} AS categoria,
-               SUM(CAST(f.VENTA AS float)) AS venta_26,
-               SUM(CAST(f.CANT AS float)) AS cant_26
-        FROM BI_TOTAL_FACTURA f
-        WHERE f.ANO = {_ANO} AND f.MES IN ({mes_list}) AND {_EXCL_DW}
+        SELECT LTRIM(RTRIM(RUT)), LTRIM(RTRIM(CODIGO)),
+               {_CAT_CASE} AS cat,
+               MAX(LTRIM(RTRIM(ISNULL(SEGMENTO,'')))) AS seg_raw,
+               SUM(CAST(VENTA AS float)), SUM(CAST(CANT AS float))
+        FROM BI_TOTAL_FACTURA
+        WHERE ANO = {_ANO} AND MES IN ({mes_list})
+          AND {_EXCL_DW} AND {_FG}
           AND {_CAT_CASE} IN ({_CATS_IN})
-          AND {_FG}
-        GROUP BY f.RUT, LTRIM(RTRIM(ISNULL(f.SEGMENTO, ''))), f.CODIGO, {_CAT_CASE}
+        GROUP BY LTRIM(RTRIM(RUT)), LTRIM(RTRIM(CODIGO)), {_CAT_CASE}
     """)
     sku_26: dict[tuple, dict] = {}
     for r in cur.fetchall():
-        rut = str(r[0] or "").strip()
-        seg = _resolver_seg(rut, str(r[1] or ""))
-        cod = str(r[2] or "").strip()
-        cat = str(r[3] or "").strip()
-        sku_26[(rut, cod)] = {"seg": seg, "cat": cat,
-                               "venta_26": float(r[4] or 0), "cant_26": float(r[5] or 0)}
+        rut, cod = str(r[0]).strip(), str(r[1]).strip()
+        cat = str(r[2] or "").strip()
+        seg = _resolver_seg(rut, str(r[3] or ""))
+        key = (rut, cod)
+        if key in sku_26:
+            sku_26[key]["venta_26"] += float(r[4] or 0)
+            sku_26[key]["cant_26"]  += float(r[5] or 0)
+        else:
+            sku_26[key] = {"cat": cat, "seg": seg,
+                           "venta_26": float(r[4] or 0), "cant_26": float(r[5] or 0)}
 
     cur.execute(f"""
-        SELECT f.RUT,
-               LTRIM(RTRIM(ISNULL(f.SEGMENTO, ''))) AS seg_raw,
-               f.CODIGO,
-               SUM(CAST(f.VENTA AS float)) AS venta_25,
-               SUM(CAST(f.CANT AS float)) AS cant_25
-        FROM BI_TOTAL_FACTURA f
-        WHERE f.ANO = {_ANO - 1} AND f.MES IN ({mes_list}) AND {_EXCL_DW}
-          AND {_FG}
-        GROUP BY f.RUT, LTRIM(RTRIM(ISNULL(f.SEGMENTO, ''))), f.CODIGO
+        SELECT LTRIM(RTRIM(RUT)), LTRIM(RTRIM(CODIGO)),
+               MAX(LTRIM(RTRIM(ISNULL(SEGMENTO,'')))) AS seg_raw,
+               SUM(CAST(VENTA AS float)), SUM(CAST(CANT AS float))
+        FROM BI_TOTAL_FACTURA
+        WHERE ANO = {_ANO - 1} AND MES IN ({mes_list})
+          AND {_EXCL_DW} AND {_FG}
+        GROUP BY LTRIM(RTRIM(RUT)), LTRIM(RTRIM(CODIGO))
     """)
     sku_25: dict[tuple, dict] = {}
     for r in cur.fetchall():
-        rut = str(r[0] or "").strip()
-        seg = _resolver_seg(rut, str(r[1] or ""))
-        cod = str(r[2] or "").strip()
-        sku_25[(rut, cod)] = {"seg": seg, "venta_25": float(r[3] or 0), "cant_25": float(r[4] or 0)}
+        rut, cod = str(r[0]).strip(), str(r[1]).strip()
+        seg = _resolver_seg(rut, str(r[2] or ""))
+        sku_25[(rut, cod)] = {"seg": seg,
+                               "venta_25": float(r[3] or 0), "cant_25": float(r[4] or 0)}
 
     conn.close()
 

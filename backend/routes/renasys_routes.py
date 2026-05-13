@@ -1,6 +1,7 @@
 """
 Renasys TPN — Módulo de análisis de Terapia de Presión Negativa.
-Filtra BI_TOTAL_FACTURA por CLASE = 'EQUIPOS MAH' y SUBCLASE LIKE '%TERAPIA DE PRESION NEGATIVA%'.
+2026+: CLASE = 'TPN'
+2025-: CLASE = 'EQUIPOS MAH' AND SUBCLASE LIKE '%TERAPIA DE PRESION NEGATIVA%'
 Columnas de equipos instalados son placeholder hasta integración con IT.
 """
 import datetime
@@ -22,8 +23,8 @@ _EXCL_DW = (
 )
 
 _FILTRO_TPN = (
-    "CLASE = 'EQUIPOS MAH' "
-    "AND SUBCLASE LIKE '%TERAPIA DE PRESION NEGATIVA%'"
+    "(CLASE = 'TPN' OR "
+    "(CLASE = 'EQUIPOS MAH' AND SUBCLASE LIKE '%TERAPIA DE PRESION NEGATIVA%'))"
 )
 
 _MESES = ["", "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",

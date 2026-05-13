@@ -31,6 +31,7 @@ ALL_MODULES = [
     "e1",
     "incentivos",
     "pm",
+    "renasys",
 ]
 
 MODULE_LABELS = {
@@ -47,6 +48,7 @@ MODULE_LABELS = {
     "incentivos": "Incentivos",
     "e1": "Plan de Ventas E1",
     "pm": "PM",
+    "renasys": "Renasys TPN",
 }
 
 # ── User storage (JSON file) ─────────────────────────────────────────────────

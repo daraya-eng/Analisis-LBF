@@ -1127,7 +1127,7 @@ function ActividadDiariaTab() {
                 <YAxis allowDecimals={false} tick={{ fill: "#94A3B8", fontSize: 11 }} width={28} />
                 <Tooltip
                   contentStyle={{ background: "white", border: "1px solid #E2E8F0", borderRadius: 8, fontSize: 12 }}
-                  labelFormatter={(v: string) => `${diaLabel(v)} ${mesLabel}`}
+                  labelFormatter={(v) => `${diaLabel(String(v))} ${mesLabel}`}
                   formatter={(value: any, name: any) => [value, name]}
                 />
                 <Legend wrapperStyle={{ fontSize: 12 }} />

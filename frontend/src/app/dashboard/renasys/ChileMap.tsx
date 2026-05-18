@@ -2,6 +2,7 @@
 
 import { useEffect } from "react";
 import { MapContainer, TileLayer, CircleMarker, Popup, useMap } from "react-leaflet";
+import type { LatLngExpression } from "leaflet";
 import "leaflet/dist/leaflet.css";
 
 interface Region {
@@ -24,10 +25,12 @@ const fmt = (n: number) => {
 };
 const margenColor = (m: number) => m >= 40 ? "#10B981" : m >= 30 ? "#F59E0B" : "#EF4444";
 
+const CHILE_CENTER: LatLngExpression = [-35.5, -71.5];
+
 function FitBounds({ regiones }: { regiones: Region[] }) {
   const map = useMap();
   useEffect(() => {
-    map.setView([-35.5, -71.5], 5);
+    map.setView(CHILE_CENTER, 5);
   }, [map]);
   return null;
 }
@@ -43,7 +46,7 @@ export default function ChileMap({ regiones, regionFiltro, onRegionClick }: Prop
 
   return (
     <MapContainer
-      center={[-35.5, -71.5]}
+      center={CHILE_CENTER}
       zoom={5}
       style={{ height: "100%", width: "100%", background: "#F8FAFC" }}
       zoomControl={true}
@@ -59,11 +62,12 @@ export default function ChileMap({ regiones, regionFiltro, onRegionClick }: Prop
         const isActive = !regionFiltro || regionFiltro === r.region;
         const radius = Math.max(12, Math.sqrt(r.venta / maxVenta) * 52);
         const color = margenColor(r.margen);
+        const pos: LatLngExpression = [r.lat, r.lon];
 
         return (
           <CircleMarker
             key={r.region}
-            center={[r.lat, r.lon]}
+            center={pos}
             radius={radius}
             pathOptions={{
               color: regionFiltro === r.region ? "#1D4ED8" : color,

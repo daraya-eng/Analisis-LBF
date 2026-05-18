@@ -8,9 +8,7 @@ from typing import Optional
 from auth import get_current_user
 from db import get_conn, hoy, filtro_guias
 from cache import mem_get, mem_set
-import os, pathlib, datetime
-import openpyxl
-from bs4 import BeautifulSoup
+import os, datetime
 from collections import defaultdict
 
 router = APIRouter()
@@ -74,85 +72,42 @@ _PROG["costo_fijo_anual"]   = _PROG["sueldo_anual_renasys"] + _PROG["sueldo_anua
 _PROG["costo_fijo_mensual"] = _PROG["costo_fijo_anual"] / 12
 
 
-_DATA_DIR    = pathlib.Path(__file__).parent.parent / "data" / "renasys"
-_BOMBAS_PATH = _DATA_DIR / "Bombas Renasys.xlsx"
-_SEG_PATH    = _DATA_DIR / "Seguimiento Renasys (35).xls"
-
 # Valor neto por grupo calculado desde Bombas Renasys.xlsx (al 30/04/2026)
 _V_NETO_8 = 62_424_109      # equipos adquiridos ≤ 31.12.2022 (8 años)
 _V_NETO_5 = 1_286_732_463   # equipos adquiridos ≥ 01.01.2023 (5 años)
 
 
-def _build_serie_vu_map() -> dict[str, int]:
-    """Lee Bombas Renasys.xlsx y retorna {serie: vida_util_meses} (60 o 96)."""
-    if not os.path.exists(_BOMBAS_PATH):
-        return {}
-    try:
-        wb = openpyxl.load_workbook(_BOMBAS_PATH, data_only=True)
-        ws = wb["MAQ 0152"]
-        serie_vu: dict[str, int] = {}
-        for i, row in enumerate(ws.iter_rows(values_only=True)):
-            if i < 6:
-                continue
-            if not row[1]:
-                continue
-            desc = row[5]
-            vu   = row[9]
-            if not isinstance(vu, (int, float)) or not desc:
-                continue
-            parts = str(desc).split()
-            if len(parts) > 1:
-                serie_vu[parts[1]] = int(vu)
-        return serie_vu
-    except Exception:
-        return {}
-
-
 def _serie_year(serie: str) -> int:
-    """Extrae año de adquisición aproximado desde el código de serie (posiciones 4-5)."""
     try:
-        yy = int(serie[4:6])
-        return 2000 + yy
+        return 2000 + int(serie[4:6])
     except Exception:
-        return 2020  # fallback conservador → 8 años
+        return 2020
 
 
 def _load_parque_equipos() -> dict[str, dict]:
-    """
-    Lee Seguimiento Renasys (35).xls y retorna
-    {rut: {'n8': int, 'n5': int}} donde n8=equipos 8 años, n5=equipos 5 años.
-    Usa Bombas Renasys.xlsx para determinar vida útil por serie.
-    Fallback: año del código de serie (≥2023 → 5 años, <2023 → 8 años).
-    """
-    serie_vu = _build_serie_vu_map()
-
-    if not os.path.exists(_SEG_PATH):
-        return {}
+    """Lee Renasys_Bombas y Renasys_Seguimiento desde BD y retorna
+    {rut: {'n8': int, 'n5': int}} — equipos por vida útil asignados a cada cliente."""
     try:
-        with open(_SEG_PATH, "rb") as f:
-            content = f.read().decode("latin-1", errors="replace")
-        soup = BeautifulSoup(content, "html.parser")
-        rows = soup.find_all("tr")
+        conn = get_conn()
+        cur  = conn.cursor()
+        cur.execute("SELECT Serie, VidaUtilMeses FROM dbo.Renasys_Bombas")
+        serie_vu = {r[0]: int(r[1]) for r in cur.fetchall()}
+
+        cur.execute("SELECT Serie, RutCliente FROM dbo.Renasys_Seguimiento")
         parque: dict[str, dict] = {}
-        for row in rows[1:]:
-            cells = [td.get_text(strip=True) for td in row.find_all(["td", "th"])]
-            if len(cells) < 8:
-                continue
-            rut   = cells[6].strip()
-            serie = cells[0].strip()
+        for serie, rut in cur.fetchall():
+            rut = (rut or "").strip()
+            serie = (serie or "").strip()
             if rut in _EXCLUIR_RUTS:
                 continue
             if rut not in parque:
                 parque[rut] = {"n8": 0, "n5": 0}
-            if serie in serie_vu:
-                vu = serie_vu[serie]
-            else:
-                # Fallback: año del código de serie
-                vu = 60 if _serie_year(serie) >= 2023 else 96
+            vu = serie_vu.get(serie, 60 if _serie_year(serie) >= 2023 else 96)
             if vu == 60:
                 parque[rut]["n5"] += 1
             else:
                 parque[rut]["n8"] += 1
+        conn.close()
         return parque
     except Exception:
         return {}

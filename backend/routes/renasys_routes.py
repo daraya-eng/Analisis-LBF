@@ -74,8 +74,9 @@ _PROG["costo_fijo_anual"]   = _PROG["sueldo_anual_renasys"] + _PROG["sueldo_anua
 _PROG["costo_fijo_mensual"] = _PROG["costo_fijo_anual"] / 12
 
 
-_BOMBAS_PATH = r"C:\Users\comer\Proyecto Dash\Bombas Renasys.xlsx"
-_SEG_PATH    = r"C:\Users\comer\Proyecto Dash\Seguimiento Renasys (35).xls"
+_DATA_DIR    = pathlib.Path(__file__).parent.parent / "data" / "renasys"
+_BOMBAS_PATH = _DATA_DIR / "Bombas Renasys.xlsx"
+_SEG_PATH    = _DATA_DIR / "Seguimiento Renasys (35).xls"
 
 # Valor neto por grupo calculado desde Bombas Renasys.xlsx (al 30/04/2026)
 _V_NETO_8 = 62_424_109      # equipos adquiridos ≤ 31.12.2022 (8 años)

@@ -67,7 +67,7 @@ interface KpiBadge {
 const KPI_BADGES: KpiBadge[] = [
   { id: "k1", top: "44%",  left:  "5%",  label: "KAMs activos",  value: "32",    color: "#06B6D4", animDelay: "0.8s"  },
   { id: "k2", top: "36%",  right: "4%",  label: "Clientes",      value: "847",   color: "#34D399", animDelay: "1.4s"  },
-  { id: "k3", top: "51%",  right: "5%",  label: "Zonas",         value: "5",     color: "#60A5FA", animDelay: "2.0s"  },
+  { id: "k3", top: "51%",  right: "5%",  label: "Zonas",         value: "5",     color: "#94A3B8", animDelay: "2.0s"  },
   { id: "k5", top: "85%",  right: "5%",  label: "Cumplimiento",  value: "94.2%", color: "#34D399", animDelay: "1.6s"  },
 ];
 
@@ -139,42 +139,6 @@ function IconAlertCircle() {
       <circle cx="12" cy="12" r="10" />
       <line x1="12" y1="8" x2="12" y2="12" />
       <line x1="12" y1="16" x2="12.01" y2="16" />
-    </svg>
-  );
-}
-
-/* ─── LBF Logo SVG ───────────────────────────────────────────────────────── */
-function LBFLogo() {
-  return (
-    <svg
-      width="52"
-      height="52"
-      viewBox="0 0 52 52"
-      fill="none"
-      xmlns="http://www.w3.org/2000/svg"
-      aria-label="LBF Analytics logo"
-    >
-      <defs>
-        <linearGradient id="logo-grad" x1="0%" y1="0%" x2="100%" y2="100%">
-          <stop offset="0%" stopColor="#60A5FA" />
-          <stop offset="55%" stopColor="#3B82F6" />
-          <stop offset="100%" stopColor="#4F46E5" />
-        </linearGradient>
-        <linearGradient id="logo-glow" x1="0%" y1="0%" x2="100%" y2="100%">
-          <stop offset="0%" stopColor="#3B82F6" stopOpacity="0.3" />
-          <stop offset="100%" stopColor="#4F46E5" stopOpacity="0.1" />
-        </linearGradient>
-        <filter id="logo-shadow">
-          <feDropShadow dx="0" dy="2" stdDeviation="4" floodColor="#3B82F6" floodOpacity="0.5" />
-        </filter>
-      </defs>
-      <rect x="1" y="1" width="50" height="50" rx="13" fill="url(#logo-glow)" stroke="rgba(59,130,246,0.35)" strokeWidth="1" />
-      <path d="M10 13 L10 36 L20 36 L20 32 L14 32 L14 13 Z" fill="url(#logo-grad)" filter="url(#logo-shadow)" />
-      <path d="M22 13 L22 36 L30 36 C33.5 36 36 33.8 36 30.5 C36 28.4 34.9 26.8 33.2 26 C34.5 25.2 35.2 23.8 35.2 22 C35.2 18.8 33 13 29 13 Z M26 17 L28.5 17 C30.2 17 31.2 18.2 31.2 20 C31.2 21.8 30.2 23 28.5 23 L26 23 Z M26 27 L29 27 C30.8 27 32 28.3 32 30.2 C32 32.1 30.8 33 29 33 L26 33 Z" fill="url(#logo-grad)" filter="url(#logo-shadow)" />
-      <path d="M38 13 L38 36 L42 36 L42 27 L47 27 L47 23 L42 23 L42 17 L48 17 L48 13 Z" fill="url(#logo-grad)" filter="url(#logo-shadow)" />
-      <rect x="35" y="40" width="3" height="5"  rx="1" fill="rgba(96,165,250,0.55)" />
-      <rect x="39" y="37" width="3" height="8"  rx="1" fill="rgba(59,130,246,0.75)" />
-      <rect x="43" y="34" width="3" height="11" rx="1" fill="rgba(79,70,229,0.85)" />
     </svg>
   );
 }
@@ -438,7 +402,7 @@ function useSonarCanvas(canvasRef: React.RefObject<HTMLCanvasElement | null>) {
         const r = (maxR / 4) * ring;
         ctx.beginPath();
         ctx.arc(cx, cy, r, 0, Math.PI * 2);
-        ctx.strokeStyle = `rgba(6, 182, 212, ${0.10 - ring * 0.015})`;
+        ctx.strokeStyle = `rgba(71, 85, 105, ${0.10 - ring * 0.015})`;
         ctx.lineWidth = 0.7;
         ctx.stroke();
       }
@@ -447,14 +411,14 @@ function useSonarCanvas(canvasRef: React.RefObject<HTMLCanvasElement | null>) {
       ctx.beginPath();
       ctx.moveTo(cx - maxR - 8, cy);
       ctx.lineTo(cx + maxR + 8, cy);
-      ctx.strokeStyle = "rgba(6,182,212,0.09)";
+      ctx.strokeStyle = "rgba(71,85,105,0.09)";
       ctx.lineWidth = 0.6;
       ctx.stroke();
 
       ctx.beginPath();
       ctx.moveTo(cx, cy - maxR - 8);
       ctx.lineTo(cx, cy + maxR + 8);
-      ctx.strokeStyle = "rgba(6,182,212,0.09)";
+      ctx.strokeStyle = "rgba(71,85,105,0.09)";
       ctx.lineWidth = 0.6;
       ctx.stroke();
 
@@ -473,7 +437,7 @@ function useSonarCanvas(canvasRef: React.RefObject<HTMLCanvasElement | null>) {
         ctx.moveTo(cx, cy);
         ctx.arc(cx, cy, maxR, startA, endA);
         ctx.closePath();
-        ctx.fillStyle = `rgba(6, 182, 212, ${alpha})`;
+        ctx.fillStyle = `rgba(71, 85, 105, ${alpha})`;
         ctx.fill();
       }
 
@@ -484,7 +448,7 @@ function useSonarCanvas(canvasRef: React.RefObject<HTMLCanvasElement | null>) {
         cx + Math.cos(sweepAngle) * (maxR + 4),
         cy + Math.sin(sweepAngle) * (maxR + 4),
       );
-      ctx.strokeStyle = "rgba(6, 182, 212, 0.7)";
+      ctx.strokeStyle = "rgba(71, 85, 105, 0.7)";
       ctx.lineWidth = 1.2;
       ctx.stroke();
 
@@ -504,7 +468,7 @@ function useSonarCanvas(canvasRef: React.RefObject<HTMLCanvasElement | null>) {
         const blipAlpha = diff < sweepLen ? (1 - diff / sweepLen) * 0.85 : 0.12;
         ctx.beginPath();
         ctx.arc(bx, by, b.r, 0, Math.PI * 2);
-        ctx.fillStyle = `rgba(6, 182, 212, ${blipAlpha})`;
+        ctx.fillStyle = `rgba(71, 85, 105, ${blipAlpha})`;
         ctx.fill();
       }
 
@@ -638,7 +602,7 @@ function useNeuralCanvas(canvasRef: React.RefObject<HTMLCanvasElement | null>) {
             ctx.beginPath();
             ctx.moveTo(nodes[i].x, nodes[i].y);
             ctx.lineTo(nodes[j].x, nodes[j].y);
-            ctx.strokeStyle = `rgba(59, 130, 246, ${alpha * shimmer})`;
+            ctx.strokeStyle = `rgba(71, 85, 105, ${alpha * shimmer})`;
             ctx.lineWidth = 0.8;
             ctx.stroke();
           }
@@ -676,14 +640,14 @@ function useNeuralCanvas(canvasRef: React.RefObject<HTMLCanvasElement | null>) {
           ctx.arc(tx, ty, trailR, 0, Math.PI * 2);
           const useIndigo = (p.fromIdx + p.toIdx) % 2 === 0;
           ctx.fillStyle = useIndigo
-            ? `rgba(99, 102, 241, ${trailAlpha})`
-            : `rgba(96, 165, 250, ${trailAlpha})`;
+            ? `rgba(51, 65, 85, ${trailAlpha})`
+            : `rgba(100, 116, 139, ${trailAlpha})`;
           ctx.fill();
         }
 
         const grad = ctx.createRadialGradient(px, py, 0, px, py, 5);
-        grad.addColorStop(0, "rgba(147, 197, 253, 0.9)");
-        grad.addColorStop(1, "rgba(59, 130, 246, 0)");
+        grad.addColorStop(0, "rgba(203, 213, 225, 0.65)");
+        grad.addColorStop(1, "rgba(100, 116, 139, 0)");
         ctx.beginPath();
         ctx.arc(px, py, 5, 0, Math.PI * 2);
         ctx.fillStyle = grad;
@@ -699,16 +663,16 @@ function useNeuralCanvas(canvasRef: React.RefObject<HTMLCanvasElement | null>) {
         const pulse = 0.55 + 0.45 * Math.sin(n.pulsePhase);
 
         const glowGrad = ctx.createRadialGradient(n.x, n.y, 0, n.x, n.y, n.radius * 5);
-        glowGrad.addColorStop(0, `rgba(59, 130, 246, ${0.18 * pulse})`);
-        glowGrad.addColorStop(1, "rgba(59, 130, 246, 0)");
+        glowGrad.addColorStop(0, `rgba(232, 28, 46, ${0.22 * pulse})`);
+        glowGrad.addColorStop(1, "rgba(232, 28, 46, 0)");
         ctx.beginPath();
         ctx.arc(n.x, n.y, n.radius * 5, 0, Math.PI * 2);
         ctx.fillStyle = glowGrad;
         ctx.fill();
 
         const bodyGrad = ctx.createRadialGradient(n.x - n.radius * 0.3, n.y - n.radius * 0.3, 0, n.x, n.y, n.radius);
-        bodyGrad.addColorStop(0, `rgba(147, 197, 253, ${0.85 * pulse})`);
-        bodyGrad.addColorStop(1, `rgba(59, 130, 246, ${0.65 * pulse})`);
+        bodyGrad.addColorStop(0, `rgba(252, 100, 115, ${0.85 * pulse})`);
+        bodyGrad.addColorStop(1, `rgba(196, 22, 40, ${0.65 * pulse})`);
         ctx.beginPath();
         ctx.arc(n.x, n.y, n.radius, 0, Math.PI * 2);
         ctx.fillStyle = bodyGrad;
@@ -736,7 +700,7 @@ function useNeuralCanvas(canvasRef: React.RefObject<HTMLCanvasElement | null>) {
 function CornerBracket({ position }: { position: "tl" | "tr" | "bl" | "br" }) {
   const size = 20;
   const strokeW = 1.5;
-  const color = "rgba(6,182,212,0.45)";
+  const color = "rgba(71,85,105,0.45)";
 
   const paths: Record<string, string> = {
     tl: `M${size} 0 L0 0 L0 ${size}`,
@@ -882,7 +846,7 @@ export default function LoginPage() {
             fontFamily: "'JetBrains Mono', 'Fira Code', 'Courier New', monospace",
             fontSize: "0.62rem",
             lineHeight: 1.7,
-            color: "rgba(6,182,212,0.5)",
+            color: "rgba(71,85,105,0.5)",
             letterSpacing: "0.06em",
             animation: "fade-in-slow 2s ease 1s both",
           }}
@@ -904,7 +868,7 @@ export default function LoginPage() {
             fontFamily: "'JetBrains Mono', 'Fira Code', 'Courier New', monospace",
             fontSize: "0.60rem",
             lineHeight: 1.7,
-            color: "rgba(6,182,212,0.38)",
+            color: "rgba(71,85,105,0.38)",
             letterSpacing: "0.06em",
             animation: "fade-in-slow 2s ease 1.4s both",
           }}
@@ -969,9 +933,9 @@ export default function LoginPage() {
               backdropFilter: "blur(12px)",
               WebkitBackdropFilter: "blur(12px)",
               background: "rgba(15, 23, 42, 0.65)",
-              border: "1px solid rgba(59, 130, 246, 0.2)",
+              border: "1px solid rgba(100, 116, 139, 0.2)",
               borderRadius: 12,
-              boxShadow: "0 8px 32px rgba(0,0,0,0.35), 0 0 0 1px rgba(59,130,246,0.08) inset",
+              boxShadow: "0 8px 32px rgba(0,0,0,0.35), 0 0 0 1px rgba(100,116,139,0.08) inset",
               animation: `float-card ${card.animDuration} ease-in-out ${card.animDelay} infinite`,
               opacity: 0,
               animationFillMode: "forwards",
@@ -1037,8 +1001,9 @@ export default function LoginPage() {
 
           {/* Logo + title block */}
           <div style={{ textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center", gap: 14 }}>
-            <div className="animate-fade-in-up" style={{ filter: "drop-shadow(0 0 16px rgba(59,130,246,0.45))" }}>
-              <LBFLogo />
+            <div className="animate-fade-in-up" style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
+              <span style={{ color: "#E81C2E", fontWeight: 900, fontSize: 72, letterSpacing: "-0.04em", lineHeight: 1, filter: "drop-shadow(0 0 24px rgba(232,28,46,0.45))" }}>LBF</span>
+              <span style={{ color: "rgba(232,28,46,0.55)", fontSize: 10, letterSpacing: "0.25em", textTransform: "uppercase", fontWeight: 600 }}>Insumos Médicos</span>
             </div>
 
             <div className="hero-divider" style={{ margin: "4px auto 0", maxWidth: 120 }} />
@@ -1085,8 +1050,8 @@ export default function LoginPage() {
               width: "100%",
               maxWidth: 280,
               padding: "14px 16px",
-              background: "rgba(6,182,212,0.05)",
-              border: "1px solid rgba(6,182,212,0.15)",
+              background: "rgba(71,85,105,0.05)",
+              border: "1px solid rgba(71,85,105,0.15)",
               borderRadius: 8,
               backdropFilter: "blur(8px)",
             }}
@@ -1126,7 +1091,7 @@ export default function LoginPage() {
                 key={f.label}
                 className={`hero-feature animate-fade-in-up delay-${(i + 4) * 100}`}
               >
-                <div className="hero-feature-icon" style={{ color: "#60A5FA" }}>
+                <div className="hero-feature-icon" style={{ color: "rgba(255,255,255,0.75)" }}>
                   {f.icon}
                 </div>
                 <span style={{ fontSize: "0.845rem", fontWeight: 500, color: "rgba(203, 213, 225, 0.88)" }}>
@@ -1156,7 +1121,7 @@ export default function LoginPage() {
             style={{
               fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
               fontSize: "0.58rem",
-              color: "rgba(6,182,212,0.45)",
+              color: "rgba(71,85,105,0.45)",
               letterSpacing: "0.06em",
             }}
           >
@@ -1179,25 +1144,14 @@ export default function LoginPage() {
         }}
       >
         <div className="animate-slide-in-right" style={{ width: "100%", maxWidth: 380 }}>
+          {/* Brand mark */}
+          <div style={{ marginBottom: 32, display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 2 }}>
+            <span style={{ color: "#E81C2E", fontWeight: 900, fontSize: 28, letterSpacing: "-0.03em", lineHeight: 1 }}>LBF</span>
+            <span style={{ color: "rgba(232,28,46,0.5)", fontSize: 8, letterSpacing: "0.22em", textTransform: "uppercase", fontWeight: 600 }}>Insumos Médicos</span>
+          </div>
+
           {/* Header */}
           <div style={{ marginBottom: 40 }}>
-            {/* Mobile brand (hidden on desktop via CSS) */}
-            <div className="mobile-brand" style={{ display: "none", marginBottom: 24 }}>
-              <div
-                style={{
-                  fontSize: "2rem",
-                  fontWeight: 900,
-                  background: "linear-gradient(135deg, #0F172A 0%, #3B82F6 100%)",
-                  WebkitBackgroundClip: "text",
-                  WebkitTextFillColor: "transparent",
-                  backgroundClip: "text",
-                  letterSpacing: "-0.02em",
-                }}
-              >
-                LBF
-              </div>
-            </div>
-
             <h1
               style={{
                 fontSize: "1.75rem",
@@ -1439,7 +1393,7 @@ export default function LoginPage() {
 
         /* ── Hexagonal HUD overlay — SVG data URI ── */
         .hex-overlay {
-          background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='56' height='48'%3E%3Cpolygon points='28,2 52,14 52,34 28,46 4,34 4,14' fill='none' stroke='rgba(6%2C182%2C212%2C0.06)' stroke-width='0.8'/%3E%3C/svg%3E");
+          background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='56' height='48'%3E%3Cpolygon points='28,2 52,14 52,34 28,46 4,34 4,14' fill='none' stroke='rgba(71%2C85%2C105%2C0.06)' stroke-width='0.8'/%3E%3C/svg%3E");
           background-size: 56px 48px;
           opacity: 0.9;
         }

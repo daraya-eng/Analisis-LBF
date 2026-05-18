@@ -944,12 +944,273 @@ function RevendedoresTab() {
 }
 
 
+/* ═══════════════════════════════════════════════════════════
+   TAB 4: Actividad Diaria — OCs por día primer y segundo llamado
+   ═══════════════════════════════════════════════════════════ */
+
+function ActividadDiariaTab() {
+  const [selectedMes, setSelectedMes] = useState(0); // 0 = YTD
+  const [data, setData] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const ano = 2026;
+
+  useEffect(() => {
+    setLoading(true);
+    api.get<any>(`/api/mercado-publico/ag-diario?ano=${ano}&mes=${selectedMes}`, { noCache: true })
+      .then(r => { setData(r); setLoading(false); })
+      .catch(() => setLoading(false));
+  }, [selectedMes]);
+
+  const dias: any[] = data?.dias ?? [];
+  const usuarios: any[] = data?.usuarios ?? [];
+  const mesesResumen: any[] = data?.meses_resumen ?? [];
+  const totalPrimerPost  = dias.reduce((s: number, d: any) => s + d.primer_postuladas, 0);
+  const totalPrimerN     = dias.reduce((s: number, d: any) => s + d.primer_n, 0);
+  const totalPrimerMonto = dias.reduce((s: number, d: any) => s + d.primer_monto, 0);
+  const totalSegundoN    = dias.reduce((s: number, d: any) => s + d.segundo_n, 0);
+  const totalSegundoAdj  = dias.reduce((s: number, d: any) => s + d.segundo_adj, 0);
+  const totalSegundoMontoAdj  = dias.reduce((s: number, d: any) => s + d.segundo_monto_adj, 0);
+  const totalPresupuesto = dias.reduce((s: number, d: any) => s + d.segundo_presupuesto, 0);
+  const convPrimer  = totalPrimerPost > 0 ? (totalPrimerN / totalPrimerPost * 100) : 0;
+  const convSegundo = totalSegundoN   > 0 ? (totalSegundoAdj / totalSegundoN * 100) : 0;
+
+  // Formatear fecha "2026-05-14" → "14"
+  const diaLabel = (iso: string) => iso.split("-")[2].replace(/^0/, "");
+  const mesLabel = MESES_FULL[selectedMes - 1];
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+      {/* Nota */}
+      <div style={{ ...cardAg, padding: "12px 18px", background: "#F0FDF4", borderColor: "#86EFAC" }}>
+        <div style={{ fontSize: 12, color: "#166534" }}>
+          <strong>Primer llamado (Multiproducto):</strong> OCs adjudicadas a Multiproducto/Renhet en Compra Ágil por día.{" "}
+          <strong>Segundo llamado (LBF):</strong> Cotizaciones en que LBF participó, por día de publicación.
+        </div>
+      </div>
+
+      {/* Selector mes */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
+        <h3 style={{ fontSize: 16, fontWeight: 800, color: "#0F172A", margin: 0 }}>
+          {selectedMes === 0 ? `YTD ${ano}` : `${mesLabel} ${ano}`}
+        </h3>
+        <MonthSelector selected={selectedMes} onChange={setSelectedMes} includeYtd />
+      </div>
+
+      {/* Tablas por usuario y resumen mensual — lado a lado */}
+      {(usuarios.length > 0 || mesesResumen.length > 0) && (
+        <div style={{ display: "flex", gap: 16, flexWrap: "wrap", alignItems: "flex-start" }}>
+
+          {/* Gestores 2° Llamado */}
+          {usuarios.length > 0 && (
+            <div style={{ ...cardAg, flex: "1 1 320px" }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: "#0F172A", marginBottom: 10 }}>Gestores 2° Llamado (LBF)</div>
+              <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                <thead>
+                  <tr>
+                    <th style={thStyle}>Nombre</th>
+                    <th style={thR}>Postuladas</th>
+                    <th style={thR}>Adjudicadas</th>
+                    <th style={thR}>% Conv.</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {usuarios.map((u: any, i: number) => {
+                    const esSinAtribuir = u.sin_atribuir === true;
+                    return (
+                      <tr key={i} style={{ background: esSinAtribuir ? "#F8FAFC" : rowBg(i), borderTop: esSinAtribuir ? "1px dashed #CBD5E1" : undefined }}>
+                        <td style={{ ...tdStyle, color: esSinAtribuir ? "#94A3B8" : "#0F172A" }}>
+                          <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+                            {!esSinAtribuir && (
+                              <span style={{ background: "#E81C2E", color: "#fff", borderRadius: "50%", width: 26, height: 26, display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700, flexShrink: 0 }}>
+                                {u.iniciales}
+                              </span>
+                            )}
+                            <span style={{ fontStyle: esSinAtribuir ? "italic" : "normal" }}>{u.nombre}</span>
+                          </span>
+                        </td>
+                        <td style={{ ...tdR, fontWeight: 600, color: esSinAtribuir ? "#94A3B8" : "#0F172A" }}>{u.postuladas}</td>
+                        <td style={{ ...tdR, color: u.adjudicadas > 0 ? "#059669" : "#94A3B8", fontWeight: u.adjudicadas > 0 ? 700 : 400 }}>{u.adjudicadas}</td>
+                        <td style={{ ...tdR, color: esSinAtribuir ? "#94A3B8" : u.conv >= 20 ? "#059669" : u.conv >= 10 ? "#D97706" : "#94A3B8" }}>{u.conv.toFixed(1)}%</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {/* Resumen mensual */}
+          {mesesResumen.length > 0 && (
+            <div style={{ ...cardAg, flex: "1 1 360px" }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: "#0F172A", marginBottom: 10 }}>Postulaciones por mes — {ano}</div>
+              <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                <thead>
+                  <tr>
+                    <th style={thStyle} rowSpan={2}>Mes</th>
+                    <th style={{ ...thR, color: "#10B981", borderBottom: "none", paddingBottom: 2 }} colSpan={2}>1° Llamado</th>
+                    <th style={{ ...thR, color: "#E81C2E", borderBottom: "none", paddingBottom: 2 }} colSpan={2}>2° Llamado</th>
+                  </tr>
+                  <tr>
+                    <th style={{ ...thR, color: "#10B981", fontSize: 10 }}>Post.</th>
+                    <th style={{ ...thR, color: "#10B981", fontSize: 10 }}>Adj.</th>
+                    <th style={{ ...thR, color: "#E81C2E", fontSize: 10 }}>Post.</th>
+                    <th style={{ ...thR, color: "#E81C2E", fontSize: 10 }}>Adj.</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {mesesResumen.map((m: any, i: number) => {
+                    const activo = selectedMes === m.mes;
+                    return (
+                      <tr key={i} style={{ background: activo ? "#FFF1F2" : rowBg(i), cursor: "pointer" }} onClick={() => setSelectedMes(m.mes)}>
+                        <td style={{ ...tdStyle, fontWeight: activo ? 700 : 400, color: activo ? "#E81C2E" : "#0F172A" }}>
+                          {MESES_FULL[m.mes - 1]}
+                        </td>
+                        <td style={{ ...tdR, color: "#10B981", fontWeight: 600 }}>{m.p1_post}</td>
+                        <td style={{ ...tdR, color: m.p1_adj > 0 ? "#059669" : "#94A3B8", fontWeight: m.p1_adj > 0 ? 700 : 400 }}>{m.p1_adj || "—"}</td>
+                        <td style={{ ...tdR, color: "#3B82F6", fontWeight: 600 }}>{m.p2_post}</td>
+                        <td style={{ ...tdR, color: m.p2_adj > 0 ? "#059669" : "#94A3B8", fontWeight: m.p2_adj > 0 ? 700 : 400 }}>{m.p2_adj || "—"}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* KPIs */}
+      <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
+        {/* 1° Llamado — Multiproducto */}
+        <div style={{ flex: 1, minWidth: 260, background: "#F0FDF4", border: "1px solid #BBF7D0", borderRadius: 10, padding: "14px 18px" }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: "#059669", textTransform: "uppercase", letterSpacing: 1, marginBottom: 10 }}>
+            1° Llamado — Multiproducto
+          </div>
+          <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+            <AgKpiCard title="Postuladas" value={String(totalPrimerPost)} color="#10B981" sub="OCs donde participó" />
+            <AgKpiCard title="Adjudicadas" value={String(totalPrimerN)} color="#059669" sub={fmtAbs(totalPrimerMonto)} />
+            <AgKpiCard title="% Conversión" value={`${convPrimer.toFixed(0)}%`} color="#047857" sub="adj. / postuladas" />
+          </div>
+        </div>
+        {/* 2° Llamado — LBF */}
+        <div style={{ flex: 1, minWidth: 260, background: "#FFF1F2", border: "1px solid #FECDD3", borderRadius: 10, padding: "14px 18px" }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: "#E81C2E", textTransform: "uppercase", letterSpacing: 1, marginBottom: 10 }}>
+            2° Llamado — LBF
+          </div>
+          <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+            <AgKpiCard title="Postuladas" value={String(totalSegundoN)} color="#E81C2E" sub={`Presup. ${fmtAbs(totalPresupuesto)}`} />
+            <AgKpiCard title="Adjudicadas" value={String(totalSegundoAdj)} color="#BE123C" sub={totalSegundoMontoAdj > 0 ? fmtAbs(totalSegundoMontoAdj) : "sin monto"} />
+            <AgKpiCard title="% Conversión" value={`${convSegundo.toFixed(0)}%`} color="#9F1239" sub="adj. / cotizaciones" />
+          </div>
+        </div>
+      </div>
+
+      {loading ? (
+        <div style={{ padding: 60, textAlign: "center", color: "#94A3B8" }}>Cargando...</div>
+      ) : data?.error ? (
+        <div style={{ ...cardAg, padding: 20, color: "#EF4444" }}>Error: {data.error}</div>
+      ) : dias.length === 0 ? (
+        <div style={{ ...cardAg, padding: 40, textAlign: "center", color: "#94A3B8" }}>
+          Sin actividad {selectedMes === 0 ? `en ${ano}` : `en ${mesLabel}`}
+        </div>
+      ) : (
+        <>
+          {/* Gráfico de barras por día */}
+          <div style={cardAg}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: "#0F172A", marginBottom: 12 }}>
+              Postulaciones por día — {selectedMes === 0 ? `YTD ${ano}` : `${mesLabel} ${ano}`}
+            </div>
+            <ResponsiveContainer width="100%" height={220}>
+              <ComposedChart data={dias} margin={{ left: 0, right: 0, top: 4, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" vertical={false} />
+                <XAxis dataKey="dia" tickFormatter={diaLabel} tick={{ fill: "#94A3B8", fontSize: 10 }} interval={0} />
+                <YAxis allowDecimals={false} tick={{ fill: "#94A3B8", fontSize: 11 }} width={28} />
+                <Tooltip
+                  contentStyle={{ background: "white", border: "1px solid #E2E8F0", borderRadius: 8, fontSize: 12 }}
+                  labelFormatter={(v: string) => `${diaLabel(v)} ${mesLabel}`}
+                  formatter={(value: any, name: any) => [value, name]}
+                />
+                <Legend wrapperStyle={{ fontSize: 12 }} />
+                <Bar dataKey="primer_n" name="1° Llamado (MP)" fill="#10B981" radius={[3, 3, 0, 0]} maxBarSize={28} />
+                <Bar dataKey="segundo_n" name="2° Llamado (LBF)" fill="#3B82F6" radius={[3, 3, 0, 0]} maxBarSize={28} />
+              </ComposedChart>
+            </ResponsiveContainer>
+          </div>
+
+          {/* Tabla detalle por día */}
+          <div style={cardAg}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: "#0F172A", marginBottom: 12 }}>
+              Detalle por día
+            </div>
+            <div style={{ overflowX: "auto" }}>
+              <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                <thead>
+                  <tr>
+                    <th style={thStyle}>Fecha</th>
+                    <th style={{ ...thR, color: "#10B981" }}>1° Llamado — OCs</th>
+                    <th style={{ ...thR, color: "#10B981" }}>1° Llamado — Monto adj.</th>
+                    <th style={{ ...thR, color: "#3B82F6" }}>2° Llamado — Cotiz.</th>
+                    <th style={{ ...thR, color: "#3B82F6" }}>2° Llamado — Presupuesto</th>
+                    <th style={{ ...thR, color: "#8B5CF6" }}>2° Llamado — Adj. LBF</th>
+                    <th style={{ ...thR, color: "#8B5CF6" }}>2° Llamado — Monto adj.</th>
+                    <th style={{ ...thR, color: "#64748B" }}>Gestor</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {dias.map((d: any, i: number) => {
+                    const fecha = new Date(d.dia + "T12:00:00");
+                    const fechaLabel = fecha.toLocaleDateString("es-CL", { weekday: "short", day: "numeric", month: "short" });
+                    const esFinDeSemana = [0, 6].includes(fecha.getDay());
+                    return (
+                      <tr key={i} style={{
+                        background: esFinDeSemana ? "#F8FAFC" : rowBg(i),
+                        opacity: esFinDeSemana ? 0.65 : 1,
+                      }}>
+                        <td style={{ ...tdStyle, fontWeight: esFinDeSemana ? 400 : 600, color: esFinDeSemana ? "#94A3B8" : "#0F172A" }}>
+                          {fechaLabel}
+                        </td>
+                        <td style={{ ...tdR, color: d.primer_n > 0 ? "#10B981" : "#CBD5E1", fontWeight: d.primer_n > 0 ? 700 : 400 }}>
+                          {d.primer_n > 0 ? d.primer_n : "—"}
+                        </td>
+                        <td style={{ ...tdR, color: d.primer_monto > 0 ? "#10B981" : "#CBD5E1" }}>
+                          {d.primer_monto > 0 ? fmtAbs(d.primer_monto) : "—"}
+                        </td>
+                        <td style={{ ...tdR, color: d.segundo_n > 0 ? "#3B82F6" : "#CBD5E1", fontWeight: d.segundo_n > 0 ? 700 : 400 }}>
+                          {d.segundo_n > 0 ? d.segundo_n : "—"}
+                        </td>
+                        <td style={{ ...tdR, color: d.segundo_presupuesto > 0 ? "#3B82F6" : "#CBD5E1" }}>
+                          {d.segundo_presupuesto > 0 ? fmtAbs(d.segundo_presupuesto) : "—"}
+                        </td>
+                        <td style={{ ...tdR, color: d.segundo_adj > 0 ? "#8B5CF6" : "#CBD5E1", fontWeight: d.segundo_adj > 0 ? 700 : 400 }}>
+                          {d.segundo_adj > 0 ? d.segundo_adj : "—"}
+                        </td>
+                        <td style={{ ...tdR, color: d.segundo_monto_adj > 0 ? "#8B5CF6" : "#CBD5E1", fontWeight: d.segundo_monto_adj > 0 ? 700 : 400 }}>
+                          {d.segundo_monto_adj > 0 ? fmtAbs(d.segundo_monto_adj) : "—"}
+                        </td>
+                        <td style={{ ...tdR, fontSize: 11, color: "#64748B", letterSpacing: 0.5 }}>
+                          {d.iniciales || "—"}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+
 /* ─── Tab config ────────────────────────────────────────── */
 
 const AG_TABS = [
   { id: "multiproducto", label: "Multiproducto" },
   { id: "segundo", label: "Segundo Llamado" },
   { id: "revendedores", label: "Revendedores" },
+  { id: "diario", label: "Por Día" },
 ];
 
 /* ─── Main Page ──────────────────────────────────────────── */
@@ -995,6 +1256,7 @@ export default function CompraAgilPage() {
       {activeTab === "multiproducto" && <MultiproductoTab />}
       {activeTab === "segundo" && <SegundoLlamadoTab />}
       {activeTab === "revendedores" && <RevendedoresTab />}
+      {activeTab === "diario" && <ActividadDiariaTab />}
     </div>
   );
 }

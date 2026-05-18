@@ -112,7 +112,7 @@ export default function Sidebar() {
       {/* Brand */}
       <div
         style={{
-          padding: collapsed ? "24px 12px 20px" : "24px 20px 20px",
+          padding: collapsed ? "18px 10px 16px" : "18px 20px 16px",
           borderBottom: "1px solid rgba(255,255,255,0.06)",
           display: "flex",
           alignItems: "center",
@@ -120,31 +120,21 @@ export default function Sidebar() {
           justifyContent: collapsed ? "center" : "flex-start",
         }}
       >
-        <div
-          style={{
-            width: 36,
-            height: 36,
-            borderRadius: 10,
-            background: "linear-gradient(135deg, #3B82F6, #4F46E5)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            fontWeight: 800,
-            fontSize: 14,
-            color: "white",
-            flexShrink: 0,
-          }}
-        >
-          LBF
+        {/* Badge LBF azul */}
+        <div style={{
+          width: 36, height: 36, borderRadius: 8,
+          background: "#3B82F6",
+          display: "flex", alignItems: "center", justifyContent: "center",
+          flexShrink: 0,
+        }}>
+          <span style={{ color: "white", fontWeight: 900, fontSize: 13, letterSpacing: "-0.02em" }}>LBF</span>
         </div>
+
+        {/* Títulos (ocultos cuando colapsado) */}
         {!collapsed && (
-          <div style={{ overflow: "hidden" }}>
-            <div style={{ fontSize: 14, fontWeight: 700, color: "white", whiteSpace: "nowrap" }}>
-              Inteligencia Comercial
-            </div>
-            <div style={{ fontSize: 11, color: "rgba(148,163,184,0.8)", whiteSpace: "nowrap" }}>
-              Comercial LBF Ltda.
-            </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 1 }}>
+            <span style={{ color: "white", fontWeight: 700, fontSize: 14, lineHeight: 1.2 }}>Inteligencia Comercial</span>
+            <span style={{ color: "rgba(255,255,255,0.45)", fontSize: 10 }}>Comercial LBF Ltda.</span>
           </div>
         )}
       </div>
@@ -173,7 +163,7 @@ export default function Sidebar() {
                   fontWeight: isActive ? 600 : 400,
                   color: isActive ? "white" : "rgba(148,163,184,0.85)",
                   background: isActive
-                    ? "rgba(59,130,246,0.15)"
+                    ? "rgba(232,28,46,0.12)"
                     : "transparent",
                   textDecoration: "none",
                   transition: "all 0.15s ease",
@@ -191,7 +181,7 @@ export default function Sidebar() {
                       width: 3,
                       height: 20,
                       borderRadius: 4,
-                      background: "#3B82F6",
+                      background: "#E81C2E",
                     }}
                   />
                 )}
@@ -216,10 +206,10 @@ export default function Sidebar() {
                           fontSize: 13,
                           fontWeight: childActive ? 600 : 400,
                           color: childActive ? "white" : "rgba(148,163,184,0.75)",
-                          background: childActive ? "rgba(59,130,246,0.12)" : "transparent",
+                          background: childActive ? "rgba(232,28,46,0.10)" : "transparent",
                           textDecoration: "none",
                           transition: "all 0.15s ease",
-                          borderLeft: "1px solid rgba(59,130,246,0.3)",
+                          borderLeft: "1px solid rgba(232,28,46,0.30)",
                         }}
                       >
                         <ArrowLeftRight size={13} style={{ flexShrink: 0, opacity: 0.7 }} />

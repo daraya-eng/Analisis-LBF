@@ -49,6 +49,7 @@ const TIPOS = [
   { id: "TD",  label: "TD" },
   { id: "AG",  label: "AG" },
 ];
+const MESES = ["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
 
 /* ─── Formateadores ───────────────────────────────────────────────────────── */
 function fmtCLP(n: number): string {
@@ -256,7 +257,7 @@ const TIPO_PALETTE: Record<string, string> = {
 function tipoColor(t: string) { return TIPO_PALETTE[t] ?? "#94A3B8"; }
 
 /* ─── Sub-tab Competencia ────────────────────────────────────────────────── */
-function TabCompetencia({ data, ano, tipo }: { data: Data; ano: number; tipo: string }) {
+function TabCompetencia({ data, ano, tipo, mat }: { data: Data; ano: number; tipo: string; mat: boolean }) {
   const lbf = data.lbf;
 
   // % adj / participado (cuánto de lo ofertado fue adjudicado)
@@ -283,7 +284,7 @@ function TabCompetencia({ data, ano, tipo }: { data: Data; ano: number; tipo: st
           marginLeft: 6,
         });
         const deltaLabel = (d: number | null) =>
-          d === null ? "" : `${d >= 0 ? "▲" : "▼"} ${Math.abs(d).toFixed(1)}% vs ${data.ano - 1}`;
+          d === null ? "" : `${d >= 0 ? "▲" : "▼"} ${Math.abs(d).toFixed(1)}% vs ${mat ? "12M ant." : data.ano - 1}`;
         const pctMercado = data.mercado.valor_total > 0
           ? (lbf.total_participado / data.mercado.valor_total) * 100 : 0;
         const pctPart = lbf.total_participado > 0
@@ -304,7 +305,7 @@ function TabCompetencia({ data, ano, tipo }: { data: Data; ano: number; tipo: st
                 <span style={deltaStyle(mktDelta)}>{deltaLabel(mktDelta)}</span>
               </div>
               <div style={{ fontSize: 12, color: "#94A3B8", marginTop: 4 }}>
-                {fmtN(data.mercado.ids_total)} licitaciones adjudicadas · {data.ano}
+                {fmtN(data.mercado.ids_total)} licitaciones adjudicadas · {mat ? "Año Móvil" : data.ano}
               </div>
               {data.mercado.valor_total_prev > 0 && (
                 <div style={{ fontSize: 11, color: "#94A3B8", marginTop: 2 }}>
@@ -388,7 +389,88 @@ function TabCompetencia({ data, ano, tipo }: { data: Data; ano: number; tipo: st
           sub="lics. adj / lics. participadas"
           color="#D97706"
         />
+        <KpiCard
+          title="Efectividad ítems"
+          value={pct(lbf.efectividad_items)}
+          sub="ítems adj / ítems ofertados"
+          color="#0891B2"
+        />
       </div>
+
+      {/* ── Efectividad de Ítems Ofertados ──────────────────────────────────── */}
+      {(() => {
+        const ofertados  = lbf.ofertas_realizadas;
+        const conPrecio  = lbf.ofertas_con_precio;
+        const adj        = lbf.ofertas_adj;
+        const efPct      = lbf.efectividad_items;
+        const efColor    = efPct >= 30 ? "#059669" : efPct >= 15 ? "#D97706" : "#EF4444";
+        const efBg       = efPct >= 30 ? "#F0FDF4" : efPct >= 15 ? "#FFFBEB" : "#FEF2F2";
+        const showMid    = conPrecio > 0 && conPrecio < ofertados;
+        const pctMid     = ofertados > 0 ? (conPrecio / ofertados) * 100 : 0;
+        return (
+          <div style={{ ...card, marginBottom: 20 }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 18 }}>
+              <div>
+                <span style={{ fontSize: 15, fontWeight: 700, color: "#0F172A" }}>Efectividad de Ítems Ofertados</span>
+                <span style={{ fontSize: 12, color: "#94A3B8", marginLeft: 10 }}>
+                  ítems presentados en ofertas → ítems adjudicados
+                </span>
+              </div>
+              <div style={{ background: efBg, border: `1px solid ${efColor}22`, borderRadius: 10, padding: "8px 20px", textAlign: "center" }}>
+                <div style={{ fontSize: 28, fontWeight: 900, color: efColor, lineHeight: 1 }}>{pct(efPct)}</div>
+                <div style={{ fontSize: 10, color: "#64748B", marginTop: 2, letterSpacing: "0.05em", textTransform: "uppercase" }}>efectividad</div>
+              </div>
+            </div>
+            <div style={{ display: "flex", alignItems: "flex-end", gap: 0 }}>
+              {/* Stage 1 — Ofertados */}
+              <div style={{ flex: 1 }}>
+                <div style={{ display: "flex", alignItems: "baseline", gap: 6, marginBottom: 6 }}>
+                  <span style={{ fontSize: 22, fontWeight: 800, color: "#2563EB", fontVariantNumeric: "tabular-nums" }}>{fmtN(ofertados)}</span>
+                  <span style={{ fontSize: 11, color: "#94A3B8" }}>100%</span>
+                </div>
+                <div style={{ height: 10, background: "#2563EB", borderRadius: "4px 0 0 4px" }} />
+                <div style={{ fontSize: 12, color: "#64748B", marginTop: 6, fontWeight: 600 }}>Ítems Ofertados</div>
+              </div>
+
+              {/* Arrow 1 */}
+              <div style={{ width: 28, display: "flex", alignItems: "center", justifyContent: "center", paddingBottom: 24, flexShrink: 0 }}>
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                  <path d="M3 8h10M9 4l4 4-4 4" stroke="#CBD5E1" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+              </div>
+
+              {/* Stage 2 — Con precio (optional) */}
+              {showMid && (
+                <>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ display: "flex", alignItems: "baseline", gap: 6, marginBottom: 6 }}>
+                      <span style={{ fontSize: 22, fontWeight: 800, color: "#7C3AED", fontVariantNumeric: "tabular-nums" }}>{fmtN(conPrecio)}</span>
+                      <span style={{ fontSize: 11, color: "#94A3B8" }}>{pctMid.toFixed(1)}%</span>
+                    </div>
+                    <div style={{ height: 10, background: "#7C3AED", borderRadius: 0, width: `${pctMid}%` }} />
+                    <div style={{ fontSize: 12, color: "#64748B", marginTop: 6, fontWeight: 600 }}>Con Precio</div>
+                  </div>
+                  <div style={{ width: 28, display: "flex", alignItems: "center", justifyContent: "center", paddingBottom: 24, flexShrink: 0 }}>
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                      <path d="M3 8h10M9 4l4 4-4 4" stroke="#CBD5E1" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                    </svg>
+                  </div>
+                </>
+              )}
+
+              {/* Stage 3 — Adjudicados */}
+              <div style={{ flex: 1 }}>
+                <div style={{ display: "flex", alignItems: "baseline", gap: 6, marginBottom: 6 }}>
+                  <span style={{ fontSize: 22, fontWeight: 800, color: efColor, fontVariantNumeric: "tabular-nums" }}>{fmtN(adj)}</span>
+                  <span style={{ fontSize: 11, color: "#94A3B8" }}>{pct(efPct)}</span>
+                </div>
+                <div style={{ height: 10, background: efColor, borderRadius: "0 4px 4px 0", width: `${efPct}%` }} />
+                <div style={{ fontSize: 12, color: "#64748B", marginTop: 6, fontWeight: 600 }}>Ítems Adjudicados</div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* ── Dos gráficos lado a lado ─────────────────────────────────────────── */}
       {(() => {
@@ -537,11 +619,9 @@ function TabCompetencia({ data, ano, tipo }: { data: Data; ano: number; tipo: st
       {/* Tabla competidores */}
       <div style={card}>
         <div style={{ marginBottom: 14 }}>
-          <span style={{ fontSize: 15, fontWeight: 700, color: "#0F172A" }}>
-            Competidores
-          </span>
+          <span style={{ fontSize: 15, fontWeight: 700, color: "#0F172A" }}>Competidores</span>
           <span style={{ fontSize: 12, color: "#94A3B8", marginLeft: 8 }}>
-            top 20 en licitaciones donde LBF participó · {data.ano}
+            top 20 en licitaciones donde LBF participó · {mat ? "Año Móvil" : data.ano}
           </span>
         </div>
         <div style={{ overflowX: "auto" }}>
@@ -551,95 +631,57 @@ function TabCompetencia({ data, ano, tipo }: { data: Data; ano: number; tipo: st
                 <th style={{ ...thS, width: 32 }}>#</th>
                 <th style={thS}>Proveedor</th>
                 <th style={thR}>Monto Ofertado</th>
-                <th style={thR}>Monto Adjudicado</th>
-                <th style={thR}>% Éxito $</th>
-                <th style={{ ...thR, color: "#2563EB" }}>LBF adj en sus lics.</th>
-                <th style={{ ...thR, color: "#2563EB" }}>% LBF / Comp. ofertado</th>
-                <th style={thR}>Ítems Ofertados</th>
+                <th style={thR}>Monto Adj.</th>
+                <th style={{ ...thR, color: "#2563EB" }}>LBF adj. en sus lics.</th>
+                <th style={{ ...thR, borderLeft: "2px solid #E2E8F0" }}>Ítems Ofert.</th>
                 <th style={thR}>Ítems Adj.</th>
-                <th style={thR}>Lics. Part.</th>
+                <th style={{ ...thR, color: "#0891B2" }}>% Ef. Ítems</th>
+                <th style={{ ...thR, borderLeft: "2px solid #E2E8F0" }}>Lics. Part.</th>
                 <th style={thR}>Lics. Adj.</th>
-                <th style={thR}>% Efect. Lics.</th>
+                <th style={{ ...thR, color: "#059669" }}>% Ef. Lics.</th>
               </tr>
             </thead>
             <tbody>
-              {/* Fila LBF destacada — siempre primera */}
-              <tr
-                style={{
-                  background: "#EFF6FF",
-                  borderBottom: "2px solid #BFDBFE",
-                }}
-              >
+              {/* Fila LBF destacada */}
+              <tr style={{ background: "#EFF6FF", borderBottom: "2px solid #BFDBFE" }}>
                 <td style={{ ...tdS, color: "#2563EB", fontWeight: 700 }}>★</td>
-                <td style={{ ...tdS, fontWeight: 700, color: "#2563EB" }}>
-                  LBF (tú)
-                </td>
-                <td style={{ ...tdR, fontWeight: 700 }}>
-                  {fmtCLP(lbf.total_participado)}
-                </td>
-                <td style={{ ...tdR, fontWeight: 700 }}>
-                  {fmtCLP(lbf.total_adj)}
-                </td>
-                <td style={{ ...tdR, fontWeight: 700 }}>
-                  {pct(lbfPct)}
-                </td>
-                <td style={{ ...tdR, fontWeight: 700, color: "#2563EB" }}>
-                  {fmtCLP(lbf.total_adj)}
-                </td>
+                <td style={{ ...tdS, fontWeight: 700, color: "#2563EB" }}>LBF (tú)</td>
+                <td style={{ ...tdR, fontWeight: 700 }}>{fmtCLP(lbf.total_participado)}</td>
+                <td style={{ ...tdR, fontWeight: 700 }}>{fmtCLP(lbf.total_adj)}</td>
                 <td style={{ ...tdR, fontWeight: 700, color: "#2563EB" }}>—</td>
-                <td style={{ ...tdR, fontWeight: 700 }}>
-                  {fmtN(lbf.ofertas_realizadas)}
-                </td>
-                <td style={{ ...tdR, fontWeight: 700 }}>
-                  {fmtN(lbf.ofertas_adj)}
-                </td>
-                <td style={{ ...tdR, fontWeight: 700 }}>
-                  {fmtN(lbf.ids_participadas)}
-                </td>
-                <td style={{ ...tdR, fontWeight: 700 }}>
-                  {fmtN(lbf.ids_adjudicadas)}
-                </td>
-                <td style={{ ...tdR, fontWeight: 700, color: "#059669" }}>
-                  {pct(lbfEf)}
-                </td>
+                <td style={{ ...tdR, fontWeight: 700, borderLeft: "2px solid #E2E8F0" }}>{fmtN(lbf.ofertas_realizadas)}</td>
+                <td style={{ ...tdR, fontWeight: 700 }}>{fmtN(lbf.ofertas_adj)}</td>
+                <td style={{ ...tdR, fontWeight: 700, color: "#0891B2" }}>{pct(lbf.efectividad_items)}</td>
+                <td style={{ ...tdR, fontWeight: 700, borderLeft: "2px solid #E2E8F0" }}>{fmtN(lbf.ids_participadas)}</td>
+                <td style={{ ...tdR, fontWeight: 700 }}>{fmtN(lbf.ids_adjudicadas)}</td>
+                <td style={{ ...tdR, fontWeight: 700, color: "#059669" }}>{pct(lbfEf)}</td>
               </tr>
 
               {data.top20.map((c, i) => {
-                // % adj / participado por proveedor
-                // Si adj > ofertado, los datos de oferta están incompletos (JSONB antiguo)
-                const cPctValid = c.total_ofertado > 0 && c.total_adj <= c.total_ofertado;
-                const cPct = cPctValid
-                  ? (c.total_adj / c.total_ofertado) * 100
-                  : null;
-                // Efectividad a nivel licitación (evita 100% por JSONB formato antiguo)
-                const cEf =
-                  c.ids_part > 0 ? (c.ids_adj / c.ids_part) * 100 : 0;
+                const cEfItems = c.ofertas > 0 ? (c.ofertas_adj / c.ofertas) * 100 : 0;
+                const cEfLics  = c.ids_part > 0 ? (c.ids_adj / c.ids_part) * 100 : 0;
                 return (
                   <tr key={i} style={rowBg(i)}>
-                    <td style={{ ...tdS, color: "#94A3B8", fontWeight: 600 }}>
-                      {i + 1}
-                    </td>
+                    <td style={{ ...tdS, color: "#94A3B8", fontWeight: 600 }}>{i + 1}</td>
                     <td style={tdS}>{c.competidor}</td>
                     <td style={tdR}>{fmtCLP(c.total_ofertado)}</td>
                     <td style={tdR}>{fmtCLP(c.total_adj)}</td>
-                    <td style={{ ...tdR, color: cPct !== null ? "#374151" : "#94A3B8" }}>
-                      {cPct !== null ? pct(cPct) : "—"}
-                    </td>
-                    <td style={{ ...tdR, color: "#2563EB", fontWeight: 600 }}>
-                      {fmtCLP(c.lbf_adj_compartido)}
-                    </td>
-                    <td style={{ ...tdR, color: "#2563EB", fontWeight: 600 }}>
-                      {c.total_ofertado > 0 ? pct((c.lbf_adj_compartido / c.total_ofertado) * 100) : "—"}
-                    </td>
-                    <td style={tdR}>{fmtN(c.ofertas)}</td>
+                    <td style={{ ...tdR, color: "#2563EB", fontWeight: 600 }}>{fmtCLP(c.lbf_adj_compartido)}</td>
+                    <td style={{ ...tdR, borderLeft: "2px solid #F1F5F9" }}>{fmtN(c.ofertas)}</td>
                     <td style={tdR}>{fmtN(c.ofertas_adj)}</td>
-                    <td style={tdR}>{fmtN(c.ids_part)}</td>
+                    <td style={{
+                      ...tdR, color: "#0891B2",
+                      fontWeight: cEfItems >= lbf.efectividad_items ? 700 : 400,
+                    }}>
+                      {c.ofertas > 0 ? pct(cEfItems) : "—"}
+                    </td>
+                    <td style={{ ...tdR, borderLeft: "2px solid #F1F5F9" }}>{fmtN(c.ids_part)}</td>
                     <td style={tdR}>{fmtN(c.ids_adj)}</td>
                     <td style={{
                       ...tdR,
-                      color: cEf >= 20 ? "#059669" : cEf >= 10 ? "#D97706" : "#374151",
+                      color: cEfLics >= lbfEf ? "#059669" : cEfLics >= lbfEf * 0.7 ? "#D97706" : "#374151",
                     }}>
-                      {pct(cEf)}
+                      {pct(cEfLics)}
                     </td>
                   </tr>
                 );
@@ -769,6 +811,9 @@ function TabClientes({
                     <td style={{ ...tdR, color: "#EF4444" }}>{fmtCLP(c.total_no_adj)}</td>
                     <td style={tdR}>{fmtN(c.ofertas)}</td>
                     <td style={tdR}>{fmtN(c.ofertas_adj)}</td>
+                    <td style={{ ...tdR, color: "#0891B2" }}>
+                      {c.ofertas > 0 ? pct((c.ofertas_adj / c.ofertas) * 100) : "—"}
+                    </td>
                     <td style={tdR}>{fmtN(c.ids_part)}</td>
                     <td style={tdR}>{fmtN(c.ids_adj)}</td>
                   </tr>
@@ -1008,6 +1053,8 @@ type TabId = "competencia" | "clientes" | "region";
 export default function MercadoPublicoPage() {
   const [ano, setAno]   = useState(2026);
   const [tipo, setTipo] = useState("");
+  const [mat, setMat]   = useState(false);
+  const [mes, setMes]   = useState(0);
   const [tab, setTab]   = useState<TabId>("competencia");
 
   // Datos por tab
@@ -1031,6 +1078,8 @@ export default function MercadoPublicoPage() {
     setErrorComp(null); setErrorCli(null); setErrorReg(null);
 
     const params = new URLSearchParams({ ano: String(ano), tipo });
+    if (mat) params.set("mat", "true");
+    if (mes > 0) params.set("mes", String(mes));
 
     setLoadingComp(true);
     api.get(`/api/mercado-publico/participacion?${params}`)
@@ -1053,11 +1102,13 @@ export default function MercadoPublicoPage() {
         .finally(() => setLoadingReg(false));
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ano, tipo]);
+  }, [ano, tipo, mat, mes]);
 
   // Al cambiar tab: cargar datos si aún no están
   useEffect(() => {
     const params = new URLSearchParams({ ano: String(ano), tipo });
+    if (mat) params.set("mat", "true");
+    if (mes > 0) params.set("mes", String(mes));
     if (tab === "clientes" && !clientes && !loadingCli) {
       setLoadingCli(true);
       api.get(`/api/mercado-publico/clientes?${params}`)
@@ -1103,24 +1154,22 @@ export default function MercadoPublicoPage() {
           alignItems: "center",
         }}
       >
-        {/* Año */}
-        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-          <span
-            style={{ fontSize: 12, color: "#64748B", fontWeight: 600, marginRight: 2 }}
-          >
-            AÑO
+        {/* Año + 12M Móvil */}
+        <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+          <span style={{ fontSize: 12, color: "#64748B", fontWeight: 600, marginRight: 2 }}>
+            PERÍODO
           </span>
           {YEARS.map((y) => (
             <button
               key={y}
-              onClick={() => setAno(y)}
+              onClick={() => { setAno(y); setMat(false); }}
               style={{
                 padding: "5px 14px",
                 borderRadius: 6,
                 border: "1px solid",
-                borderColor: ano === y ? "#2563EB" : "#CBD5E1",
-                background: ano === y ? "#2563EB" : "white",
-                color: ano === y ? "white" : "#374151",
+                borderColor: !mat && ano === y ? "#2563EB" : "#CBD5E1",
+                background: !mat && ano === y ? "#2563EB" : "white",
+                color: !mat && ano === y ? "white" : mat ? "#94A3B8" : "#374151",
                 fontWeight: 600,
                 fontSize: 13,
                 cursor: "pointer",
@@ -1129,7 +1178,57 @@ export default function MercadoPublicoPage() {
               {y}
             </button>
           ))}
+          <button
+            onClick={() => { setMat(true); setMes(0); }}
+            style={{
+              padding: "5px 14px",
+              borderRadius: 6,
+              border: "1px solid",
+              borderColor: mat ? "#7C3AED" : "#CBD5E1",
+              background: mat ? "#7C3AED" : "white",
+              color: mat ? "white" : "#374151",
+              fontWeight: 600,
+              fontSize: 13,
+              cursor: "pointer",
+            }}
+          >
+            12M Móvil
+          </button>
         </div>
+
+        {/* Mes (solo cuando no es MAT) */}
+        {!mat && (
+          <div style={{ display: "flex", gap: 4, alignItems: "center", flexWrap: "wrap" }}>
+            <span style={{ fontSize: 12, color: "#64748B", fontWeight: 600, marginRight: 2 }}>MES</span>
+            <button
+              onClick={() => setMes(0)}
+              style={{
+                padding: "4px 10px", borderRadius: 6, border: "1px solid",
+                borderColor: mes === 0 ? "#475569" : "#CBD5E1",
+                background: mes === 0 ? "#47556918" : "white",
+                color: mes === 0 ? "#374151" : "#94A3B8",
+                fontWeight: mes === 0 ? 700 : 500, fontSize: 12, cursor: "pointer",
+              }}
+            >
+              YTD
+            </button>
+            {MESES.map((m, i) => (
+              <button
+                key={i}
+                onClick={() => setMes(mes === i + 1 ? 0 : i + 1)}
+                style={{
+                  padding: "4px 8px", borderRadius: 6, border: "1px solid",
+                  borderColor: mes === i + 1 ? "#0891B2" : "#CBD5E1",
+                  background: mes === i + 1 ? "#0891B2" : "white",
+                  color: mes === i + 1 ? "white" : "#64748B",
+                  fontWeight: mes === i + 1 ? 700 : 400, fontSize: 12, cursor: "pointer",
+                }}
+              >
+                {m}
+              </button>
+            ))}
+          </div>
+        )}
 
         {/* Tipo */}
         <div
@@ -1218,7 +1317,7 @@ export default function MercadoPublicoPage() {
               Cargando datos de competencia...
             </div>
           )}
-          {data && <TabCompetencia data={data} ano={ano} tipo={tipo} />}
+          {data && <TabCompetencia data={data} ano={ano} tipo={tipo} mat={mat} />}
         </>
       )}
 

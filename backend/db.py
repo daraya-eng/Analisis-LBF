@@ -152,11 +152,13 @@ def calc_dias_habiles(meses: list[int], ano: int) -> tuple[int, int, int]:
 
 
 def ref_date() -> datetime.date:
-    """Fecha de corte para datos: el lunes usa el viernes anterior (semana cerrada).
-    El resto de la semana usa ayer (datos del SP que corre a las 6am)."""
+    """Fecha de corte para datos: lunes y domingo usan el viernes anterior
+    (el SP no corre fines de semana). El resto usa ayer."""
     today = datetime.date.today()
     if today.weekday() == 0:  # Lunes → viernes anterior
         return today - datetime.timedelta(days=3)
+    if today.weekday() == 6:  # Domingo → viernes anterior
+        return today - datetime.timedelta(days=2)
     return today - datetime.timedelta(days=1)
 
 

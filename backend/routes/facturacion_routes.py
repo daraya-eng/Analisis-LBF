@@ -118,18 +118,21 @@ def _load_facturacion() -> dict:
             SELECT licitacion, MAX(rut_cliente) AS rut, MAX(nombre_cliente) AS nombre,
                 SUM(TRY_CAST(monto_licitacion AS bigint)) AS monto_adjudicado,
                 MAX(fecha_termino) AS fecha_termino,
-                MAX(fecha_inicio) AS fecha_inicio
+                MAX(fecha_inicio) AS fecha_inicio,
+                ISNULL(YEAR(TRY_CAST(MIN(fecha_inicio) AS date)), 2020) AS ano_adj
             FROM vw_LICITACIONES_CATEGORIZADAS
             WHERE EsLBF = 1 AND estado = 'Adjudicado'
               AND TRY_CAST(fecha_termino AS date) >= '{_HOY}'
             GROUP BY licitacion
         ),
         fac AS (
-            SELECT LICITACION, SUM(CAST(VENTA AS float)) AS facturado
-            FROM BI_TOTAL_FACTURA
-            WHERE TIPO_OC = 'LICITACION'
+            SELECT b.LICITACION, SUM(CAST(b.VENTA AS float)) AS facturado
+            FROM BI_TOTAL_FACTURA b
+            JOIN adj a ON a.licitacion = b.LICITACION
+            WHERE b.LICITACION IS NOT NULL AND b.LICITACION != ''
+              AND b.ANO >= a.ano_adj
               AND {_FG}
-            GROUP BY LICITACION
+            GROUP BY b.LICITACION
         )
         SELECT adj.licitacion, adj.rut, adj.nombre, adj.monto_adjudicado,
                adj.fecha_inicio, adj.fecha_termino,
@@ -211,7 +214,7 @@ def _load_facturacion() -> dict:
         fac AS (
             SELECT RUT, SUM(CAST(VENTA AS float)) AS facturado
             FROM BI_TOTAL_FACTURA
-            WHERE TIPO_OC = 'LICITACION'
+            WHERE LICITACION IS NOT NULL AND LICITACION != ''
               AND {_FG}
             GROUP BY RUT
         )
@@ -365,7 +368,8 @@ def _load_detalle_licitacion(licitacion: str) -> dict:
                COUNT(*) AS n_docs,
                MAX(DIA) AS ultima_fecha
         FROM BI_TOTAL_FACTURA
-        WHERE LICITACION = ? AND TIPO_OC = 'LICITACION'
+        WHERE LICITACION = ?
+          AND LICITACION IS NOT NULL AND LICITACION != ''
           AND {_FG}
         GROUP BY CODIGO, DESCRIPCION, DOC_CODE
         ORDER BY CODIGO, DOC_CODE
@@ -589,7 +593,8 @@ async def get_detalle_batch(
             SELECT LICITACION, CODIGO, DESCRIPCION,
                    SUM(CAST(VENTA AS float)) AS venta
             FROM BI_TOTAL_FACTURA
-            WHERE LICITACION IN ({placeholders}) AND TIPO_OC = 'LICITACION'
+            WHERE LICITACION IN ({placeholders})
+              AND LICITACION IS NOT NULL AND LICITACION != ''
               AND {_FG}
             GROUP BY LICITACION, CODIGO, DESCRIPCION
             ORDER BY LICITACION, SUM(CAST(VENTA AS float)) DESC
@@ -687,7 +692,8 @@ async def get_excel_detalle(
                COUNT(*) AS n_docs,
                MAX(DIA) AS ultima_fecha
         FROM BI_TOTAL_FACTURA
-        WHERE LICITACION IN ({placeholders}) AND TIPO_OC = 'LICITACION'
+        WHERE LICITACION IN ({placeholders})
+          AND LICITACION IS NOT NULL AND LICITACION != ''
           AND {_FG}
         GROUP BY LICITACION, CODIGO, DESCRIPCION, DOC_CODE
         ORDER BY LICITACION, CODIGO

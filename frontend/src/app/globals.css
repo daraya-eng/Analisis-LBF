@@ -281,10 +281,10 @@ body {
   background-clip: text;
 }
 
-/* Accent divider under LBF */
+/* Accent divider under LBF — corporativo rojo */
 .hero-divider {
   height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(59, 130, 246, 0.65), rgba(99, 102, 241, 0.45), transparent);
+  background: linear-gradient(90deg, transparent, rgba(232, 28, 46, 0.7), rgba(196, 22, 37, 0.5), transparent);
   animation: line-grow 0.9s ease-out 0.9s forwards;
   width: 0;
   opacity: 0;
@@ -346,9 +346,9 @@ body {
 .login-input::placeholder { color: #94A3B8; }
 
 .login-input:focus {
-  border-color: #3B82F6;
+  border-color: #E81C2E;
   background: #ffffff;
-  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.13);
+  box-shadow: 0 0 0 3px rgba(232, 28, 46, 0.10);
 }
 
 /* Password input has right padding for the eye toggle */
@@ -356,7 +356,7 @@ body {
   padding-right: 44px;
 }
 
-/* Submit button */
+/* Submit button — LBF corporate red */
 .btn-signin {
   width: 100%;
   padding: 13px 24px;
@@ -367,8 +367,8 @@ body {
   font-weight: 600;
   font-family: var(--font-sans);
   color: white;
-  background: linear-gradient(135deg, #3B82F6 0%, #4F46E5 100%);
-  box-shadow: 0 4px 16px rgba(59, 130, 246, 0.38);
+  background: linear-gradient(135deg, #E81C2E 0%, #C41625 100%);
+  box-shadow: 0 4px 16px rgba(232, 28, 46, 0.35);
   transition: transform 0.15s ease, box-shadow 0.15s ease;
   position: relative;
   overflow: hidden;
@@ -378,7 +378,7 @@ body {
   content: "";
   position: absolute;
   inset: 0;
-  background: linear-gradient(135deg, #60A5FA 0%, #6366F1 100%);
+  background: linear-gradient(135deg, #FF3347 0%, #E81C2E 100%);
   opacity: 0;
   transition: opacity 0.2s ease;
   border-radius: inherit;
@@ -387,7 +387,7 @@ body {
 .btn-signin:hover:not(:disabled)::before { opacity: 1; }
 .btn-signin:hover:not(:disabled) {
   transform: translateY(-1px);
-  box-shadow: 0 8px 24px rgba(59, 130, 246, 0.48);
+  box-shadow: 0 8px 24px rgba(232, 28, 46, 0.45);
 }
 .btn-signin:active:not(:disabled) { transform: translateY(0); }
 .btn-signin:disabled {
@@ -436,9 +436,9 @@ body {
   gap: 7px;
   padding: 7px 14px;
   border-radius: 999px;
-  background: rgba(59, 130, 246, 0.12);
-  border: 1px solid rgba(59, 130, 246, 0.25);
-  color: #93C5FD;
+  background: rgba(232, 28, 46, 0.12);
+  border: 1px solid rgba(232, 28, 46, 0.28);
+  color: #FCA5A5;
   font-size: 13px;
   font-weight: 500;
   backdrop-filter: blur(8px);
@@ -448,8 +448,8 @@ body {
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: #3B82F6;
-  box-shadow: 0 0 6px rgba(59, 130, 246, 0.8);
+  background: #E81C2E;
+  box-shadow: 0 0 6px rgba(232, 28, 46, 0.85);
   animation: particle-twinkle 2s ease-in-out infinite;
 }
 

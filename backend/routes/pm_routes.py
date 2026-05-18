@@ -156,24 +156,51 @@ async def get_pm_resumen(
     meta_trim  = float(r2[1] or 0)
     meta_anual = float(r2[2] or 0)
 
-    # Margen PPTO — desde tabla [PPTO 2026] (precio * cant / sum)
+    # ═══ 2b. Margen PPTO desde Meta_Categoria (fuente canónica del Panel Principal) ═══
+    # Siempre carga TODAS las categorías para que la tabla por categoría tenga datos completos.
+    # El filtro de categoría del usuario sólo se aplica al promedio ponderado de los gauges KPI.
+    _ytd_meses = list(range(1, _MES + 1))
+    _cats_selected = (
+        {c.strip() for c in categorias.split(",") if c.strip()}
+        if categorias else set(_CATS_VALIDAS)
+    )
+
     cur.execute(f"""
         SELECT
-            SUM(TRY_CAST([PPTO 2026] AS float)) AS ppto_total,
-            SUM(TRY_CAST([CANT 2026] AS float) * TRY_CAST([PRECIO 2026] AS float)) AS ingreso_bruto
-        FROM [PPTO 2026]
-        WHERE ({z_ppto})
-          AND ({_CAT_CASE_PPTO}) IN ({_CATS_IN})
+            CASE WHEN CATEGORIA = 'SER' THEN 'EQM' ELSE CATEGORIA END AS cat,
+            MES,
+            SUM(META_VENTA) AS meta_venta,
+            SUM(MARGEN_PCT * META_VENTA) / NULLIF(SUM(META_VENTA), 0) AS margen_pct
+        FROM Meta_Categoria
+        WHERE CASE WHEN CATEGORIA = 'SER' THEN 'EQM' ELSE CATEGORIA END IN ({_CATS_IN})
+        GROUP BY CASE WHEN CATEGORIA = 'SER' THEN 'EQM' ELSE CATEGORIA END, MES
     """)
-    r3 = cur.fetchone()
-    ppto_tot = float(r3[0] or 0)
+    _meta_cat_mg: dict = {}  # cat -> {mes -> {meta_venta, margen_pct}}
+    for row in cur.fetchall():
+        _cat_r, _mes_r = str(row[0]), int(row[1])
+        _mv, _mp = float(row[2] or 0), float(row[3] or 0)
+        if _cat_r not in _meta_cat_mg:
+            _meta_cat_mg[_cat_r] = {}
+        _meta_cat_mg[_cat_r][_mes_r] = {"meta_venta": _mv, "margen_pct": _mp}
 
-    # Usar margen PPTO de ppto_analisis si está disponible, sino default 31%
-    ppto_mg_mes_pct  = 31.0
-    ppto_mg_trim_pct = 31.0
-    ppto_mg_ytd_pct  = 31.0
+    def _wgt_mg(meses_list: list) -> float:
+        # Promedia sólo las categorías seleccionadas por el usuario
+        total_mv = sum(_meta_cat_mg.get(c, {}).get(m, {}).get("meta_venta", 0)
+                       for c in _cats_selected for m in meses_list)
+        total_wt = sum(_meta_cat_mg.get(c, {}).get(m, {}).get("margen_pct", 0) *
+                       _meta_cat_mg.get(c, {}).get(m, {}).get("meta_venta", 0)
+                       for c in _cats_selected for m in meses_list)
+        raw = (total_wt / total_mv) if total_mv > 0 else 0.31
+        # MARGEN_PCT en Meta_Categoria está en escala 0-1; convertir a %
+        return round(raw * 100, 1) if raw <= 1.0 else round(raw, 1)
+
+    ppto_mg_mes_pct  = _wgt_mg([_MES])
+    ppto_mg_trim_pct = _wgt_mg(_TRIM_MES)
+    ppto_mg_ytd_pct  = _wgt_mg(_ytd_meses)
 
     # ═══ 3. Venta año anterior mismo mes/trimestre/YTD ═══
+    # Nota: categorías 2025 pueden tener nombres distintos (GD→EQM, SH→EVA en 2026)
+    # Para comparar YoY correctamente, aplicamos el mismo filtro de categoría que en 2026
     cur.execute(f"""
         SELECT
             SUM(CASE WHEN MES = {_MES} THEN CAST(VENTA AS float) ELSE 0 END) AS v_mes_25,
@@ -182,6 +209,7 @@ async def get_pm_resumen(
         FROM BI_TOTAL_FACTURA
         WHERE ANO = {_ANO - 1} AND {_EXCL_DW} AND {_FG}
           AND ({z_fact})
+          AND ({c_sql})
           AND ({s_sql})
           AND ({k_sql})
     """)
@@ -238,6 +266,13 @@ async def get_pm_resumen(
         for cat, v in cat_ppto_anual.items()
     }
 
+    # Si hay filtro de categoría, los KPIs globales deben reflejar sólo esas categorías
+    if categorias and _cats_selected < set(_CATS_VALIDAS):
+        _cat_weight = sum(cat_ppto_anual.get(c, 0) for c in _cats_selected) / ppto_anual_total
+        meta_mes   = sum(cat_ppto_mes.get(c, 0) for c in _cats_selected)
+        meta_trim  = round(_cat_weight * meta_trim)
+        meta_anual = round(_cat_weight * meta_anual)
+
     categorias_data = []
     for cat in _CATS_VALIDAS:
         v26 = cat_v26.get(cat, {}).get("v26", 0)
@@ -248,6 +283,9 @@ async def get_pm_resumen(
         cump_ppto = round(v26 / ppto_c * 100, 1) if ppto_c > 0 else 0.0
         var_ant   = round((v26 / v25 - 1) * 100, 1) if v25 > 0 else (100.0 if v26 > 0 else 0.0)
         mg_cat    = round(c26 / v26 * 100, 1) if v26 > 0 else 0.0
+        # Margen PPTO de Meta_Categoria para esta categoría en el mes actual
+        _mg_raw = _meta_cat_mg.get(cat, {}).get(_MES, {}).get("margen_pct", 0.0)
+        ppto_mg_cat = round(_mg_raw * 100, 1) if 0 < _mg_raw <= 1.0 else round(_mg_raw, 1)
         categorias_data.append({
             "categoria":   cat,
             "venta_mes":   round(v26),
@@ -259,6 +297,7 @@ async def get_pm_resumen(
             "pct_dias":    pct_dias,
             "contrib":     round(c26),
             "margen":      mg_cat,
+            "ppto_margen": ppto_mg_cat,
         })
 
     # ═══ 5. Tabla de productos — mes actual ═══
@@ -345,11 +384,12 @@ async def get_pm_resumen(
     # Armar lista de productos
     productos = []
     for cod, pd_data in prods_mes.items():
-        v_mes_p  = pd_data["v_mes"]
-        v_prom6  = prods_6m.get(cod, 0)
-        q_stock  = stock_por_cod.get(cod, 0)
-        ppto_m   = ppto_cod_mes.get(cod, 0)
-        mg_prod  = round(pd_data["c_mes"] / v_mes_p * 100, 1) if v_mes_p > 0 else 0.0
+        v_mes_p    = pd_data["v_mes"]
+        v_prom6    = prods_6m.get(cod, 0)
+        q_stock    = stock_por_cod.get(cod, 0)
+        ppto_m     = ppto_cod_mes.get(cod, 0)
+        ppto_anual = ppto_cod_anual.get(cod, 0)
+        mg_prod    = round(pd_data["c_mes"] / v_mes_p * 100, 1) if v_mes_p > 0 else 0.0
         productos.append({
             "codigo":       cod,
             "descripcion":  pd_data["descripcion"],
@@ -358,6 +398,7 @@ async def get_pm_resumen(
             "vta_prom_6m":  round(v_prom6),
             "q_stock":      q_stock,
             "ppto_mes":     round(ppto_m),
+            "ppto_anual":   round(ppto_anual),
             "margen":       mg_prod,
         })
     productos.sort(key=lambda p: -p["venta_mes"])

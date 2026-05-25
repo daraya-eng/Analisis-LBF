@@ -25,6 +25,7 @@ import {
   ArrowLeftRight,
   CalendarDays,
   Bandage,
+  MapPin,
 } from "lucide-react";
 import { useState, useEffect } from "react";
 
@@ -56,6 +57,7 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/dashboard/e1", label: "Plan de Ventas LBE", icon: LineChart, module: "e1" },
   { href: "/dashboard/incentivos", label: "Incentivos", icon: TrendingUp, module: "incentivos" },
   { href: "/dashboard/renasys", label: "Renasys TPN", icon: Bandage, module: "renasys" },
+  { href: "/dashboard/kam-maule", label: "KAM Maule Sur", icon: MapPin, module: "kam_maule" },
   { href: "/dashboard/glosario", label: "Glosario", icon: BookOpen, module: "dashboard" },
 ];
 

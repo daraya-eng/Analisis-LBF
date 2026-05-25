@@ -1,20 +1,10 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import dynamic from "next/dynamic";
 import { ChevronDown, Search, X, MapPin, Building2 } from "lucide-react";
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
 } from "recharts";
-
-const ChileMap3D = dynamic(() => import("./ChileMap3D"), {
-  ssr: false,
-  loading: () => (
-    <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "#64748B", fontSize: 13 }}>
-      Cargando mapa 3D…
-    </div>
-  ),
-});
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
@@ -355,21 +345,99 @@ export default function RenasysPage() {
         })}
       </div>
 
-      {/* ── Mapa 3D de ciudades ── */}
-      <div style={{ background: "white", borderRadius: 16, border: "1px solid #E2E8F0", boxShadow: "0 2px 12px rgba(0,0,0,0.06)", overflow: "hidden", marginBottom: 20 }}>
-        <div style={{ padding: "14px 20px", borderBottom: "1px solid #F1F5F9", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <span style={{ fontWeight: 600, fontSize: 14, color: "#0F172A" }}>Distribución Geográfica TPN</span>
-            <span style={{ padding: "2px 8px", background: "#F1F5F9", borderRadius: 6, fontSize: 12, color: "#64748B" }}>
-              {ciudades.length} ciudades activas
-            </span>
+      {/* ── Distribución geográfica por rentabilidad ── */}
+      {ciudades.length > 0 && (() => {
+        // Agregar por región
+        const regMap: Record<string, { venta: number; contrib: number; n_clientes: number; nombre: string }> = {};
+        const NOMBRES: Record<string, string> = {
+          "1":"Tarapacá","2":"Antofagasta","3":"Atacama","4":"Coquimbo","5":"Valparaíso",
+          "6":"O'Higgins","7":"Maule","8":"Biobío","9":"Araucanía","10":"Los Lagos",
+          "11":"Aysén","12":"Magallanes","13":"Metropolitana","14":"Los Ríos",
+          "15":"Arica y Parinacota","16":"Ñuble",
+        };
+        ciudades.forEach(c => {
+          const k = c.region || "?";
+          if (!regMap[k]) regMap[k] = { venta: 0, contrib: 0, n_clientes: 0, nombre: NOMBRES[k] ?? `Región ${k}` };
+          regMap[k].venta      += c.venta;
+          regMap[k].contrib    += c.contrib;
+          regMap[k].n_clientes += c.n_clientes;
+        });
+        const regiones = Object.entries(regMap)
+          .map(([id, v]) => ({ id, ...v, margen: v.venta > 0 ? v.contrib / v.venta * 100 : 0 }))
+          .sort((a, b) => b.venta - a.venta);
+        const maxVenta = Math.max(...regiones.map(r => r.venta), 1);
+        const topCiudades = [...ciudades].sort((a, b) => b.venta - a.venta).slice(0, 8);
+
+        return (
+          <div style={{ background: "white", borderRadius: 16, border: "1px solid #E2E8F0", boxShadow: "0 2px 12px rgba(0,0,0,0.06)", overflow: "hidden", marginBottom: 20 }}>
+            <div style={{ padding: "14px 20px", borderBottom: "1px solid #F1F5F9", display: "flex", alignItems: "center", gap: 10 }}>
+              <span style={{ fontWeight: 600, fontSize: 14, color: "#0F172A" }}>Distribución Geográfica — Rentabilidad TPN</span>
+              <span style={{ padding: "2px 8px", background: "#F1F5F9", borderRadius: 6, fontSize: 12, color: "#64748B" }}>
+                {regiones.length} regiones · {ciudades.length} ciudades
+              </span>
+            </div>
+            <div style={{ padding: "16px 20px", display: "grid", gridTemplateColumns: "1fr 1fr", gap: 24 }}>
+
+              {/* Izq: barras por región */}
+              <div>
+                <div style={{ fontSize: 11, fontWeight: 700, color: "#64748B", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 10 }}>
+                  Venta por Región · color = margen
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  {regiones.map(r => {
+                    const pct = r.venta / maxVenta * 100;
+                    const mc  = margenColor(r.margen);
+                    return (
+                      <div key={r.id}>
+                        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
+                          <span style={{ fontSize: 12, fontWeight: 600, color: "#0F172A" }}>{r.nombre}</span>
+                          <div style={{ display: "flex", gap: 12, fontSize: 11 }}>
+                            <span style={{ color: "#64748B" }}>{r.n_clientes} cli.</span>
+                            <span style={{ color: mc, fontWeight: 700 }}>{r.margen.toFixed(0)}%</span>
+                            <span style={{ color: "#0F172A", fontWeight: 600 }}>{fmt(r.venta)}</span>
+                          </div>
+                        </div>
+                        <div style={{ height: 7, background: "#F1F5F9", borderRadius: 4, overflow: "hidden" }}>
+                          <div style={{ height: "100%", width: `${pct}%`, background: mc, borderRadius: 4, transition: "width 0.4s ease" }} />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Der: top ciudades */}
+              <div>
+                <div style={{ fontSize: 11, fontWeight: 700, color: "#64748B", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 10 }}>
+                  Top Ciudades por Venta
+                </div>
+                <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                  <thead>
+                    <tr style={{ borderBottom: "1px solid #F1F5F9" }}>
+                      {["Ciudad", "Venta", "Contrib.", "Margen"].map(h => (
+                        <th key={h} style={{ fontSize: 10, fontWeight: 700, color: "#94A3B8", textTransform: "uppercase", padding: "4px 6px", textAlign: h === "Ciudad" ? "left" : "right" }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {topCiudades.map((c, i) => {
+                      const mc = margenColor(c.margen);
+                      return (
+                        <tr key={i} style={{ borderBottom: "1px solid #F8FAFC" }}>
+                          <td style={{ fontSize: 12, padding: "5px 6px", color: "#0F172A", fontWeight: 500 }}>{c.ciudad}</td>
+                          <td style={{ fontSize: 12, padding: "5px 6px", textAlign: "right", color: "#0F172A", fontVariantNumeric: "tabular-nums" }}>{fmt(c.venta)}</td>
+                          <td style={{ fontSize: 12, padding: "5px 6px", textAlign: "right", color: "#64748B" }}>{fmt(c.contrib)}</td>
+                          <td style={{ fontSize: 12, padding: "5px 6px", textAlign: "right", fontWeight: 700, color: mc }}>{c.margen.toFixed(1)}%</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
           </div>
-          <span style={{ fontSize: 12, color: "#94A3B8" }}>Vista isométrica · altura = venta mes · color = margen</span>
-        </div>
-        <div style={{ height: 600, position: "relative" }}>
-          <ChileMap3D ciudades={ciudades} />
-        </div>
-      </div>
+        );
+      })()}
 
       {/* ── Rentabilidad del Programa ── */}
       {data?.programa && (

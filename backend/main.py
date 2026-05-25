@@ -1,6 +1,9 @@
 """
 LBF Advanced Analytics — FastAPI Backend
 """
+import os
+from dotenv import load_dotenv
+load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
 import threading
 import time as _time
 import logging
@@ -9,7 +12,7 @@ from fastapi import FastAPI, Depends, BackgroundTasks, Request
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 from jose import JWTError, jwt
-from routes import auth_routes, dashboard_routes, zona_routes, categoria_routes, resumen_routes, televentas_routes, multiproducto_routes, clientes_routes, mercado_routes, facturacion_routes, stock_routes, mercado_publico_routes, ma_routes, oportunidades_routes, guantes_routes, e1_routes, incentivos_routes, maestro_mp_routes, pm_routes, renasys_routes
+from routes import auth_routes, dashboard_routes, zona_routes, categoria_routes, resumen_routes, televentas_routes, multiproducto_routes, clientes_routes, mercado_routes, facturacion_routes, stock_routes, mercado_publico_routes, ma_routes, oportunidades_routes, guantes_routes, e1_routes, incentivos_routes, maestro_mp_routes, pm_routes, renasys_routes, kam_maule_routes
 from auth import get_current_user, track_request, SECRET_KEY, ALGORITHM
 from cache import clear_mem_cache
 
@@ -170,6 +173,7 @@ app.include_router(incentivos_routes.router, prefix="/api/incentivos", tags=["in
 app.include_router(maestro_mp_routes.router, prefix="/api/maestro-mp", tags=["maestro_mp"])
 app.include_router(pm_routes.router, prefix="/api/pm", tags=["pm"])
 app.include_router(renasys_routes.router, prefix="/api/renasys", tags=["renasys"])
+app.include_router(kam_maule_routes.router, prefix="/api/kam-maule", tags=["kam_maule"])
 
 
 @app.get("/api/health")

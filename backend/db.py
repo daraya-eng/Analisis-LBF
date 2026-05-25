@@ -163,18 +163,17 @@ def ref_date() -> datetime.date:
 
 
 def filtro_guias() -> str:
-    """Solo incluye GF del mes actual hasta ref_date Y cuyo GUIA_NUM aparece en
-    vw_guias_por_facturar en la fecha de corte (ref_date). Esto replica el criterio de
-    Power BI: solo guías pendientes al cierre del último día hábil, sin acumular
-    guías de días anteriores que ya fueron resueltas."""
+    """Solo incluye GF del mes actual cuyo GUIA_NUM aparece en vw_guias_por_facturar
+    en la ultima fecha disponible (no ref_date fijo, para tolerar que el SP no haya
+    corrido el dia anterior). Replica el criterio Power BI: guias pendientes al ultimo
+    cierre registrado, sin acumular guias ya facturadas."""
     t = datetime.date.today()
-    ref = ref_date()
     return (
         f"(DOC_CODE <> 'GF' OR "
-        f"(ANO = {t.year} AND MES = {t.month} AND CAST(DIA AS date) <= '{ref}' "
+        f"(ANO = {t.year} AND MES = {t.month} "
         f"AND TRY_CAST(GUIA_NUM AS bigint) IN "
         f"(SELECT DISTINCT guia_num FROM vw_guias_por_facturar "
-        f"WHERE CAST(fecha AS date) = '{ref}')))"
+        f"WHERE CAST(fecha AS date) = (SELECT MAX(CAST(fecha AS date)) FROM vw_guias_por_facturar))))"
     )
 
 

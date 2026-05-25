@@ -436,11 +436,18 @@ function SegundoLlamadoTab() {
 
       {/* KPIs */}
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-        <AgKpiCard title="Cotizaciones" value={String(k.total_cotizaciones || 0)} color="#3B82F6" />
-        <AgKpiCard title="Adjudicadas" value={String(k.adjudicadas || 0)} color="#10B981" />
-        <AgKpiCard title="Desiertas" value={String(k.desiertas || 0)} color="#F59E0B" />
-        <AgKpiCard title="Presupuesto" value={fmt(k.presupuesto || 0)} color="#8B5CF6" />
-        <AgKpiCard title="Adjudicado" value={fmt(k.adjudicado || 0)} color="#10B981" />
+        <AgKpiCard title="Cotizaciones" value={String(k.total_cotizaciones || 0)} color="#3B82F6"
+          sub={`${k.adjudicadas || 0} adj · ${k.desiertas || 0} desiertas`} />
+        <AgKpiCard title="Presupuesto total" value={fmt(k.presupuesto || 0)} color="#8B5CF6"
+          sub="suma presup. estimados" />
+        <AgKpiCard title="Adjudicado LBF" value={fmt(k.adjudicado || 0)} color="#10B981"
+          sub={`${k.adjudicadas || 0} cotizaciones ganadas`} />
+        <AgKpiCard
+          title="Tasa adjudicación"
+          value={k.total_cotizaciones > 0 ? `${((k.adjudicadas || 0) / k.total_cotizaciones * 100).toFixed(1)}%` : "—"}
+          color={(k.adjudicadas || 0) / Math.max(k.total_cotizaciones || 1, 1) > 0.3 ? "#10B981" : "#F59E0B"}
+          sub="adj. / cotizaciones"
+        />
       </div>
 
       {/* Monthly chart (only YTD) */}
@@ -969,8 +976,8 @@ function ActividadDiariaTab() {
   const totalPrimerMonto = dias.reduce((s: number, d: any) => s + d.primer_monto, 0);
   const totalSegundoN    = dias.reduce((s: number, d: any) => s + d.segundo_n, 0);
   const totalSegundoAdj  = dias.reduce((s: number, d: any) => s + d.segundo_adj, 0);
-  const totalSegundoMontoAdj  = dias.reduce((s: number, d: any) => s + d.segundo_monto_adj, 0);
-  const totalPresupuesto = dias.reduce((s: number, d: any) => s + d.segundo_presupuesto, 0);
+  const totalSegundoMontoAdj     = dias.reduce((s: number, d: any) => s + d.segundo_monto_adj, 0);
+  const totalPresupuesto         = dias.reduce((s: number, d: any) => s + d.segundo_presupuesto, 0);
   const convPrimer  = totalPrimerPost > 0 ? (totalPrimerN / totalPrimerPost * 100) : 0;
   const convSegundo = totalSegundoN   > 0 ? (totalSegundoAdj / totalSegundoN * 100) : 0;
 
@@ -1048,13 +1055,14 @@ function ActividadDiariaTab() {
                   <tr>
                     <th style={thStyle} rowSpan={2}>Mes</th>
                     <th style={{ ...thR, color: "#10B981", borderBottom: "none", paddingBottom: 2 }} colSpan={2}>1° Llamado</th>
-                    <th style={{ ...thR, color: "#E81C2E", borderBottom: "none", paddingBottom: 2 }} colSpan={2}>2° Llamado</th>
+                    <th style={{ ...thR, color: "#E81C2E", borderBottom: "none", paddingBottom: 2 }} colSpan={3}>2° Llamado</th>
                   </tr>
                   <tr>
                     <th style={{ ...thR, color: "#10B981", fontSize: 10 }}>Post.</th>
                     <th style={{ ...thR, color: "#10B981", fontSize: 10 }}>Adj.</th>
                     <th style={{ ...thR, color: "#E81C2E", fontSize: 10 }}>Post.</th>
                     <th style={{ ...thR, color: "#E81C2E", fontSize: 10 }}>Adj.</th>
+                    <th style={{ ...thR, color: "#E81C2E", fontSize: 10 }}>Monto Adj.</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1069,6 +1077,7 @@ function ActividadDiariaTab() {
                         <td style={{ ...tdR, color: m.p1_adj > 0 ? "#059669" : "#94A3B8", fontWeight: m.p1_adj > 0 ? 700 : 400 }}>{m.p1_adj || "—"}</td>
                         <td style={{ ...tdR, color: "#3B82F6", fontWeight: 600 }}>{m.p2_post}</td>
                         <td style={{ ...tdR, color: m.p2_adj > 0 ? "#059669" : "#94A3B8", fontWeight: m.p2_adj > 0 ? 700 : 400 }}>{m.p2_adj || "—"}</td>
+                        <td style={{ ...tdR, color: m.p2_monto_adj > 0 ? "#059669" : "#94A3B8", fontSize: 11 }}>{m.p2_monto_adj > 0 ? fmtAbs(m.p2_monto_adj) : "—"}</td>
                       </tr>
                     );
                   })}

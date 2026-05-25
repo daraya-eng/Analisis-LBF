@@ -24,6 +24,7 @@ const PATH_TO_MODULE: Record<string, string> = {
   incentivos: "incentivos",
   pm: "pm",
   renasys: "renasys",
+  "kam-maule": "kam_maule",
 };
 
 export default function DashboardLayout({

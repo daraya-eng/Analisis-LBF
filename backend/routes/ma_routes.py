@@ -403,7 +403,7 @@ def _load_ma_empresa(rut: str, ano: int, periodo: str) -> dict:
 
     lbf_subcats = _get_lbf_subcats_cached(cur, ano)
     quoted_subcats = ", ".join(f"'{s}'" for s in lbf_subcats) if lbf_subcats else "''"
-    safe_rut = rut.replace("'", "")
+    safe_rut = re.sub(r"[^0-9A-Za-z\.\-]", "", str(rut))[:20]
     yf = _year_filter(periodo, ano)
 
     # Company header — always both years for comparison

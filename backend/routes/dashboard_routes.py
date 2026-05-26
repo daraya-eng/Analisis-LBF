@@ -166,14 +166,16 @@ def _load_dashboard_raw() -> dict:
             seg = _seg_map.get(rut.strip(), "PRIVADO")
         return "PUBLICO" if "PUBLICO" in seg else "PRIVADO"
 
-    # ═══ 5. VENTA por segmento x categoría x mes ═══
+    # ═══ 5. VENTA por segmento x categoría x mes (total + guías desglosadas) ═══
     cur.execute(f"""
         SELECT
             LTRIM(RTRIM(ISNULL(f.SEGMENTO, ''))) AS seg_raw,
             f.RUT,
             {_CAT_CASE} AS cat,
             f.MES,
-            SUM(CAST(f.VENTA AS float)) AS venta
+            SUM(CAST(f.VENTA AS float)) AS venta,
+            SUM(CASE WHEN ISNULL(f.DOC_CODE, '') = 'GF'
+                     THEN CAST(f.VENTA AS float) ELSE 0 END) AS venta_gf
         FROM BI_TOTAL_FACTURA f
         WHERE f.ANO = {_ANO} AND {_EXCL_DW}
           AND {_FG}
@@ -182,11 +184,13 @@ def _load_dashboard_raw() -> dict:
             f.RUT, {_CAT_CASE}, f.MES
     """)
     seg_mes_data: dict = {}
+    guias_seg_mes: dict = {}
     for r in cur.fetchall():
         seg = _resolver_seg(str(r[1] or ""), str(r[0] or ""))
         cat = str(r[2]).strip()
         mes = int(r[3])
         venta = float(r[4] or 0)
+        venta_gf = float(r[5] or 0)
         if cat not in _CATS_VALIDAS:
             continue
         if seg not in seg_mes_data:
@@ -194,36 +198,12 @@ def _load_dashboard_raw() -> dict:
         if mes not in seg_mes_data[seg]:
             seg_mes_data[seg][mes] = {}
         seg_mes_data[seg][mes][cat] = seg_mes_data[seg][mes].get(cat, 0) + venta
-
-    # ═══ 5b. GUÍAS por segmento x categoría x mes (DOC_CODE='GF') ═══
-    cur.execute(f"""
-        SELECT
-            LTRIM(RTRIM(ISNULL(f.SEGMENTO, ''))) AS seg_raw,
-            f.RUT,
-            {_CAT_CASE} AS cat,
-            f.MES,
-            SUM(CAST(f.VENTA AS float)) AS venta
-        FROM BI_TOTAL_FACTURA f
-        WHERE f.ANO = {_ANO} AND {_EXCL_DW}
-          AND {_FG}
-          AND ISNULL(f.DOC_CODE, '') = 'GF'
-        GROUP BY
-            LTRIM(RTRIM(ISNULL(f.SEGMENTO, ''))),
-            f.RUT, {_CAT_CASE}, f.MES
-    """)
-    guias_seg_mes: dict = {}
-    for r in cur.fetchall():
-        seg = _resolver_seg(str(r[1] or ""), str(r[0] or ""))
-        cat = str(r[2]).strip()
-        mes = int(r[3])
-        venta = float(r[4] or 0)
-        if cat not in _CATS_VALIDAS:
-            continue
-        if seg not in guias_seg_mes:
-            guias_seg_mes[seg] = {}
-        if mes not in guias_seg_mes[seg]:
-            guias_seg_mes[seg][mes] = {}
-        guias_seg_mes[seg][mes][cat] = guias_seg_mes[seg][mes].get(cat, 0) + venta
+        if venta_gf:
+            if seg not in guias_seg_mes:
+                guias_seg_mes[seg] = {}
+            if mes not in guias_seg_mes[seg]:
+                guias_seg_mes[seg][mes] = {}
+            guias_seg_mes[seg][mes][cat] = guias_seg_mes[seg][mes].get(cat, 0) + venta_gf
 
     # ═══ 6. VENTA 2025 parcial: hasta día X del mes actual (mismo corte que ritmo: ayer) ═══
     ref_dia = ref_date().day
@@ -266,15 +246,16 @@ def _build_for_period(raw: dict, meses: list[int]) -> dict:
     n_meses = len(meses)
 
     # ─── KPIs ───
+    h = hoy()
     meta_periodo = sum(meta_global_mes.get(m, 0) for m in meses)
     meta_anual = sum(meta_global_mes.get(m, 0) for m in range(1, 13))
 
     # Total venta 2025 (sin categoría — la categorización cambió entre años)
     total_v25 = sum(venta25_mes.get(m, 0) for m in meses)
 
-    # ═══ Días hábiles para ritmo por categoría ═══
-    h = hoy()
+    # ═══ Días hábiles + ritmo para toda la función ═══
     hab_trans, hab_rest, hab_total = _calc_dias_habiles(meses, h["ano"])
+    elapsed, total_d, periodo_completo = _calc_ritmo_days(meses, h["ano"])
 
     # Category table
     cat_table = []
@@ -394,8 +375,6 @@ def _build_for_period(raw: dict, meses: list[int]) -> dict:
     cumpl_meta = (total_venta / meta_periodo * 100) if meta_periodo > 0 else 0
 
     # ═══ RITMO / PACE ═══
-    h = hoy()
-    elapsed, total_d, periodo_completo = _calc_ritmo_days(meses, h["ano"])
     time_pct = (hab_trans / hab_total * 100) if hab_total > 0 else 100
     actual_pct = (total_venta / meta_periodo * 100) if meta_periodo > 0 else 0
     diff_pct = actual_pct - time_pct

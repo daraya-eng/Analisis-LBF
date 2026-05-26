@@ -19,6 +19,8 @@ Reglas:
 """
 import json
 import os
+import time
+import traceback
 from fastapi import APIRouter, Depends, Query
 from auth import get_current_user
 from db import get_conn, filtro_guias, hoy
@@ -84,7 +86,6 @@ async def get_incentivos_trimestre(
     if q is None:
         q = q_actual if ano == ano_actual else 1
 
-    import time
     ck = f"incentivos:{ano}:q{q}"
     # Trimestres cerrados: cache 15 min (igual que el resto del sistema)
     # Trimestre activo: cache 5 min (datos cambian por día, no por minuto)
@@ -104,7 +105,6 @@ async def get_incentivos_trimestre(
         mem_set(ck, {**data, "_ts": time.time()})
         return data
     except Exception as e:
-        import traceback
         return {"error": str(e), "trace": traceback.format_exc()}
 
 

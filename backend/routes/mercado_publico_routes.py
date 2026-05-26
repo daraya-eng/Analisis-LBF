@@ -16,6 +16,7 @@ Montos ofertados:
   - Formato nuevo: o->>'valor_total_ofertado'
   - Formato antiguo: o->>'total'
 """
+import json as _json
 import re
 from fastapi import APIRouter, Depends, Query
 from auth import get_current_user
@@ -329,7 +330,6 @@ def _load_participacion(ano: int, tipo: str, mes: int = 0, mat: bool = False) ->
     part_ids   = round(ids_part / mkt_ids  * 100, 1) if mkt_ids   > 0 else 0
     part_valor = round(total_adj / mkt_valor * 100, 1) if mkt_valor > 0 else 0
 
-    import json as _json
     if isinstance(por_tipo_raw, str):
         por_tipo_raw = _json.loads(por_tipo_raw)
     por_tipo = [

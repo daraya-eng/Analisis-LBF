@@ -27,7 +27,7 @@ def _load_categoria() -> list:
         _FG = filtro_guias()
         conn = get_conn()
 
-        # PPTO + venta 2026 por categoría
+        # PPTO + venta 2026 por categoría + venta 2025 total en una sola query
         sql_cat = f"""
         WITH ppto AS (
             SELECT {_SQL_CAT_PPTO} AS categoria,
@@ -43,27 +43,28 @@ def _load_categoria() -> list:
               AND {DW_FILTRO}
               AND {_FG}
             GROUP BY {_SQL_CAT_BI}
+        ),
+        venta25_total AS (
+            SELECT SUM(CAST(VENTA AS float)) AS venta_2025_ytd
+            FROM BI_TOTAL_FACTURA
+            WHERE ANO = {ANO_ACT - 1} AND MES <= {MES_ACT}
+              AND {DW_FILTRO}
+              AND {_FG}
         )
         SELECT COALESCE(p.categoria, v.categoria) AS categoria,
                COALESCE(p.ppto_total, 0) AS ppto_total,
-               COALESCE(v.venta_2026_ytd, 0) AS venta_2026_ytd
+               COALESCE(v.venta_2026_ytd, 0) AS venta_2026_ytd,
+               t25.venta_2025_ytd
         FROM ppto p
         FULL OUTER JOIN venta26 v ON p.categoria = v.categoria
+        CROSS JOIN venta25_total t25
         ORDER BY ppto_total DESC
         """
         df = pd.read_sql(sql_cat, conn)
-
-        # Venta 2025 total (sin categoría)
-        sql_25 = f"""
-        SELECT SUM(CAST(VENTA AS float)) AS venta_2025_ytd
-        FROM BI_TOTAL_FACTURA
-        WHERE ANO = {ANO_ACT - 1} AND MES <= {MES_ACT}
-          AND {DW_FILTRO}
-          AND {_FG}
-        """
-        df_25 = pd.read_sql(sql_25, conn)
-        venta_2025_total = float(df_25.iloc[0]["venta_2025_ytd"] or 0) if len(df_25) > 0 else 0
         conn.close()
+
+        venta_2025_total = float(df["venta_2025_ytd"].iloc[0] or 0) if len(df) > 0 else 0
+        df = df.drop(columns=["venta_2025_ytd"])
 
         df["cumpl_pct"] = (
             (df["venta_2026_ytd"] / df["ppto_total"].replace(0, float("nan"))) * 100
@@ -89,9 +90,11 @@ def _load_categoria() -> list:
 
 @router.get("/")
 async def get_categorias(current_user: dict = Depends(get_current_user)):
-    cached = mem_get("categoria:all")
+    h = hoy()
+    cache_key = f"categoria:all:{h['ano']}:{h['mes']}"
+    cached = mem_get(cache_key)
     if cached:
         return cached
     result = {"data": _load_categoria()}
-    mem_set("categoria:all", result)
+    mem_set(cache_key, result)
     return result

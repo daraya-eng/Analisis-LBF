@@ -6,6 +6,7 @@ clientes declinando, actividad CM de competidores.
 Incluye meta del mes, proyeccion y scoring de oportunidad por cliente.
 """
 import calendar
+import re
 from datetime import date
 from fastapi import APIRouter, Depends, Query
 from typing import Optional
@@ -48,12 +49,15 @@ def _zona_label(zona: str) -> str:
 
 def _zona_raw_filters(zona_label: str) -> str:
     """Convert display label to SQL LIKE filters for VENDEDOR."""
-    # Check if it's a merged zone
+    # Sanitize: allow only alphanumeric, spaces, hyphens, underscores
+    safe = re.sub(r"[^A-Za-z0-9\-_ ]", "", zona_label)
+    # Check if it's a merged zone (match against original label, not sanitized,
+    # but the values in _ZONA_MERGE are hardcoded so safe to embed directly)
     raws = [k for k, v in _ZONA_MERGE.items() if v == zona_label]
     if raws:
         return " OR ".join(f"VENDEDOR = '{r}'" for r in raws)
-    # Otherwise try to match by suffix
-    return f"VENDEDOR LIKE '%-{zona_label}'"
+    # Otherwise try to match by suffix using sanitized label
+    return f"VENDEDOR LIKE '%-{safe}'"
 
 
 def _dias_habiles(ano: int, mes: int) -> tuple[int, int]:
@@ -316,7 +320,6 @@ def _load_oportunidades(zona_label: str, meses: list[int], categoria: str | None
         ultima_compra_str = None
         if ult:
             try:
-                from datetime import date
                 ult_date = ult if isinstance(ult, date) else date.fromisoformat(str(ult)[:10])
                 dias_sin_compra = (date.fromisoformat(_HOY) - ult_date).days
                 ultima_compra_str = ult_date.isoformat()
@@ -705,9 +708,8 @@ async def get_cliente_detalle(
                 dias_rest = None
                 if termino:
                     try:
-                        from datetime import date as _date
-                        t = _date.fromisoformat(str(termino)[:10])
-                        dias_rest = (t - _date.fromisoformat(hoy()["hoy"])).days
+                        t = date.fromisoformat(str(termino)[:10])
+                        dias_rest = (t - date.fromisoformat(hoy()["hoy"])).days
                     except Exception:
                         pass
                 licitaciones.append({

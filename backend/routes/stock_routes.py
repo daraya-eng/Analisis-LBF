@@ -123,7 +123,8 @@ async def get_stock_detalle(
 
     where = ""
     if categoria:
-        where = f"WHERE categoria = '{categoria}'"
+        safe_cat = categoria.replace("'", "''")
+        where = f"WHERE categoria = '{safe_cat}'"
 
     cur.execute(f"""
         SELECT codigo_producto, descripcion, categoria,
@@ -171,7 +172,8 @@ async def get_quiebres(
         "nfv.clasificacion = 'Quiebre'",
     ]
     if categoria:
-        filters.append(f"sa.categoria = '{categoria}'")
+        safe_cat = categoria.replace("'", "''")
+        filters.append(f"sa.categoria = '{safe_cat}'")
     if mes:
         filters.append(f"MONTH(nfv.fecha_documento) = {mes}")
 

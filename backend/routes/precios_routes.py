@@ -49,7 +49,8 @@ def _load_precios_data(meses: list[int], categoria: str | None) -> dict:
     conn = get_conn()
     cur = conn.cursor()
     mes_list = ",".join(str(m) for m in meses)
-    cat_filter = f"AND {_CAT_CASE} = '{categoria}'" if categoria else ""
+    safe_cat = categoria.replace("'", "''") if categoria else None
+    cat_filter = f"AND {_CAT_CASE} = '{safe_cat}'" if safe_cat else ""
 
     # ═══ 1. Variación por Categoría ═══
     cur.execute(f"""
@@ -178,7 +179,8 @@ def _load_precios_productos(rut: str, meses: list[int], categoria: str | None) -
     conn = get_conn()
     cur = conn.cursor()
     mes_list = ",".join(str(m) for m in meses)
-    cat_filter = f"AND {_CAT_CASE} = '{categoria}'" if categoria else ""
+    safe_cat = categoria.replace("'", "''") if categoria else None
+    cat_filter = f"AND {_CAT_CASE} = '{safe_cat}'" if safe_cat else ""
 
     cur.execute(f"""
         WITH p26 AS (

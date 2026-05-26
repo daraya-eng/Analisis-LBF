@@ -5,6 +5,8 @@ Client analysis — Unified: segmento, top gainers/losers, price/volume effect.
 Uses BI_TOTAL_FACTURA (includes guías).
 """
 import datetime
+import traceback
+from collections import defaultdict
 from fastapi import APIRouter, Depends, Query
 from typing import Optional
 from auth import get_current_user
@@ -219,7 +221,7 @@ def _load_clientes_data(meses: list[int]) -> dict:
     # SQL idéntico a _load_efecto_pv(): GROUP BY sin SEGMENTO para evitar
     # que el mismo (rut,cod) produzca filas duplicadas y se sobreescriba.
     cur.execute(f"""
-        SELECT LTRIM(RTRIM(RUT)), LTRIM(RTRIM(CODIGO)),
+        SELECT RUT, CODIGO,
                {_CAT_CASE} AS cat,
                MAX(LTRIM(RTRIM(ISNULL(SEGMENTO,'')))) AS seg_raw,
                SUM(CAST(VENTA AS float)), SUM(CAST(CANT AS float))
@@ -227,11 +229,11 @@ def _load_clientes_data(meses: list[int]) -> dict:
         WHERE ANO = {_ANO} AND MES IN ({mes_list})
           AND {_EXCL_DW} AND {_FG}
           AND {_CAT_CASE} IN ({_CATS_IN})
-        GROUP BY LTRIM(RTRIM(RUT)), LTRIM(RTRIM(CODIGO)), {_CAT_CASE}
+        GROUP BY RUT, CODIGO, {_CAT_CASE}
     """)
     sku_26: dict[tuple, dict] = {}
     for r in cur.fetchall():
-        rut, cod = str(r[0]).strip(), str(r[1]).strip()
+        rut, cod = str(r[0] or "").strip(), str(r[1] or "").strip()
         cat = str(r[2] or "").strip()
         seg = _resolver_seg(rut, str(r[3] or ""))
         key = (rut, cod)
@@ -243,17 +245,17 @@ def _load_clientes_data(meses: list[int]) -> dict:
                            "venta_26": float(r[4] or 0), "cant_26": float(r[5] or 0)}
 
     cur.execute(f"""
-        SELECT LTRIM(RTRIM(RUT)), LTRIM(RTRIM(CODIGO)),
+        SELECT RUT, CODIGO,
                MAX(LTRIM(RTRIM(ISNULL(SEGMENTO,'')))) AS seg_raw,
                SUM(CAST(VENTA AS float)), SUM(CAST(CANT AS float))
         FROM BI_TOTAL_FACTURA
         WHERE ANO = {_ANO - 1} AND MES IN ({mes_list})
           AND {_EXCL_DW} AND {_FG}
-        GROUP BY LTRIM(RTRIM(RUT)), LTRIM(RTRIM(CODIGO))
+        GROUP BY RUT, CODIGO
     """)
     sku_25: dict[tuple, dict] = {}
     for r in cur.fetchall():
-        rut, cod = str(r[0]).strip(), str(r[1]).strip()
+        rut, cod = str(r[0] or "").strip(), str(r[1] or "").strip()
         seg = _resolver_seg(rut, str(r[2] or ""))
         sku_25[(rut, cod)] = {"seg": seg,
                                "venta_25": float(r[3] or 0), "cant_25": float(r[4] or 0)}
@@ -509,7 +511,7 @@ def _load_efecto_pv(meses: list[int]) -> dict:
 
     # 2026: active categories only, grouped by (RUT, CODIGO, CAT)
     cur.execute(f"""
-        SELECT LTRIM(RTRIM(RUT)), LTRIM(RTRIM(CODIGO)),
+        SELECT RUT, CODIGO,
                {_CAT_CASE} AS cat,
                MAX(LTRIM(RTRIM(ISNULL(SEGMENTO,'')))) AS seg_raw,
                SUM(CAST(VENTA AS float)), SUM(CAST(CANT AS float))
@@ -517,11 +519,11 @@ def _load_efecto_pv(meses: list[int]) -> dict:
         WHERE ANO = {_ANO} AND MES IN ({mes_list})
           AND {_EXCL_DW} AND {_FG}
           AND {_CAT_CASE} IN ({_CATS_IN})
-        GROUP BY LTRIM(RTRIM(RUT)), LTRIM(RTRIM(CODIGO)), {_CAT_CASE}
+        GROUP BY RUT, CODIGO, {_CAT_CASE}
     """)
     sku_26: dict = {}
     for r in cur.fetchall():
-        rut, cod = str(r[0]).strip(), str(r[1]).strip()
+        rut, cod = str(r[0] or "").strip(), str(r[1] or "").strip()
         cat = str(r[2] or "").strip()
         seg = _seg(rut, str(r[3] or ""))
         key = (rut, cod)
@@ -533,23 +535,22 @@ def _load_efecto_pv(meses: list[int]) -> dict:
 
     # 2025: ALL products, no category filter — identical to _load_clientes_data() sku_25
     cur.execute(f"""
-        SELECT LTRIM(RTRIM(RUT)), LTRIM(RTRIM(CODIGO)),
+        SELECT RUT, CODIGO,
                MAX(LTRIM(RTRIM(ISNULL(SEGMENTO,'')))) AS seg_raw,
                SUM(CAST(VENTA AS float)), SUM(CAST(CANT AS float))
         FROM BI_TOTAL_FACTURA
         WHERE ANO = {_ANO - 1} AND MES IN ({mes_list})
           AND {_EXCL_DW} AND {_FG}
-        GROUP BY LTRIM(RTRIM(RUT)), LTRIM(RTRIM(CODIGO))
+        GROUP BY RUT, CODIGO
     """)
     sku_25: dict = {}
     for r in cur.fetchall():
-        rut, cod = str(r[0]).strip(), str(r[1]).strip()
+        rut, cod = str(r[0] or "").strip(), str(r[1] or "").strip()
         seg = _seg(rut, str(r[2] or ""))
         sku_25[(rut, cod)] = {"seg": seg, "v": float(r[3] or 0), "c": float(r[4] or 0)}
 
     conn.close()
 
-    from collections import defaultdict
     acc_seg: dict = defaultdict(lambda: {"ef_p": 0.0, "ef_v": 0.0, "v25": 0.0, "v26": 0.0})
     acc_cat: dict = defaultdict(lambda: {"ef_p": 0.0, "ef_v": 0.0, "v25": 0.0, "v26": 0.0})
 
@@ -628,7 +629,7 @@ def _load_efecto_pv_productos(meses: list[int]) -> list[dict]:
 
     # 2026: active categories, RUT x CODIGO x CAT
     cur.execute(f"""
-        SELECT LTRIM(RTRIM(RUT)), LTRIM(RTRIM(CODIGO)),
+        SELECT RUT, CODIGO,
                MAX(ISNULL(DESCRIPCION,'')) AS nom,
                {_CAT_CASE} AS cat,
                SUM(CAST(VENTA AS float)), SUM(CAST(CANT AS float))
@@ -636,12 +637,12 @@ def _load_efecto_pv_productos(meses: list[int]) -> list[dict]:
         WHERE ANO = {_ANO} AND MES IN ({mes_list})
           AND {_EXCL_DW} AND {_FG}
           AND {_CAT_CASE} IN ({_CATS_IN})
-        GROUP BY LTRIM(RTRIM(RUT)), LTRIM(RTRIM(CODIGO)), {_CAT_CASE}
+        GROUP BY RUT, CODIGO, {_CAT_CASE}
     """)
     data_26: dict = {}
     cod_meta: dict = {}  # cod -> {desc, cat}
     for r in cur.fetchall():
-        rut, cod = str(r[0]).strip(), str(r[1]).strip()
+        rut, cod = str(r[0] or "").strip(), str(r[1] or "").strip()
         desc = str(r[2] or "").strip()
         cat = str(r[3] or "").strip()
         key = (rut, cod)
@@ -668,18 +669,18 @@ def _load_efecto_pv_productos(meses: list[int]) -> list[dict]:
 
     # 2025: no category filter, RUT x CODIGO
     cur.execute(f"""
-        SELECT LTRIM(RTRIM(RUT)), LTRIM(RTRIM(CODIGO)),
+        SELECT RUT, CODIGO,
                MAX(ISNULL(CATEGORIA,'')) AS cat_raw,
                MAX(ISNULL(DESCRIPCION,'')) AS nom,
                SUM(CAST(VENTA AS float)), SUM(CAST(CANT AS float))
         FROM BI_TOTAL_FACTURA
         WHERE ANO = {_ANO - 1} AND MES IN ({mes_list})
           AND {_EXCL_DW} AND {_FG}
-        GROUP BY LTRIM(RTRIM(RUT)), LTRIM(RTRIM(CODIGO))
+        GROUP BY RUT, CODIGO
     """)
     data_25: dict = {}
     for r in cur.fetchall():
-        rut, cod = str(r[0]).strip(), str(r[1]).strip()
+        rut, cod = str(r[0] or "").strip(), str(r[1] or "").strip()
         cat_raw = str(r[2] or "").strip()
         desc = str(r[3] or "").strip()
         cat = _resolve_cat_25(cod, cat_raw)
@@ -692,7 +693,6 @@ def _load_efecto_pv_productos(meses: list[int]) -> list[dict]:
     conn.close()
 
     # Accumulate per CODIGO
-    from collections import defaultdict
     by_cod: dict = defaultdict(lambda: {"v25": 0.0, "c25": 0.0, "v26": 0.0, "c26": 0.0, "ef_p": 0.0, "ef_v": 0.0})
 
     all_keys = set(data_26.keys()) | set(data_25.keys())
@@ -763,7 +763,7 @@ async def get_efecto_pv_productos(
         mem_set(ck, data)
         return data
     except Exception as e:
-        import traceback; traceback.print_exc()
+        traceback.print_exc()
         return {"error": str(e)}
 
 
@@ -786,5 +786,5 @@ async def get_efecto_pv(
         mem_set(ck, data)
         return data
     except Exception as e:
-        import traceback; traceback.print_exc()
+        traceback.print_exc()
         return {"error": str(e)}

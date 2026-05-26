@@ -174,17 +174,16 @@ def _load_televentas_all(meses: list[int]) -> dict:
                SUM(CAST(f26.VENTA AS float)) AS venta_2026,
                SUM(CAST(f26.CONTRIBUCION AS float)) AS contribucion_2026
         FROM BI_TOTAL_FACTURA f26
+        LEFT JOIN BI_TOTAL_FACTURA f_hist
+            ON f_hist.RUT = f26.RUT
+           AND f_hist.ANO < {_ANO}
+           AND f_hist.VENDEDOR = '16-TELEVENTAS'
+           AND {_FG}
         WHERE f26.ANO = {_ANO} AND f26.MES IN ({mes_list})
           AND f26.VENDEDOR = '16-TELEVENTAS'
           AND f26.CODIGO NOT IN ('FLETE','NINV','SIN','')
           AND {_FG}
-          AND NOT EXISTS (
-              SELECT 1 FROM BI_TOTAL_FACTURA f_hist
-              WHERE f_hist.ANO < {_ANO}
-                AND f_hist.RUT = f26.RUT
-                AND f_hist.VENDEDOR = '16-TELEVENTAS'
-                AND {_FG}
-          )
+          AND f_hist.RUT IS NULL
         GROUP BY f26.RUT, f26.NOMBRE
         HAVING SUM(CAST(f26.VENTA AS float)) > 0
         ORDER BY venta_2026 DESC
@@ -210,13 +209,12 @@ def _load_televentas_all(meses: list[int]) -> dict:
             GROUP BY RUT, NOMBRE
             HAVING SUM(CAST(VENTA AS float)) > 0
         ) q4
-        WHERE NOT EXISTS (
-            SELECT 1 FROM BI_TOTAL_FACTURA f26
-            WHERE f26.ANO = {_ANO}
-              AND f26.RUT = q4.RUT
-              AND f26.VENDEDOR = '16-TELEVENTAS'
-              AND {_FG}
-        )
+        LEFT JOIN BI_TOTAL_FACTURA f26
+            ON f26.RUT = q4.RUT
+           AND f26.ANO = {_ANO}
+           AND f26.VENDEDOR = '16-TELEVENTAS'
+           AND {_FG}
+        WHERE f26.RUT IS NULL
         GROUP BY q4.RUT, q4.NOMBRE
         ORDER BY venta_q4_2025 DESC
     """)

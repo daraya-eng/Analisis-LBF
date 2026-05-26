@@ -2,7 +2,7 @@
 KAM Maule Sur — Plan Estratégico 3 meses (Noelia Parra).
 Módulo restringido: solo superadmin.
 """
-import re, json, os
+import re, json, os, datetime
 from collections import defaultdict
 from fastapi import APIRouter, Depends, Query
 from auth import get_current_user
@@ -88,32 +88,21 @@ def _load_data(meses: list[int]) -> dict:
             "n_clientes": int(r[3]), "n_skus": int(r[4]),
         })
 
-    # ── 3. Venta 2025 YTD ────────────────────────────────────────────────────
+    # ── 3. Venta mensual 2026 vs 2025 (single scan for both years) ───────────
     cur.execute(f"""
-        SELECT ISNULL(SUM(CAST(VENTA AS float)),0)
+        SELECT MES, ANO, SUM(CAST(VENTA AS float))
         FROM BI_TOTAL_FACTURA
-        WHERE VENDEDOR = '{ZONA}' AND ANO = 2025 AND MES IN ({ml})
+        WHERE VENDEDOR = '{ZONA}' AND ANO IN (2025, 2026) AND MES IN ({ml})
           AND {_EXCL_VEND} AND {_EXCL_COD}
+        GROUP BY MES, ANO ORDER BY ANO, MES
     """)
-    venta_25 = float(cur.fetchone()[0] or 0)
-
-    # ── 4. Venta mensual 2026 vs 2025 ────────────────────────────────────────
-    cur.execute(f"""
-        SELECT MES, SUM(CAST(VENTA AS float))
-        FROM BI_TOTAL_FACTURA
-        WHERE VENDEDOR = '{ZONA}' AND ANO = 2026 AND MES IN ({ml})
-          AND {_EXCL_VEND} AND {_EXCL_COD}
-        GROUP BY MES ORDER BY MES
-    """)
-    mens_26 = {int(r[0]): float(r[1] or 0) for r in cur.fetchall()}
-    cur.execute(f"""
-        SELECT MES, SUM(CAST(VENTA AS float))
-        FROM BI_TOTAL_FACTURA
-        WHERE VENDEDOR = '{ZONA}' AND ANO = 2025 AND MES IN ({ml})
-          AND {_EXCL_VEND} AND {_EXCL_COD}
-        GROUP BY MES ORDER BY MES
-    """)
-    mens_25 = {int(r[0]): float(r[1] or 0) for r in cur.fetchall()}
+    mens_26: dict = {}; mens_25: dict = {}
+    for mes, ano, venta in cur.fetchall():
+        if int(ano) == 2026:
+            mens_26[int(mes)] = float(venta or 0)
+        else:
+            mens_25[int(mes)] = float(venta or 0)
+    venta_25 = sum(mens_25.values())
 
     meses_data = []
     for m in meses:
@@ -148,15 +137,15 @@ def _load_data(meses: list[int]) -> dict:
         ORDER BY f26.v26 DESC
     """)
     clientes = []
+    today = datetime.date.today()
     for rut, nom, seg, v26, c26, ult, v25 in cur.fetchall():
         v26f = float(v26 or 0); c26f = float(c26 or 0); v25f = float(v25 or 0)
         crec = round((v26f/v25f - 1)*100, 1) if v25f > 0 else (100.0 if v26f > 0 else 0.0)
         mg   = round(c26f/v26f*100, 1) if v26f > 0 else 0
         dias = None
         if ult:
-            import datetime
             d = ult.date() if hasattr(ult, "date") else ult
-            dias = (datetime.date.today() - d).days
+            dias = (today - d).days
         clientes.append({
             "rut": str(rut or "").strip(),
             "nombre": str(nom or "").strip(),
@@ -179,13 +168,14 @@ def _load_data(meses: list[int]) -> dict:
                {_CAT_CASE.replace('CATEGORIA','f25.CATEGORIA')} AS cat,
                SUM(CAST(f25.VENTA AS float)) AS v25_sku
         FROM BI_TOTAL_FACTURA f25
+        LEFT JOIN (
+            SELECT DISTINCT RUT, CODIGO
+            FROM BI_TOTAL_FACTURA
+            WHERE VENDEDOR = '{ZONA}' AND ANO = 2026 AND MES IN ({ml})
+        ) f26 ON f26.RUT = f25.RUT AND f26.CODIGO = f25.CODIGO
         WHERE f25.VENDEDOR = '{ZONA}' AND f25.ANO = 2025 AND f25.MES IN ({ml})
           AND f25.{_EXCL_COD}
-          AND NOT EXISTS (
-              SELECT 1 FROM BI_TOTAL_FACTURA f26
-              WHERE f26.VENDEDOR = '{ZONA}' AND f26.ANO = 2026 AND f26.MES IN ({ml})
-                AND f26.RUT = f25.RUT AND f26.CODIGO = f25.CODIGO
-          )
+          AND f26.RUT IS NULL
         GROUP BY f25.RUT, f25.CODIGO,
                  {_CAT_CASE.replace('CATEGORIA','f25.CATEGORIA')}
         ORDER BY v25_sku DESC
@@ -239,19 +229,23 @@ def _load_data(meses: list[int]) -> dict:
             })
 
     # ── 8. Licitaciones vigentes perdidas ante competidores ───────────────────
+    # CTE + LEFT JOIN IS NULL replaces the correlated NOT EXISTS self-join on 225K rows
     cur.execute(f"""
+        WITH lbf_lics AS (
+            SELECT DISTINCT licitacion
+            FROM vw_LICITACIONES_CATEGORIZADAS
+            WHERE EsLBF = 1
+        )
         SELECT l.rut_cliente, MAX(l.nombre_cliente) AS nombre,
                MAX(l.nombre_empresa) AS empresa,
                SUM(TRY_CAST(l.monto_licitacion AS float)) AS monto
         FROM vw_LICITACIONES_CATEGORIZADAS l
+        LEFT JOIN lbf_lics ON lbf_lics.licitacion = l.licitacion
         WHERE l.estado = 'Adjudicado'
           AND l.fecha_termino >= GETDATE()
           AND l.FFVV_ZONA LIKE '%MAULE%'
           AND l.EsLBF = 0
-          AND NOT EXISTS (
-              SELECT 1 FROM vw_LICITACIONES_CATEGORIZADAS lbf
-              WHERE lbf.licitacion = l.licitacion AND lbf.EsLBF = 1
-          )
+          AND lbf_lics.licitacion IS NULL
         GROUP BY l.rut_cliente
         ORDER BY monto DESC
     """)

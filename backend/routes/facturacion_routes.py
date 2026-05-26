@@ -14,6 +14,8 @@ from auth import get_current_user
 from db import get_conn, hoy, filtro_guias
 from db_mp import get_pg_conn
 from cache import mem_get, mem_set, _mem_cache
+from openpyxl import Workbook
+from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 
 _NOTAS_PATH = os.path.join(os.path.dirname(__file__), "..", "data", "notas_licitaciones.json")
 _EXCLUIDOS_PATH = os.path.join(os.path.dirname(__file__), "..", "data", "excluidos_licitaciones.json")
@@ -634,9 +636,6 @@ async def get_excel_detalle(
     current_user: dict = Depends(get_current_user),
 ):
     """Genera Excel con detalle de productos por licitación para un KAM."""
-    from openpyxl import Workbook
-    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
-
     _FG = filtro_guias()
     conn = get_conn()
     cur = conn.cursor()

@@ -32,11 +32,14 @@ def _load_multiproducto_all() -> dict:
     cur = conn.cursor()
 
     # ═══ 1. KPIs: YTD 2026 vs 2025, mes actual vs mismo mes 2025 ═══
+    # Single query: YTD + mes actual + productos en un solo round-trip
     cur.execute(f"""
         SELECT ANO,
-               SUM(CAST(VENTA AS float)) AS venta,
-               SUM(CAST(CONTRIBUCION AS float)) AS contribucion,
-               COUNT(DISTINCT CODIGO) AS productos
+               SUM(CAST(VENTA AS float))                                          AS venta_ytd,
+               SUM(CAST(CONTRIBUCION AS float))                                   AS contrib_ytd,
+               COUNT(DISTINCT CODIGO)                                             AS productos,
+               SUM(CASE WHEN MES = {_MES} THEN CAST(VENTA AS float) ELSE 0 END) AS venta_mes,
+               SUM(CASE WHEN MES = {_MES} THEN CAST(CONTRIBUCION AS float) ELSE 0 END) AS contrib_mes
         FROM BI_TOTAL_FACTURA
         WHERE {_MP_FILTER} AND {_EXCL_COD}
           AND {_FG}
@@ -45,7 +48,11 @@ def _load_multiproducto_all() -> dict:
     """)
     kpi_raw = {}
     for r in cur.fetchall():
-        kpi_raw[int(r[0])] = {"venta": float(r[1] or 0), "contrib": float(r[2] or 0), "productos": int(r[3] or 0)}
+        kpi_raw[int(r[0])] = {
+            "venta": float(r[1] or 0), "contrib": float(r[2] or 0),
+            "productos": int(r[3] or 0),
+            "venta_mes": float(r[4] or 0), "contrib_mes": float(r[5] or 0),
+        }
 
     v26_ytd = kpi_raw.get(_ANO, {}).get("venta", 0)
     v25_ytd = kpi_raw.get(_ANO - 1, {}).get("venta", 0)
@@ -53,23 +60,8 @@ def _load_multiproducto_all() -> dict:
     margen_ytd = (c26_ytd / v26_ytd * 100) if v26_ytd > 0 else 0
     crec_ytd = ((v26_ytd / v25_ytd) - 1) * 100 if v25_ytd > 0 else 0
 
-    # Mes actual
-    cur.execute(f"""
-        SELECT ANO,
-               SUM(CAST(VENTA AS float)) AS venta,
-               SUM(CAST(CONTRIBUCION AS float)) AS contribucion
-        FROM BI_TOTAL_FACTURA
-        WHERE {_MP_FILTER} AND {_EXCL_COD}
-          AND {_FG}
-          AND ANO IN ({_ANO - 1}, {_ANO}) AND MES = {_MES}
-        GROUP BY ANO
-    """)
-    mes_raw = {}
-    for r in cur.fetchall():
-        mes_raw[int(r[0])] = {"venta": float(r[1] or 0), "contrib": float(r[2] or 0)}
-
-    v26_mes = mes_raw.get(_ANO, {}).get("venta", 0)
-    v25_mes = mes_raw.get(_ANO - 1, {}).get("venta", 0)
+    v26_mes = kpi_raw.get(_ANO, {}).get("venta_mes", 0)
+    v25_mes = kpi_raw.get(_ANO - 1, {}).get("venta_mes", 0)
     crec_mes = ((v26_mes / v25_mes) - 1) * 100 if v25_mes > 0 else 0
 
     # ═══ 2. Tendencia mensual 2025 vs 2026 ═══

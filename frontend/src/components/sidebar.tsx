@@ -6,6 +6,7 @@ import { useAuth } from "@/lib/auth-context";
 import {
   LayoutDashboard,
   Building2,
+  Globe2,
   BarChart3,
   Package,
   Users,
@@ -58,6 +59,7 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/dashboard/incentivos", label: "Incentivos", icon: TrendingUp, module: "incentivos" },
   { href: "/dashboard/renasys", label: "Renasys TPN", icon: Bandage, module: "renasys" },
   { href: "/dashboard/kam-maule", label: "KAM Maule Sur", icon: MapPin, module: "kam_maule" },
+  { href: "/dashboard/mercados-relevantes", label: "Mercados Relevantes", icon: Globe2, module: "mercados_relevantes" },
   { href: "/dashboard/glosario", label: "Glosario", icon: BookOpen, module: "dashboard" },
 ];
 

@@ -8,7 +8,7 @@ import datetime
 from fastapi import APIRouter, Depends, Query
 from typing import Optional
 from auth import get_current_user
-from db import get_conn, hoy, MESES_NOMBRE, filtro_guias, ref_date, FERIADOS_CL, calc_dias_habiles
+from db import get_conn, hoy, MESES_NOMBRE, filtro_guias, filtro_guias_mat, ref_date, FERIADOS_CL, calc_dias_habiles
 from cache import mem_get, mem_set
 
 router = APIRouter()
@@ -57,6 +57,8 @@ _ZONA_MERGE = {
     "19-V REGION II": "V REGION",
 }
 
+_VENDEDOR_MAP: dict = {}  # label → [raw_vendedor, ...]
+
 
 def _zona_label(zona: str) -> str:
     """Normalize zone name: strip number prefix, apply merges."""
@@ -66,6 +68,24 @@ def _zona_label(zona: str) -> str:
     # Remove numeric prefix like "102-" → "STGO 1"
     parts = zona.split("-", 1)
     return parts[1] if len(parts) > 1 else zona
+
+
+def _get_vendedor_map() -> dict:
+    """Build label → [raw_vendedores] map once and cache in memory."""
+    global _VENDEDOR_MAP
+    if _VENDEDOR_MAP:
+        return _VENDEDOR_MAP
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("SELECT DISTINCT LTRIM(RTRIM(VENDEDOR)) FROM BI_TOTAL_FACTURA WHERE ANO >= 2025")
+    vendors = [r[0] for r in cur.fetchall() if r[0] and r[0].strip()]
+    conn.close()
+    m: dict = {}
+    for v in vendors:
+        label = _zona_label(v)
+        m.setdefault(label, []).append(v)
+    _VENDEDOR_MAP = m
+    return m
 
 
 def _parse_periodo(periodo: str, mes: int | None) -> tuple[list[int], str]:
@@ -432,22 +452,22 @@ def _load_zona_data(meses: list[int]) -> dict:
 
 
 def _zona_raw_filters(zona_label: str) -> str:
-    """Convert display label back to SQL filter for VENDEDOR column."""
-    # Check if it's a merged zone
+    """Convert display label back to exact VENDEDOR IN (...) filter."""
     raw_zones = [k for k, v in _ZONA_MERGE.items() if v == zona_label]
+    if not raw_zones:
+        raw_zones = _get_vendedor_map().get(zona_label, [])
     if raw_zones:
-        return "(" + " OR ".join(f"VENDEDOR = '{z}'" for z in raw_zones) + ")"
-    # Otherwise, find the raw zone that matches the label
-    # Label is the part after the dash, so match with LIKE
-    return f"VENDEDOR LIKE '%-{zona_label}'"
+        vals = ",".join(f"'{z}'" for z in raw_zones)
+        return f"VENDEDOR IN ({vals})"
+    return f"VENDEDOR LIKE '%-{zona_label}'"  # fallback
 
 
 def _load_clientes_zona(zona_label: str, categoria: str, meses: list[int]) -> list:
     """Load client detail for a zona + category in a period."""
     _ANO = hoy()["ano"]
-    _FG = filtro_guias()
     conn = get_conn()
     cur = conn.cursor()
+    _FG = filtro_guias_mat(cur)  # materialize GF list to avoid correlated subquery plans
     mes_list = ",".join(str(m) for m in meses)
     zona_filter = _zona_raw_filters(zona_label)
 
@@ -462,7 +482,7 @@ def _load_clientes_zona(zona_label: str, categoria: str, meses: list[int]) -> li
             FROM BI_TOTAL_FACTURA
             WHERE ANO = {_ANO} AND MES IN ({mes_list})
               AND {_EXCL_DW} AND {zona_filter}
-              AND LTRIM(RTRIM(CATEGORIA)) {cat_filter}
+              AND CATEGORIA {cat_filter}
               AND {_FG}
             GROUP BY RUT, NOMBRE
         ),

@@ -52,7 +52,135 @@ def _sanitize_cat(cat: str) -> str:
     return re.sub(r"[^A-Z0-9\-_ /]", "", cat.upper())[:20].strip()
 
 
+def _run_q9_pg() -> tuple[list, list]:
+    """Query 9 (PostgreSQL) — runs in parallel with SQL Server queries 7+8."""
+    maule_filter = " OR ".join(f"UPPER(oc.comprador_nombre_organismo) LIKE '%{k}%'" for k in _MAULE_KW)
+    cm_lbf: list = []
+    cm_captacion: list = []
+    try:
+        pg  = get_pg_conn()
+        pgc = pg.cursor()
+        pgc.execute(f"""
+            SELECT oc.comprador_nombre_organismo,
+                   oc.proveedor_nombre_empresa,
+                   oc.proveedor_rut,
+                   SUM(COALESCE(oi.monto_total, oi.cantidad * oi.precio_unitario, 0)) AS monto
+            FROM ordenes_compra oc
+            JOIN ordenes_compra_items oi ON oc.id = oi.orden_compra_id
+            WHERE ({maule_filter})
+              AND oi.categoria ILIKE '%Equipamiento y suministros m%'
+              AND EXTRACT(YEAR FROM oc.fecha_creacion) = 2026
+            GROUP BY oc.comprador_nombre_organismo,
+                     oc.proveedor_nombre_empresa, oc.proveedor_rut
+            ORDER BY monto DESC
+        """)
+        rows = pgc.fetchall()
+        pgc.close()
+        pg.close()
+
+        lbf_orgs: dict  = defaultdict(float)
+        comp_orgs: dict = defaultdict(lambda: {"total": 0.0, "proveedores": set()})
+        for org, prov, rut, monto in rows:
+            m = float(monto or 0)
+            if rut == LBF_RUT_CM:
+                lbf_orgs[org] += m
+            else:
+                comp_orgs[org]["total"] += m
+                comp_orgs[org]["proveedores"].add(str(prov or "").strip())
+
+        for org, m in sorted(lbf_orgs.items(), key=lambda x: -x[1]):
+            comp_m = comp_orgs[org]["total"] if org in comp_orgs else 0
+            cm_lbf.append({
+                "organismo": org,
+                "monto_lbf": round(m),
+                "monto_comp": round(comp_m),
+                "share_lbf": round(m/(m+comp_m)*100, 1) if (m+comp_m) > 0 else 0,
+                "proveedores_comp": sorted(list(comp_orgs[org]["proveedores"]))[:4] if org in comp_orgs else [],
+            })
+        solo_comp = {o for o in comp_orgs if o not in lbf_orgs}
+        for org in sorted(solo_comp, key=lambda o: -comp_orgs[o]["total"])[:15]:
+            d = comp_orgs[org]
+            cm_captacion.append({
+                "organismo": org,
+                "monto_comp": round(d["total"]),
+                "proveedores": sorted(list(d["proveedores"]))[:4],
+            })
+    except Exception:
+        pass
+    return cm_lbf, cm_captacion
+
+
+def _run_q7_adj(ruts_zona: list) -> list:
+    """Query 7: licitaciones adjudicadas sin facturar — own connection."""
+    if not ruts_zona:
+        return []
+    ruts_sql = ",".join(f"'{r}'" for r in ruts_zona)
+    adj_sin_fact = []
+    conn2 = get_conn()
+    try:
+        cur2 = conn2.cursor()
+        cur2.execute(f"""
+            SELECT l.rut_cliente, MAX(l.nombre_cliente) AS nombre,
+                   COUNT(DISTINCT l.licitacion) AS n_lic,
+                   SUM(TRY_CAST(l.monto_licitacion AS float)) AS monto_adj
+            FROM vw_LICITACIONES_CATEGORIZADAS l
+            WHERE l.EsLBF = 1
+              AND l.estado = 'Adjudicado'
+              AND l.fecha_termino >= GETDATE()
+              AND l.rut_cliente IN ({ruts_sql})
+            GROUP BY l.rut_cliente
+            ORDER BY monto_adj DESC
+        """)
+        for rut, nom, n_lic, monto in cur2.fetchall():
+            adj_sin_fact.append({
+                "rut": str(rut or "").strip(),
+                "cliente": str(nom or "").strip(),
+                "n_licitaciones": int(n_lic),
+                "monto": round(float(monto or 0)),
+            })
+    finally:
+        conn2.close()
+    return adj_sin_fact
+
+
+def _run_q8_lics_comp() -> list:
+    """Query 8: licitaciones vigentes perdidas ante competidores — own connection."""
+    lics_competidor = []
+    conn3 = get_conn()
+    try:
+        cur3 = conn3.cursor()
+        cur3.execute("""
+            WITH lbf_lics AS (
+                SELECT DISTINCT licitacion
+                FROM vw_LICITACIONES_CATEGORIZADAS
+                WHERE EsLBF = 1
+            )
+            SELECT l.rut_cliente, MAX(l.nombre_cliente) AS nombre,
+                   MAX(l.nombre_empresa) AS empresa,
+                   SUM(TRY_CAST(l.monto_licitacion AS float)) AS monto
+            FROM vw_LICITACIONES_CATEGORIZADAS l
+            LEFT JOIN lbf_lics ON lbf_lics.licitacion = l.licitacion
+            WHERE l.estado = 'Adjudicado'
+              AND l.fecha_termino >= GETDATE()
+              AND l.FFVV_ZONA LIKE '%MAULE%'
+              AND l.EsLBF = 0
+              AND lbf_lics.licitacion IS NULL
+            GROUP BY l.rut_cliente
+            ORDER BY monto DESC
+        """)
+        lics_competidor = [
+            {"rut": str(r[0] or "").strip(), "cliente": str(r[1] or "").strip(),
+             "competidor": str(r[2] or "").strip(), "monto": round(float(r[3] or 0))}
+            for r in cur3.fetchall()
+        ]
+    finally:
+        conn3.close()
+    return lics_competidor
+
+
 def _load_data(meses: list[int]) -> dict:
+    import threading
+
     conn = get_conn()
     cur  = conn.cursor()
     ml   = _mes_list(meses)
@@ -203,115 +331,26 @@ def _load_data(meses: list[int]) -> dict:
         key=lambda x: -x["total_perdido"]
     )
 
-    # ── 7. Licitaciones adjudicadas sin facturar ──────────────────────────────
-    ruts_zona = list({c["rut"] for c in clientes} | {s["rut"] for s in skus_perdidos})
-    adj_sin_fact = []
-    if ruts_zona:
-        ruts_sql = ",".join(f"'{r}'" for r in ruts_zona)
-        cur.execute(f"""
-            SELECT l.rut_cliente, MAX(l.nombre_cliente) AS nombre,
-                   COUNT(DISTINCT l.licitacion) AS n_lic,
-                   SUM(TRY_CAST(l.monto_licitacion AS float)) AS monto_adj
-            FROM vw_LICITACIONES_CATEGORIZADAS l
-            WHERE l.EsLBF = 1
-              AND l.estado = 'Adjudicado'
-              AND l.fecha_termino >= GETDATE()
-              AND l.rut_cliente IN ({ruts_sql})
-            GROUP BY l.rut_cliente
-            ORDER BY monto_adj DESC
-        """)
-        for rut, nom, n_lic, monto in cur.fetchall():
-            adj_sin_fact.append({
-                "rut": str(rut or "").strip(),
-                "cliente": str(nom or "").strip(),
-                "n_licitaciones": int(n_lic),
-                "monto": round(float(monto or 0)),
-            })
-
-    # ── 8. Licitaciones vigentes perdidas ante competidores ───────────────────
-    # CTE + LEFT JOIN IS NULL replaces the correlated NOT EXISTS self-join on 225K rows
-    cur.execute(f"""
-        WITH lbf_lics AS (
-            SELECT DISTINCT licitacion
-            FROM vw_LICITACIONES_CATEGORIZADAS
-            WHERE EsLBF = 1
-        )
-        SELECT l.rut_cliente, MAX(l.nombre_cliente) AS nombre,
-               MAX(l.nombre_empresa) AS empresa,
-               SUM(TRY_CAST(l.monto_licitacion AS float)) AS monto
-        FROM vw_LICITACIONES_CATEGORIZADAS l
-        LEFT JOIN lbf_lics ON lbf_lics.licitacion = l.licitacion
-        WHERE l.estado = 'Adjudicado'
-          AND l.fecha_termino >= GETDATE()
-          AND l.FFVV_ZONA LIKE '%MAULE%'
-          AND l.EsLBF = 0
-          AND lbf_lics.licitacion IS NULL
-        GROUP BY l.rut_cliente
-        ORDER BY monto DESC
-    """)
-    lics_competidor = [
-        {"rut": str(r[0] or "").strip(), "cliente": str(r[1] or "").strip(),
-         "competidor": str(r[2] or "").strip(), "monto": round(float(r[3] or 0))}
-        for r in cur.fetchall()
-    ]
-
     conn.close()
 
-    # ── 9. Convenio Marco (PostgreSQL) ────────────────────────────────────────
-    maule_filter = " OR ".join(f"UPPER(oc.comprador_nombre_organismo) LIKE '%{k}%'" for k in _MAULE_KW)
-    cm_lbf: list   = []
-    cm_captacion: list = []
-    try:
-        pg  = get_pg_conn()
-        pgc = pg.cursor()
-        pgc.execute(f"""
-            SELECT oc.comprador_nombre_organismo,
-                   oc.proveedor_nombre_empresa,
-                   oc.proveedor_rut,
-                   SUM(COALESCE(oi.monto_total, oi.cantidad * oi.precio_unitario, 0)) AS monto
-            FROM ordenes_compra oc
-            JOIN ordenes_compra_items oi ON oc.id = oi.orden_compra_id
-            WHERE ({maule_filter})
-              AND oi.categoria ILIKE '%Equipamiento y suministros m%'
-              AND EXTRACT(YEAR FROM oc.fecha_creacion) = 2026
-            GROUP BY oc.comprador_nombre_organismo,
-                     oc.proveedor_nombre_empresa, oc.proveedor_rut
-            ORDER BY monto DESC
-        """)
-        rows = pgc.fetchall()
+    # ── 7 + 8 + 9: Run in parallel (vw_LICITACIONES_CATEGORIZADAS × 2, PostgreSQL) ──
+    ruts_zona = list({c["rut"] for c in clientes} | {s["rut"] for s in skus_perdidos})
 
-        lbf_orgs: dict  = defaultdict(float)
-        comp_orgs: dict = defaultdict(lambda: {"total": 0.0, "proveedores": set()})
-        for org, prov, rut, monto in rows:
-            m = float(monto or 0)
-            if rut == LBF_RUT_CM:
-                lbf_orgs[org] += m
-            else:
-                comp_orgs[org]["total"] += m
-                comp_orgs[org]["proveedores"].add(str(prov or "").strip())
+    adj_result:  list = []
+    comp_result: list = []
+    pg_result:   tuple = ([], [])
 
-        for org, m in sorted(lbf_orgs.items(), key=lambda x: -x[1]):
-            comp_m = comp_orgs[org]["total"] if org in comp_orgs else 0
-            cm_lbf.append({
-                "organismo": org,
-                "monto_lbf": round(m),
-                "monto_comp": round(comp_m),
-                "share_lbf": round(m/(m+comp_m)*100, 1) if (m+comp_m) > 0 else 0,
-                "proveedores_comp": sorted(list(comp_orgs[org]["proveedores"]))[:4] if org in comp_orgs else [],
-            })
-        solo_comp = {o for o in comp_orgs if o not in lbf_orgs}
-        for org in sorted(solo_comp, key=lambda o: -comp_orgs[o]["total"])[:15]:
-            d = comp_orgs[org]
-            cm_captacion.append({
-                "organismo": org,
-                "monto_comp": round(d["total"]),
-                "proveedores": sorted(list(d["proveedores"]))[:4],
-            })
+    def _t7(): nonlocal adj_result;  adj_result  = _run_q7_adj(ruts_zona)
+    def _t8(): nonlocal comp_result; comp_result = _run_q8_lics_comp()
+    def _t9(): nonlocal pg_result;   pg_result   = _run_q9_pg()
 
-        pgc.close()
-        pg.close()
-    except Exception:
-        pass
+    threads = [threading.Thread(target=fn) for fn in (_t7, _t8, _t9)]
+    for t in threads: t.start()
+    for t in threads: t.join()
+
+    adj_sin_fact   = adj_result
+    lics_competidor = comp_result
+    cm_lbf, cm_captacion = pg_result
 
     # ── Build response ────────────────────────────────────────────────────────
     venta_26   = sum(c["venta"] for c in cats_26)

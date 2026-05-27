@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { api, clearClientCache } from "@/lib/api";
 import { fmtAbs, fmtPct, semaforo, fmt } from "@/lib/format";
 import { RefreshCw, ChevronDown, ChevronRight } from "lucide-react";
@@ -206,23 +206,31 @@ function ClientDetail({ zona, categoria, period }: { zona: string; categoria: st
 export default function ZonaPage() {
   const [data, setData] = useState<ZonaData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [period, setPeriod] = useState(`mes-${new Date().getMonth() + 1}`);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [expandedCat, setExpandedCat] = useState<string | null>(null); // "ZONA|CAT"
+  const dataRef = useRef<ZonaData | null>(null);
 
   const fetchData = useCallback(async (periodo: string) => {
-    setLoading(true);
+    if (dataRef.current) {
+      setRefreshing(true);
+    } else {
+      setLoading(true);
+    }
     try {
       let queryParam = `?periodo=${periodo}`;
       if (periodo.startsWith("mes-")) {
         queryParam = `?periodo=mes&mes=${periodo.split("-")[1]}`;
       }
       const res = await api.get<ZonaData>(`/api/zona/${queryParam}`);
+      dataRef.current = res;
       setData(res);
     } catch (e) {
       console.error("Failed to load zona data", e);
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   }, []);
 
@@ -298,7 +306,8 @@ export default function ZonaPage() {
           padding: "10px 20px", borderRadius: 10, border: "1px solid #E2E8F0",
           background: "white", fontSize: 13, fontWeight: 600, color: "#374151", cursor: "pointer",
         }}>
-          <RefreshCw size={14} /> Actualizar
+          <RefreshCw size={14} style={refreshing ? { animation: "spin-ring 0.75s linear infinite" } : undefined} />
+          {refreshing ? "Cargando..." : "Actualizar"}
         </button>
       </div>
 

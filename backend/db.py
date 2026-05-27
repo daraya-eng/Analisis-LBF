@@ -177,6 +177,28 @@ def filtro_guias() -> str:
     )
 
 
+def filtro_guias_mat(cur) -> str:
+    """Versión materializada: pre-obtiene los guia_nums validos con el cursor dado
+    y devuelve el filtro con literales. Evita que SQL Server evalúe la subconsulta
+    por cada fila (problema con ciertos planes de ejecución).
+    Usar cuando filtro_guias() cause planes lentos en queries complejas."""
+    t = datetime.date.today()
+    cur.execute(
+        "SELECT DISTINCT CAST(guia_num AS varchar(20)) "
+        "FROM vw_guias_por_facturar "
+        "WHERE CAST(fecha AS date) = (SELECT MAX(CAST(fecha AS date)) FROM vw_guias_por_facturar)"
+    )
+    nums = [r[0] for r in cur.fetchall() if r[0] is not None]
+    if not nums:
+        return "DOC_CODE <> 'GF'"
+    nums_str = ",".join(nums)
+    return (
+        f"(DOC_CODE <> 'GF' OR "
+        f"(ANO = {t.year} AND MES = {t.month} "
+        f"AND TRY_CAST(GUIA_NUM AS bigint) IN ({nums_str})))"
+    )
+
+
 def hoy():
     """Return today's date info — always fresh, never stale."""
     t = datetime.date.today()

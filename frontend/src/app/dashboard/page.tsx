@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState, useCallback, useRef } from "react";
 import { api, clearClientCache } from "@/lib/api";
 import { fmtAbs, fmtPct, semaforo, fmt } from "@/lib/format";
 import { RefreshCw, ChevronDown, ChevronRight } from "lucide-react";
@@ -273,6 +273,7 @@ const MONTH_OPTIONS = [
 export default function DashboardPage() {
   const [data, setData] = useState<DashData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [period, setPeriod] = useState(`mes-${new Date().getMonth() + 1}`);
   const [rangoDesde, setRangoDesde] = useState("");
   const [rangoHasta, setRangoHasta] = useState("");
@@ -280,9 +281,14 @@ export default function DashboardPage() {
   const [catDetailZonas, setCatDetailZonas] = useState<CatDetailZona[]>([]);
   const [catDetailLoading, setCatDetailLoading] = useState(false);
   const [dailyData, setDailyData] = useState<DailyData | null>(null);
+  const dataRef = useRef<DashData | null>(null);
 
   const fetchDashboard = useCallback(async (periodo: string, desde?: string, hasta?: string) => {
-    setLoading(true);
+    if (dataRef.current) {
+      setRefreshing(true);
+    } else {
+      setLoading(true);
+    }
     try {
       let queryParam = `?periodo=${periodo}`;
       let mesNum = new Date().getMonth() + 1;
@@ -294,6 +300,7 @@ export default function DashboardPage() {
         queryParam = `?periodo=mes&mes=${mesNum}`;
       }
       const res = await api.get<DashData>(`/api/dashboard/all${queryParam}`);
+      dataRef.current = res;
       setData(res);
       api.get<DailyData>(`/api/dashboard/diario?mes=${mesNum}`)
         .then(setDailyData)
@@ -302,6 +309,7 @@ export default function DashboardPage() {
       console.error("Failed to load dashboard", e);
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   }, []);
 
@@ -520,7 +528,8 @@ export default function DashboardPage() {
             padding: "6px 14px", borderRadius: 8, border: "1px solid #E2E8F0",
             background: "white", fontSize: 12, fontWeight: 600, color: "#374151", cursor: "pointer",
           }}>
-            <RefreshCw size={13} /> Actualizar
+            <RefreshCw size={13} style={refreshing ? { animation: "spin-ring 0.75s linear infinite" } : undefined} />
+            {refreshing ? "Cargando..." : "Actualizar"}
           </button>
         </div>
       </div>

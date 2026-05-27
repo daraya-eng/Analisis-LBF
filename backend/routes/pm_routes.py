@@ -5,7 +5,7 @@ Muestra KPIs, desglose por categoría, gráfico de barras y tabla de productos.
 from fastapi import APIRouter, Depends, Query
 from typing import Optional
 from auth import get_current_user
-from db import get_conn, hoy, filtro_guias, calc_dias_habiles
+from db import get_conn, hoy, filtro_guias_mat, calc_dias_habiles
 from cache import mem_get, mem_set
 
 router = APIRouter()
@@ -33,10 +33,12 @@ _CAT_CASE_PPTO = (
 
 
 def _zona_sql(zona: str) -> str:
-    """Genera fragmento WHERE para filtrar por zona en BI_TOTAL_FACTURA."""
+    """Genera fragmento WHERE para filtrar por zona en BI_TOTAL_FACTURA.
+    El frontend envía el valor raw completo (ej: '08-MAULE-SUR'), usar igualdad directa."""
     if not zona:
         return "1=1"
-    return f"VENDEDOR LIKE '%-{zona.strip()}' OR VENDEDOR = '{zona.strip()}'"
+    z = zona.strip().replace("'", "''")
+    return f"VENDEDOR = '{z}'"
 
 
 def _zona_ppto_sql(zona: str) -> str:
@@ -78,14 +80,7 @@ def _codigo_sql(codigo: str, alias: str = "") -> str:
     return f"{pref}CODIGO = '{cod}'"
 
 
-@router.get("/resumen")
-async def get_pm_resumen(
-    zona: str = Query(""),
-    categorias: str = Query(""),
-    subclase: str = Query(""),
-    codigo: str = Query(""),
-    current_user: dict = Depends(get_current_user),
-):
+def _load_pm(zona: str = "", categorias: str = "", subclase: str = "", codigo: str = "") -> dict:
     ck = f"pm:resumen:{zona}:{categorias}:{subclase}:{codigo}"
     cached = mem_get(ck)
     if cached:
@@ -94,7 +89,6 @@ async def get_pm_resumen(
     h = hoy()
     _ANO = h["ano"]
     _MES = h["mes"]
-    _FG = filtro_guias()
     hab_trans, hab_rest, hab_total = calc_dias_habiles([_MES], _ANO)
     pct_dias = round(hab_trans / hab_total * 100, 2) if hab_total > 0 else 0
 
@@ -111,6 +105,7 @@ async def get_pm_resumen(
 
     conn = get_conn()
     cur = conn.cursor()
+    _FG = filtro_guias_mat(cur)  # materialize GF list once to avoid correlated subquery plans
 
     # ═══ 1. Venta real mes + trimestre + YTD (filtrada) ═══
     cur.execute(f"""
@@ -433,6 +428,17 @@ async def get_pm_resumen(
     }
     mem_set(ck, result)
     return result
+
+
+@router.get("/resumen")
+async def get_pm_resumen(
+    zona: str = Query(""),
+    categorias: str = Query(""),
+    subclase: str = Query(""),
+    codigo: str = Query(""),
+    current_user: dict = Depends(get_current_user),
+):
+    return _load_pm(zona, categorias, subclase, codigo)
 
 
 @router.get("/filtros")

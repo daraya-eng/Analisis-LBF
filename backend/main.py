@@ -12,28 +12,39 @@ from fastapi import FastAPI, Depends, BackgroundTasks, Request
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 from jose import JWTError, jwt
-from routes import auth_routes, dashboard_routes, zona_routes, categoria_routes, resumen_routes, televentas_routes, multiproducto_routes, clientes_routes, mercado_routes, facturacion_routes, stock_routes, mercado_publico_routes, ma_routes, oportunidades_routes, guantes_routes, e1_routes, incentivos_routes, maestro_mp_routes, pm_routes, renasys_routes, kam_maule_routes
+from routes import auth_routes, dashboard_routes, zona_routes, categoria_routes, resumen_routes, televentas_routes, multiproducto_routes, clientes_routes, mercado_routes, facturacion_routes, stock_routes, mercado_publico_routes, ma_routes, oportunidades_routes, guantes_routes, e1_routes, incentivos_routes, maestro_mp_routes, pm_routes, renasys_routes, kam_maule_routes, mercados_relevantes_routes
 from auth import get_current_user, track_request, SECRET_KEY, ALGORITHM
 from cache import clear_mem_cache
 
 logger = logging.getLogger("uvicorn.error")
 
 def _warm_cache():
-    """Pre-load heavy endpoints into memory cache. Runs in background thread."""
+    """Pre-load heavy endpoints into memory cache. All warm-ups run in parallel."""
     warmups = {
-        "resumen_all": _warm_resumen,
-        "dashboard": _warm_dashboard,
-        "zona": _warm_zona,
-        "televentas": _warm_televentas,
-        "maestro_mp": _warm_maestro_mp,
+        "resumen_all":          _warm_resumen,
+        "dashboard":            _warm_dashboard,
+        "zona":                 _warm_zona,
+        "televentas":           _warm_televentas,
+        "maestro_mp":           _warm_maestro_mp,
+        "mercados_relevantes":  _warm_mercados_relevantes,
+        "kam_maule":            _warm_kam_maule,
+        "pm":                   _warm_pm,
     }
-    for name, fn in warmups.items():
+
+    def _run_one(name, fn):
         try:
             t0 = _time.time()
             fn()
             logger.info(f"[WARM-UP] {name} cargado en {_time.time() - t0:.1f}s")
         except Exception as e:
             logger.warning(f"[WARM-UP] {name} fallo: {e}")
+
+    threads = [threading.Thread(target=_run_one, args=(name, fn), daemon=True)
+               for name, fn in warmups.items()]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
 
 
 def _warm_resumen():
@@ -56,31 +67,55 @@ def _warm_resumen():
 
 def _warm_dashboard():
     from cache import mem_get, mem_set
-    from db import hoy
-    _MES = hoy()["mes"]
-    ck = "dashboard:ytd:None"
-    if mem_get(ck):
-        return
-    meses = list(range(1, _MES + 1))
-    raw = dashboard_routes._load_dashboard_raw()
-    result = dashboard_routes._build_for_period(raw, meses)
-    result["periodo"] = "ytd"
-    result["label"] = f"YTD"
-    mem_set(ck, result)
+    from db import hoy, MESES_NOMBRE
+    h = hoy()
+    _MES = h["mes"]
+    raw = None
+
+    # Warm up YTD
+    ck_ytd = "dashboard:ytd:None:None:None"
+    if not mem_get(ck_ytd):
+        raw = dashboard_routes._load_dashboard_raw()
+        result = dashboard_routes._build_for_period(raw, list(range(1, _MES + 1)))
+        result["periodo"] = "ytd"
+        result["label"] = "YTD"
+        mem_set(ck_ytd, result)
+
+    # Warm up current month (default view in frontend)
+    ck_mes = f"dashboard:mes:{_MES}:None:None"
+    if not mem_get(ck_mes):
+        if raw is None:
+            raw = dashboard_routes._load_dashboard_raw()
+        result = dashboard_routes._build_for_period(raw, [_MES])
+        result["periodo"] = "mes"
+        result["label"] = MESES_NOMBRE[_MES]
+        mem_set(ck_mes, result)
 
 
 def _warm_zona():
     from cache import mem_get, mem_set
-    from db import hoy
-    _MES = hoy()["mes"]
-    ck = "zona:ytd:None"
-    if mem_get(ck):
-        return
-    meses = list(range(1, _MES + 1))
-    data = zona_routes._load_zona_data(meses)
-    data["periodo"] = "ytd"
-    data["label"] = "YTD"
-    mem_set(ck, data)
+    from db import hoy, MESES_NOMBRE
+    # Pre-build VENDEDOR map so drill-downs use exact equality (no LIKE scan)
+    zona_routes._get_vendedor_map()
+    h = hoy()
+    _MES = h["mes"]
+
+    # Warm up YTD
+    ck_ytd = "zona:ytd:None"
+    if not mem_get(ck_ytd):
+        meses = list(range(1, _MES + 1))
+        data = zona_routes._load_zona_data(meses)
+        data["periodo"] = "ytd"
+        data["label"] = "YTD"
+        mem_set(ck_ytd, data)
+
+    # Warm up current month (default view in frontend)
+    ck_mes = f"zona:mes:{_MES}"
+    if not mem_get(ck_mes):
+        data = zona_routes._load_zona_data([_MES])
+        data["periodo"] = "mes"
+        data["label"] = MESES_NOMBRE[_MES]
+        mem_set(ck_mes, data)
 
 
 def _warm_televentas():
@@ -97,6 +132,41 @@ def _warm_televentas():
     mem_set(ck, data)
 
 
+def _warm_mercados_relevantes():
+    from cache import mem_get, mem_set
+    from db import get_conn
+    import traceback
+
+    def _run(ck, sql):
+        if mem_get(ck):
+            return
+        conn = get_conn()
+        cur = conn.cursor()
+        cur.execute(sql)
+        cols = [d[0] for d in cur.description]
+        rows = [dict(zip(cols, r)) for r in cur.fetchall()]
+        conn.close()
+        mem_set(ck, rows)
+
+    _run(
+        "mercados_relevantes:lic_lbf_dw_raw",
+        "SELECT YEAR(FechaCierre) AS ano, ISNULL(Tipo,'(sin tipo)') AS tipo,"
+        " COUNT(DISTINCT Codigo) AS total_lics,"
+        " COUNT(DISTINCT CASE WHEN Ofertaseleccionada='Seleccionada' THEN Codigo END) AS lics_adj,"
+        " COUNT(DISTINCT CASE WHEN ISNULL(ValorTotalOfertado,0)>0"
+        "   THEN CONCAT(CAST(Codigo AS VARCHAR),CAST(CodigoItem AS VARCHAR)) END) AS total_items,"
+        " COUNT(DISTINCT CASE WHEN Ofertaseleccionada='Seleccionada' AND ISNULL(ValorTotalOfertado,0)>0"
+        "   THEN CONCAT(CAST(Codigo AS VARCHAR),CAST(CodigoItem AS VARCHAR)) END) AS items_adj,"
+        " SUM(CAST(ISNULL(ValorTotalOfertado,0) AS FLOAT)) AS monto_ofertado,"
+        " SUM(CAST(ISNULL(MontoLineaAdjudica,0) AS FLOAT)) AS monto_adjudicado"
+        " FROM DWLBF.dbo.dw_datos_abiertos_licitaciones"
+        " WHERE RutProveedor='93.366.000-1' AND FechaCierre IS NOT NULL"
+        "   AND YEAR(FechaCierre) IN (2025,2026)"
+        " GROUP BY YEAR(FechaCierre), ISNULL(Tipo,'(sin tipo)')"
+        " ORDER BY ano, monto_ofertado DESC"
+    )
+
+
 def _warm_maestro_mp():
     from cache import mem_get, mem_set
     ano = 2026
@@ -108,6 +178,26 @@ def _warm_maestro_mp():
     if not mem_get(ck_opp):
         data = maestro_mp_routes._load_oportunidades(ano)
         mem_set(ck_opp, data)
+
+
+def _warm_kam_maule():
+    from cache import mem_get, mem_set
+    from db import hoy
+    ck = "kam_maule:resumen"
+    if mem_get(ck):
+        return
+    h = hoy()
+    meses = list(range(1, h["mes"] + 1))
+    data = kam_maule_routes._load_data(meses)
+    mem_set(ck, data)
+
+
+def _warm_pm():
+    from cache import mem_get
+    ck = "pm:resumen:::"
+    if mem_get(ck):
+        return
+    pm_routes._load_pm()  # caches result internally
 
 
 @asynccontextmanager
@@ -174,6 +264,7 @@ app.include_router(maestro_mp_routes.router, prefix="/api/maestro-mp", tags=["ma
 app.include_router(pm_routes.router, prefix="/api/pm", tags=["pm"])
 app.include_router(renasys_routes.router, prefix="/api/renasys", tags=["renasys"])
 app.include_router(kam_maule_routes.router, prefix="/api/kam-maule", tags=["kam_maule"])
+app.include_router(mercados_relevantes_routes.router, prefix="/api/mercados-relevantes", tags=["mercados_relevantes"])
 
 
 @app.get("/api/health")

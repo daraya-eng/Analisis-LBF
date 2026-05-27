@@ -25,6 +25,7 @@ const PATH_TO_MODULE: Record<string, string> = {
   pm: "pm",
   renasys: "renasys",
   "kam-maule": "kam_maule",
+  "mercados-relevantes": "mercados_relevantes",
 };
 
 export default function DashboardLayout({

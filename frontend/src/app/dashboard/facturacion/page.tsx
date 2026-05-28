@@ -634,7 +634,7 @@ export default function FacturacionPage() {
 
   useEffect(() => {
     setLoading(true);
-    api.get<any>("/api/facturacion/", { noCache: true })
+    api.get<any>("/api/facturacion/")
       .then(r => {
         setData(r);
         // Inicializar excluidos desde el estado persistido en backend

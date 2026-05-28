@@ -11,7 +11,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import Optional, List
 from auth import get_current_user
-from db import get_conn, hoy, filtro_guias
+from db import get_conn, hoy, filtro_guias, filtro_guias_mat
 from db_mp import get_pg_conn
 from cache import mem_get, mem_set, _mem_cache
 from openpyxl import Workbook
@@ -65,16 +65,17 @@ def _load_facturacion() -> dict:
     h = hoy()
     _ANO, _MES, _HOY = h["ano"], h["mes"], h["hoy"]
     _MES_NOMBRE, _MES_PREFIX = h["mes_nombre"], h["mes_prefix"]
-    _FG = filtro_guias()
 
     conn = get_conn()
     cur = conn.cursor()
+    _FG = filtro_guias_mat(cur)  # materialize GF list once to avoid correlated subquery plans
 
-    # ── KAM por RUT (último KAM registrado en BI_TOTAL_FACTURA) ──
+    # ── KAM por RUT (último KAM registrado en BI_TOTAL_FACTURA, solo años recientes) ──
     cur.execute(f"""
         SELECT RUT, MAX(KAM) AS KAM
         FROM BI_TOTAL_FACTURA
         WHERE KAM IS NOT NULL AND KAM != ''
+          AND ANO >= 2025
           AND {_FG}
         GROUP BY RUT
     """)
@@ -217,6 +218,7 @@ def _load_facturacion() -> dict:
             SELECT RUT, SUM(CAST(VENTA AS float)) AS facturado
             FROM BI_TOTAL_FACTURA
             WHERE LICITACION IS NOT NULL AND LICITACION != ''
+              AND ANO >= 2020
               AND {_FG}
             GROUP BY RUT
         )
@@ -339,9 +341,9 @@ def _load_facturacion() -> dict:
 
 def _load_detalle_licitacion(licitacion: str) -> dict:
     """Detalle de una licitación: productos adjudicados + facturados."""
-    _FG = filtro_guias()
     conn = get_conn()
     cur = conn.cursor()
+    _FG = filtro_guias_mat(cur)
 
     # Productos adjudicados en la licitación (desde vw_LICITACIONES)
     cur.execute("""
@@ -566,9 +568,9 @@ async def get_detalle_batch(
     try:
         if not body.licitaciones:
             return {}
-        _FG = filtro_guias()
         conn = get_conn()
         cur = conn.cursor()
+        _FG = filtro_guias_mat(cur)
         placeholders = ",".join(["?" for _ in body.licitaciones])
 
         # Adjudicados
@@ -636,9 +638,9 @@ async def get_excel_detalle(
     current_user: dict = Depends(get_current_user),
 ):
     """Genera Excel con detalle de productos por licitación para un KAM."""
-    _FG = filtro_guias()
     conn = get_conn()
     cur = conn.cursor()
+    _FG = filtro_guias_mat(cur)
     placeholders = ",".join(["?" for _ in body.licitaciones])
 
     # Datos de licitaciones (resumen)

@@ -29,6 +29,7 @@ def _warm_cache():
         "mercados_relevantes":  _warm_mercados_relevantes,
         "kam_maule":            _warm_kam_maule,
         "pm":                   _warm_pm,
+        "facturacion":          _warm_facturacion,
     }
 
     def _run_one(name, fn):
@@ -198,6 +199,15 @@ def _warm_pm():
     if mem_get(ck):
         return
     pm_routes._load_pm()  # caches result internally
+
+
+def _warm_facturacion():
+    from cache import mem_get, mem_set
+    ck = "facturacion_vigentes"
+    if mem_get(ck):
+        return
+    data = facturacion_routes._load_facturacion()
+    mem_set(ck, data)
 
 
 @asynccontextmanager

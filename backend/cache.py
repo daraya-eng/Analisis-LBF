@@ -13,7 +13,7 @@ from datetime import datetime
 # Invalidated by clear_mem_cache() (called from refresh button).
 
 _mem_cache: dict[str, tuple[float, object]] = {}   # key → (timestamp, data)
-_TTL = 900  # 15 minutes
+_TTL = 28800  # 8 horas — datos se actualizan 1x/día via SP; refresh manual con botón 🔄
 
 
 def mem_get(key: str) -> object | None:

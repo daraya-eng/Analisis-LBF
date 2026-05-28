@@ -110,9 +110,9 @@ def _parse_periodo(periodo: str, mes: int | None) -> tuple[list[int], str]:
 def _load_zona_data(meses: list[int]) -> dict:
     """Load all zona/KAM data for a given set of months."""
     _ANO = hoy()["ano"]
-    _FG = filtro_guias()
     conn = get_conn()
     cur = conn.cursor()
+    _FG = filtro_guias_mat(cur)
 
     mes_list = ",".join(str(m) for m in meses)
 

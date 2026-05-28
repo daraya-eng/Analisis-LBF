@@ -9,7 +9,7 @@ import pandas as pd
 from fastapi import APIRouter, Depends, Query
 from typing import Optional
 from auth import get_current_user
-from db import get_conn, DW_FILTRO, hoy, MESES_NOMBRE, filtro_guias, calc_dias_habiles
+from db import get_conn, DW_FILTRO, hoy, MESES_NOMBRE, filtro_guias, filtro_guias_mat, calc_dias_habiles
 from cache import mem_get, mem_set
 
 router = APIRouter()
@@ -83,12 +83,24 @@ def _week_boundaries(year: int, month: int) -> list[dict]:
     return weeks
 
 
+def _fg(alias: str, fg: str) -> str:
+    """Prefija columnas ambiguas de filtro_guias() con el alias de tabla dado."""
+    import re
+    # Solo prefijar la parte exterior (antes del IN (SELECT ...))
+    parts = fg.split("IN (SELECT", 1)
+    outer = parts[0]
+    rest  = ("IN (SELECT" + parts[1]) if len(parts) > 1 else ""
+    for col in ("DOC_CODE", "ANO", "MES", "GUIA_NUM"):
+        outer = re.sub(rf"\b{col}\b", f"{alias}.{col}", outer)
+    return outer + rest
+
+
 def _load_televentas_all(meses: list[int]) -> dict:
     """Load all Televentas data in a single DB connection."""
     _ANO = hoy()["ano"]
-    _FG = filtro_guias()
     conn = get_conn()
     cur = conn.cursor()
+    _FG = filtro_guias_mat(cur)  # materialize GF list once — evita subquery correlacionada en cada query
     mes_list = ",".join(str(m) for m in meses)
     max_mes = max(meses)
 
@@ -178,11 +190,11 @@ def _load_televentas_all(meses: list[int]) -> dict:
             ON f_hist.RUT = f26.RUT
            AND f_hist.ANO < {_ANO}
            AND f_hist.VENDEDOR = '16-TELEVENTAS'
-           AND {_FG}
+           AND {_fg('f_hist', _FG)}
         WHERE f26.ANO = {_ANO} AND f26.MES IN ({mes_list})
           AND f26.VENDEDOR = '16-TELEVENTAS'
           AND f26.CODIGO NOT IN ('FLETE','NINV','SIN','')
-          AND {_FG}
+          AND {_fg('f26', _FG)}
           AND f_hist.RUT IS NULL
         GROUP BY f26.RUT, f26.NOMBRE
         HAVING SUM(CAST(f26.VENTA AS float)) > 0
@@ -213,7 +225,7 @@ def _load_televentas_all(meses: list[int]) -> dict:
             ON f26.RUT = q4.RUT
            AND f26.ANO = {_ANO}
            AND f26.VENDEDOR = '16-TELEVENTAS'
-           AND {_FG}
+           AND {_fg('f26', _FG)}
         WHERE f26.RUT IS NULL
         GROUP BY q4.RUT, q4.NOMBRE
         ORDER BY venta_q4_2025 DESC
@@ -261,7 +273,7 @@ def _load_televentas_all(meses: list[int]) -> dict:
            AND f25.MES IN ({mes_list})
            AND f25.VENDEDOR = '16-TELEVENTAS'
            AND f25.CODIGO NOT IN ('FLETE','NINV','SIN','')
-           AND {_FG}
+           AND {_fg('f25', _FG)}
         GROUP BY t.RUT, t.NOMBRE, t.venta_2026, t.contribucion_2026
         ORDER BY t.venta_2026 DESC
     """)
@@ -437,7 +449,6 @@ async def get_cliente_productos(
     """Product drill-down for a client: venta 2025, 2026, growth, margin."""
     try:
         _ANO = hoy()["ano"]
-        _FG = filtro_guias()
         meses_list, _ = _parse_periodo(periodo, mes)
         mes_sql = ",".join(str(m) for m in meses_list)
         cache_key = f"tv_cli_prod:{rut}:{periodo}:{mes}"
@@ -446,6 +457,7 @@ async def get_cliente_productos(
             return cached
         conn = get_conn()
         cur = conn.cursor()
+        _FG = filtro_guias_mat(cur)
         cur.execute(f"""
             WITH v26 AS (
                 SELECT CODIGO, DESCRIPCION,

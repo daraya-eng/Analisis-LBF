@@ -6,6 +6,7 @@ __pycache__/
 .env.local
 .env.production
 backend/data/users.json
+backend/data/usage.json
 backend/data/renasys/
 logs/
 *.log

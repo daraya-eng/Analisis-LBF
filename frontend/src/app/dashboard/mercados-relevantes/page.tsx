@@ -908,7 +908,7 @@ export default function MercadosRelevantesPage() {
                             tick={{ fontSize:10, fill:"#94A3B8" }} axisLine={false} tickLine={false} width={68}
                           />
                           <Tooltip
-                            formatter={(value:any, name:string) => [
+                            formatter={(value:any, name:any) => [
                               qMetrica==="adj" ? fmtFull(Number(value)) : fmtN(Number(value)),
                               name,
                             ]}

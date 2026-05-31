@@ -376,9 +376,9 @@ def _load_zona_data(meses: list[int]) -> dict:
 
     rows.sort(key=lambda r: -r["venta"])
 
-    # Total row
-    t_meta_a = sum(r["meta_anual"] for r in rows)
-    t_meta_p = sum(r["meta_periodo"] for r in rows)
+    # Total row — meta incluye TODAS las zonas de Metas_KAM (igual que Panel Principal)
+    t_meta_a = sum(z["meta_anual"]  for z in zona_merged.values())
+    t_meta_p = sum(z["meta_periodo"] for z in zona_merged.values())
     t_venta = sum(r["venta"] for r in rows)
     t_contrib = sum(r["contrib"] for r in rows)
     t_v25 = sum(r["venta_25"] for r in rows)

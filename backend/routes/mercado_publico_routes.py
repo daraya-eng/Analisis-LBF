@@ -1841,7 +1841,7 @@ def _load_segundo_llamado(ano: int, mes: int) -> dict:
             SELECT ca.codigo, ca.nombre, ca.organismo_comprador, ca.estado,
                    ca.proveedor_adjudicado, ca.monto_adjudicado,
                    c.monto_ofertado,
-                   (ca.rut_adjudicado = '{LBF_RUT}') AS lbf_gano,
+                   (ca.rut_adjudicado = '{LBF_RUT}' OR c.seleccionado = true) AS lbf_gano,
                    EXTRACT(MONTH FROM ca.fecha_publicacion)::int AS mes,
                    ca.presupuesto_estimado
             FROM compras_agiles_cotizantes c

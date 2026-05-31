@@ -168,6 +168,7 @@ function MultiproductoTab() {
   const [selectedMes, setSelectedMes] = useState(() => new Date().getMonth() + 1);
   const [loadingOv, setLoadingOv] = useState(true);
   const [loadingMes, setLoadingMes] = useState(true);
+  const [searchAg, setSearchAg] = useState("");
   const ano = 2026;
 
   useEffect(() => {
@@ -267,7 +268,8 @@ function MultiproductoTab() {
                   </div>
                   <ExportButton data={md.compras_lbf || []} filename={`multiproducto_compras_${MESES_FULL[selectedMes - 1]}`} columns={[
                     { key: "codigo", label: "Codigo" }, { key: "descripcion", label: "Descripcion" }, { key: "categoria", label: "Categoria" },
-                    { key: "cantidad", label: "Cantidad" }, { key: "precio_unit", label: "Precio Unit." }, { key: "venta", label: "Total" },
+                    { key: "cantidad", label: "Cantidad" }, { key: "unidad_venta", label: "Presentacion" }, { key: "factor", label: "Factor" },
+                    { key: "precio_unit", label: "Precio LBF" }, { key: "precio_unit_u", label: "$/unidad LBF" }, { key: "precio_ag", label: "$/unidad AG" }, { key: "margen_ag", label: "Margen AG %" },
                   ]} />
                 </div>
                 <div style={{ overflowX: "auto", maxHeight: 500, overflowY: "auto" }}>
@@ -278,23 +280,42 @@ function MultiproductoTab() {
                         <th style={{ ...thStyle, fontSize: 11, maxWidth: 200 }}>Descripcion</th>
                         <th style={{ ...thStyle, fontSize: 11 }}>Cat.</th>
                         <th style={{ ...thR, fontSize: 11 }}>Cant.</th>
-                        <th style={{ ...thR, fontSize: 11 }}>Precio Unit.</th>
-                        <th style={{ ...thR, fontSize: 11 }}>Total</th>
+                        <th style={{ ...thStyle, fontSize: 11 }}>Presentación</th>
+                        <th style={{ ...thR, fontSize: 11 }}>Precio LBF</th>
+                        <th style={{ ...thR, fontSize: 11 }}>$/unidad LBF</th>
+                        <th style={{ ...thR, fontSize: 11 }}>$/unidad AG</th>
+                        <th style={{ ...thR, fontSize: 11 }}>Margen AG</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {(md.compras_lbf || []).map((p: any, i: number) => (
+                      {(md.compras_lbf || []).map((p: any, i: number) => {
+                        const mgColor = p.margen_ag == null ? "#94A3B8"
+                          : p.margen_ag >= 20 ? "#10B981"
+                          : p.margen_ag >= 15 ? "#F59E0B"
+                          : "#EF4444";
+                        return (
                         <tr key={i} style={{ background: rowBg(i) }}>
                           <td style={{ ...tdStyle, fontSize: 11, fontFamily: "monospace", fontWeight: 600 }}>{p.codigo}</td>
                           <td style={{ ...tdStyle, fontSize: 11, maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis" }}>{p.descripcion}</td>
                           <td style={{ ...tdStyle, fontSize: 10 }}>{p.categoria}</td>
                           <td style={{ ...tdR, fontSize: 11 }}>{p.cantidad.toLocaleString()}</td>
-                          <td style={{ ...tdR, fontSize: 11, fontWeight: 700, color: "#10B981" }}>{fmtAbs(p.precio_unit)}</td>
-                          <td style={{ ...tdR, fontSize: 11 }}>{fmtAbs(p.venta)}</td>
+                          <td style={{ ...tdStyle, fontSize: 10, color: "#64748B" }}>
+                            {p.unidad_venta || "UNIDAD"}
+                            {p.factor > 1 && <span style={{ marginLeft: 4, color: "#94A3B8" }}>(÷{p.factor})</span>}
+                          </td>
+                          <td style={{ ...tdR, fontSize: 11, color: "#64748B" }}>{fmtAbs(p.precio_unit)}</td>
+                          <td style={{ ...tdR, fontSize: 11, fontWeight: 700, color: "#10B981" }}>{fmtAbs(p.precio_unit_u ?? p.precio_unit)}</td>
+                          <td style={{ ...tdR, fontSize: 11, fontWeight: 600, color: p.precio_ag ? "#3B82F6" : "#CBD5E1" }}>
+                            {p.precio_ag ? fmtAbs(p.precio_ag) : "—"}
+                          </td>
+                          <td style={{ ...tdR, fontSize: 12, fontWeight: 700, color: mgColor }}>
+                            {p.margen_ag != null ? `${p.margen_ag.toFixed(1)}%` : "—"}
+                          </td>
                         </tr>
-                      ))}
+                        );
+                      })}
                       {(md.compras_lbf || []).length === 0 && (
-                        <tr><td colSpan={6} style={{ padding: 20, textAlign: "center", color: "#94A3B8" }}>Sin compras este mes</td></tr>
+                        <tr><td colSpan={9} style={{ padding: 20, textAlign: "center", color: "#94A3B8" }}>Sin compras este mes</td></tr>
                       )}
                     </tbody>
                   </table>
@@ -312,6 +333,17 @@ function MultiproductoTab() {
                     { key: "cantidad", label: "Cantidad" }, { key: "precio_unit", label: "Precio Unit." }, { key: "monto", label: "Total" },
                   ]} />
                 </div>
+                <input
+                  type="text"
+                  placeholder="Buscar por descripción..."
+                  value={searchAg}
+                  onChange={e => setSearchAg(e.target.value)}
+                  style={{
+                    width: "100%", boxSizing: "border-box", marginBottom: 8,
+                    padding: "7px 12px", borderRadius: 6, border: "1px solid #E2E8F0",
+                    fontSize: 12, color: "#1E293B", outline: "none",
+                  }}
+                />
                 <div style={{ overflowX: "auto", maxHeight: 500, overflowY: "auto" }}>
                   <table style={{ width: "100%", borderCollapse: "collapse" }}>
                     <thead style={{ position: "sticky", top: 0, background: "white" }}>
@@ -324,13 +356,9 @@ function MultiproductoTab() {
                       </tr>
                     </thead>
                     <tbody>
-                      {(md.ventas_ag || []).map((p: any, i: number) => {
-                        // Try to detect if margin > 20% by looking for similar LBF product
-                        const margenFlag = p.precio_unit > 0 && (md.compras_lbf || []).some((lbf: any) => {
-                          if (lbf.precio_unit <= 0) return false;
-                          const margen = (p.precio_unit - lbf.precio_unit) / p.precio_unit * 100;
-                          return margen > 20 && margen < 90; // plausible markup range
-                        });
+                      {(md.ventas_ag || [])
+                        .filter((p: any) => !searchAg || (p.descripcion + " " + p.tipo_producto).toLowerCase().includes(searchAg.toLowerCase()))
+                        .map((p: any, i: number) => {
                         return (
                           <tr key={i} style={{ background: rowBg(i) }}>
                             <td style={{ ...tdStyle, fontSize: 11, maxWidth: 280, whiteSpace: "normal", lineHeight: 1.3 }}>
@@ -344,8 +372,8 @@ function MultiproductoTab() {
                           </tr>
                         );
                       })}
-                      {(md.ventas_ag || []).length === 0 && (
-                        <tr><td colSpan={5} style={{ padding: 20, textAlign: "center", color: "#94A3B8" }}>Sin ventas AG este mes</td></tr>
+                      {(md.ventas_ag || []).filter((p: any) => !searchAg || (p.descripcion + " " + p.tipo_producto).toLowerCase().includes(searchAg.toLowerCase())).length === 0 && (
+                        <tr><td colSpan={5} style={{ padding: 20, textAlign: "center", color: "#94A3B8" }}>{searchAg ? "Sin resultados para esa búsqueda" : "Sin ventas AG este mes"}</td></tr>
                       )}
                     </tbody>
                   </table>
@@ -356,40 +384,6 @@ function MultiproductoTab() {
         )}
       </div>
 
-      {/* Competitors in same categories */}
-      {!loadingOv && ov.competidores && ov.competidores.length > 0 && (
-        <div style={cardAg}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
-            <h3 style={{ fontSize: 14, fontWeight: 700, color: "#EF4444", margin: 0 }}>Competidores en mismas categorias AG</h3>
-            <ExportButton data={ov.competidores || []} filename="competidores_ag_categorias" columns={[
-              { key: "empresa", label: "Proveedor" }, { key: "monto", label: "Monto AG" }, { key: "n_ocs", label: "OCs" },
-            ]} />
-          </div>
-          <p style={{ fontSize: 11, color: "#64748B", margin: "0 0 10px" }}>
-            Otros proveedores en las mismas lineas de producto que Multiproducto vende en AG
-          </p>
-          <table style={{ width: "100%", borderCollapse: "collapse" }}>
-            <thead>
-              <tr>
-                <th style={{ ...thStyle, width: 35, fontSize: 11 }}>#</th>
-                <th style={{ ...thStyle, fontSize: 11 }}>Proveedor</th>
-                <th style={{ ...thR, fontSize: 11 }}>Monto AG</th>
-                <th style={{ ...thR, fontSize: 11 }}>OCs</th>
-              </tr>
-            </thead>
-            <tbody>
-              {ov.competidores.map((c: any, i: number) => (
-                <tr key={i} style={{ background: rowBg(i) }}>
-                  <td style={{ ...tdStyle, fontWeight: 700, color: "#64748B", fontSize: 11 }}>{i + 1}</td>
-                  <td style={{ ...tdStyle, fontSize: 12 }}>{c.empresa}</td>
-                  <td style={{ ...tdR, fontSize: 12, color: "#EF4444", fontWeight: 600 }}>{fmt(c.monto)}</td>
-                  <td style={{ ...tdR, fontSize: 12 }}>{c.n_ocs}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
     </div>
   );
 }

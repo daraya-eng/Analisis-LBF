@@ -133,7 +133,8 @@ def _load_pm(zona: str = "", categorias: str = "", subclase: str = "", codigo: s
     mg_trim = round(c_trim / v_trim * 100, 1) if v_trim > 0 else 0.0
     mg_ytd  = round(c_ytd / v_ytd * 100, 1)  if v_ytd  > 0 else 0.0
 
-    # ═══ 2. PPTO mes + trimestre + anual desde Metas_KAM ═══
+    # ═══ 2. PPTO mes + trimestre + YTD + anual desde Metas_KAM ═══
+    _ytd_months_str = ",".join(f"'{str(m).zfill(2)}'" for m in range(1, _MES + 1))
     cur.execute(f"""
         SELECT
             COALESCE(SUM(CASE WHEN ANIOMES = {_ANO * 100 + _MES}
@@ -141,6 +142,9 @@ def _load_pm(zona: str = "", categorias: str = "", subclase: str = "", codigo: s
             COALESCE(SUM(CASE WHEN RIGHT(CAST(ANIOMES AS varchar), 2) IN ({','.join(f"'{str(m).zfill(2)}'" for m in _TRIM_MES)})
                               AND LEFT(CAST(ANIOMES AS varchar), 4) = '{_ANO}'
                               THEN TRY_CAST([ META ] AS float) END), 0) AS meta_trim,
+            COALESCE(SUM(CASE WHEN RIGHT(CAST(ANIOMES AS varchar), 2) IN ({_ytd_months_str})
+                              AND LEFT(CAST(ANIOMES AS varchar), 4) = '{_ANO}'
+                              THEN TRY_CAST([ META ] AS float) END), 0) AS meta_ytd,
             COALESCE(SUM(CASE WHEN LEFT(CAST(ANIOMES AS varchar), 4) = '{_ANO}'
                               THEN TRY_CAST([ META ] AS float) END), 0) AS meta_anual
         FROM Metas_KAM
@@ -149,7 +153,8 @@ def _load_pm(zona: str = "", categorias: str = "", subclase: str = "", codigo: s
     r2 = cur.fetchone()
     meta_mes   = float(r2[0] or 0)
     meta_trim  = float(r2[1] or 0)
-    meta_anual = float(r2[2] or 0)
+    meta_ytd   = float(r2[2] or 0)
+    meta_anual = float(r2[3] or 0)
 
     # ═══ 2b. Margen PPTO desde Meta_Categoria (fuente canónica del Panel Principal) ═══
     # Siempre carga TODAS las categorías para que la tabla por categoría tenga datos completos.
@@ -213,13 +218,14 @@ def _load_pm(zona: str = "", categorias: str = "", subclase: str = "", codigo: s
     v_trim_25 = float(r4[1] or 0)
     v_ytd_25  = float(r4[2] or 0)
 
-    # ═══ 4. Desglose por categoría — mes actual ═══
+    # ═══ 4. Desglose por categoría — mes actual + YTD ═══
     cur.execute(f"""
         SELECT ({_CAT_CASE}) AS cat,
-               SUM(CAST(VENTA AS float)) AS v26,
-               SUM(CAST(CONTRIBUCION AS float)) AS c26
+               SUM(CASE WHEN MES = {_MES} THEN CAST(VENTA AS float) ELSE 0 END) AS v26,
+               SUM(CASE WHEN MES = {_MES} THEN CAST(CONTRIBUCION AS float) ELSE 0 END) AS c26,
+               SUM(CAST(VENTA AS float)) AS v26_ytd
         FROM BI_TOTAL_FACTURA
-        WHERE ANO = {_ANO} AND MES = {_MES} AND {_EXCL_DW} AND {_FG}
+        WHERE ANO = {_ANO} AND MES <= {_MES} AND {_EXCL_DW} AND {_FG}
           AND ({z_fact})
           AND ({s_sql})
           AND ({k_sql})
@@ -228,7 +234,11 @@ def _load_pm(zona: str = "", categorias: str = "", subclase: str = "", codigo: s
     """)
     cat_v26 = {}
     for row in cur.fetchall():
-        cat_v26[row[0]] = {"v26": float(row[1] or 0), "c26": float(row[2] or 0)}
+        cat_v26[row[0]] = {
+            "v26":     float(row[1] or 0),
+            "c26":     float(row[2] or 0),
+            "v26_ytd": float(row[3] or 0),
+        }
 
     # Venta año anterior por categoría
     cur.execute(f"""
@@ -243,7 +253,35 @@ def _load_pm(zona: str = "", categorias: str = "", subclase: str = "", codigo: s
     """)
     cat_v25 = {row[0]: float(row[1] or 0) for row in cur.fetchall()}
 
-    # PPTO mes por categoría (desde Metas_KAM — prorratear por participación en PPTO total)
+    # ═══ 4b. Top 5 FAMILIA (clase) por categoría — mes actual ═══
+    cur.execute(f"""
+        SELECT ({_CAT_CASE}) AS cat,
+               LTRIM(RTRIM(FAMILIA)) AS familia,
+               SUM(CAST(VENTA AS float)) AS v26
+        FROM BI_TOTAL_FACTURA
+        WHERE ANO = {_ANO} AND MES = {_MES} AND {_EXCL_DW} AND {_FG}
+          AND ({z_fact})
+          AND ({s_sql})
+          AND ({k_sql})
+          AND ({_CAT_CASE}) IN ({_CATS_IN})
+          AND FAMILIA IS NOT NULL AND FAMILIA <> ''
+        GROUP BY ({_CAT_CASE}), LTRIM(RTRIM(FAMILIA))
+        ORDER BY ({_CAT_CASE}), SUM(CAST(VENTA AS float)) DESC
+    """)
+    top5_by_cat: dict = {}
+    for row in cur.fetchall():
+        cat_r = str(row[0])
+        if cat_r not in top5_by_cat:
+            top5_by_cat[cat_r] = []
+        if len(top5_by_cat[cat_r]) < 5:
+            top5_by_cat[cat_r].append({
+                "familia": str(row[1] or "").strip(),
+                "venta":   round(float(row[2] or 0)),
+            })
+
+    # PPTO mes por categoría — usa Meta_Categoria directamente (misma fuente que el dashboard)
+    # Así el cumplimiento por categoría coincide con el Panel Principal.
+    # cat_ppto_anual desde [PPTO 2026] se conserva solo para el desglose de productos.
     cur.execute(f"""
         SELECT ({_CAT_CASE_PPTO}) AS cat,
                SUM(TRY_CAST([PPTO 2026] AS float)) AS ppto_cat
@@ -255,44 +293,44 @@ def _load_pm(zona: str = "", categorias: str = "", subclase: str = "", codigo: s
     cat_ppto_anual = {row[0]: float(row[1] or 0) for row in cur.fetchall()}
     ppto_anual_total = sum(cat_ppto_anual.values()) or 1
 
-    # meta_mes para cada categoría = prorrateo por peso en PPTO anual
-    cat_ppto_mes = {
-        cat: (v / ppto_anual_total) * meta_mes
-        for cat, v in cat_ppto_anual.items()
-    }
-
-    # Si hay filtro de categoría, los KPIs globales deben reflejar sólo esas categorías
+    # Si hay filtro de categoría, los KPIs globales usan Meta_Categoria (= misma fuente que dashboard)
     if categorias and _cats_selected < set(_CATS_VALIDAS):
-        _cat_weight = sum(cat_ppto_anual.get(c, 0) for c in _cats_selected) / ppto_anual_total
-        meta_mes   = sum(cat_ppto_mes.get(c, 0) for c in _cats_selected)
-        meta_trim  = round(_cat_weight * meta_trim)
-        meta_anual = round(_cat_weight * meta_anual)
+        meta_mes   = sum(_meta_cat_mg.get(c, {}).get(_MES, {}).get("meta_venta", 0) for c in _cats_selected)
+        meta_trim  = sum(_meta_cat_mg.get(c, {}).get(m, {}).get("meta_venta", 0) for c in _cats_selected for m in _TRIM_MES)
+        meta_ytd   = sum(_meta_cat_mg.get(c, {}).get(m, {}).get("meta_venta", 0) for c in _cats_selected for m in range(1, _MES + 1))
+        meta_anual = sum(_meta_cat_mg.get(c, {}).get(m, {}).get("meta_venta", 0) for c in _cats_selected for m in range(1, 13))
 
     categorias_data = []
     for cat in _CATS_VALIDAS:
-        v26 = cat_v26.get(cat, {}).get("v26", 0)
-        c26 = cat_v26.get(cat, {}).get("c26", 0)
-        v25 = cat_v25.get(cat, 0)
-        ppto_c = cat_ppto_mes.get(cat, 0)
-        ppto_a = cat_ppto_anual.get(cat, 0)
-        cump_ppto = round(v26 / ppto_c * 100, 1) if ppto_c > 0 else 0.0
+        v26      = cat_v26.get(cat, {}).get("v26", 0)
+        c26      = cat_v26.get(cat, {}).get("c26", 0)
+        v26_ytd  = cat_v26.get(cat, {}).get("v26_ytd", 0)
+        v25      = cat_v25.get(cat, 0)
+        ppto_c   = _meta_cat_mg.get(cat, {}).get(_MES, {}).get("meta_venta", 0)
+        ppto_a   = sum(_meta_cat_mg.get(cat, {}).get(m, {}).get("meta_venta", 0) for m in range(1, 13))
+        ppto_ytd_c = sum(_meta_cat_mg.get(cat, {}).get(m, {}).get("meta_venta", 0) for m in range(1, _MES + 1))
+        cump_ppto = round(v26 / ppto_c * 100, 1)         if ppto_c     > 0 else 0.0
+        cump_ytd  = round(v26_ytd / ppto_ytd_c * 100, 1) if ppto_ytd_c > 0 else 0.0
         var_ant   = round((v26 / v25 - 1) * 100, 1) if v25 > 0 else (100.0 if v26 > 0 else 0.0)
         mg_cat    = round(c26 / v26 * 100, 1) if v26 > 0 else 0.0
-        # Margen PPTO de Meta_Categoria para esta categoría en el mes actual
-        _mg_raw = _meta_cat_mg.get(cat, {}).get(_MES, {}).get("margen_pct", 0.0)
+        _mg_raw   = _meta_cat_mg.get(cat, {}).get(_MES, {}).get("margen_pct", 0.0)
         ppto_mg_cat = round(_mg_raw * 100, 1) if 0 < _mg_raw <= 1.0 else round(_mg_raw, 1)
         categorias_data.append({
-            "categoria":   cat,
-            "venta_mes":   round(v26),
-            "venta_ant":   round(v25),
-            "ppto_mes":    round(ppto_c),
-            "ppto_anual":  round(ppto_a),
-            "cump_ppto":   cump_ppto,
-            "var_ant":     var_ant,
-            "pct_dias":    pct_dias,
-            "contrib":     round(c26),
-            "margen":      mg_cat,
-            "ppto_margen": ppto_mg_cat,
+            "categoria":    cat,
+            "venta_mes":    round(v26),
+            "venta_ytd":    round(v26_ytd),
+            "venta_ant":    round(v25),
+            "ppto_mes":     round(ppto_c),
+            "ppto_ytd":     round(ppto_ytd_c),
+            "ppto_anual":   round(ppto_a),
+            "cump_ppto":    cump_ppto,
+            "cump_ytd":     cump_ytd,
+            "var_ant":      var_ant,
+            "pct_dias":     pct_dias,
+            "contrib":      round(c26),
+            "margen":       mg_cat,
+            "ppto_margen":  ppto_mg_cat,
+            "top5_clases":  top5_by_cat.get(cat, []),
         })
 
     # ═══ 5. Tabla de productos — mes actual ═══
@@ -409,7 +447,7 @@ def _load_pm(zona: str = "", categorias: str = "", subclase: str = "", codigo: s
             "mg_trim":         mg_trim,
             "ppto_mg_trim":    ppto_mg_trim_pct,
             "venta_ytd":       round(v_ytd),
-            "ppto_ytd":        round(meta_anual),
+            "ppto_ytd":        round(meta_ytd),
             "mg_ytd":          mg_ytd,
             "ppto_mg_ytd":     ppto_mg_ytd_pct,
             "venta_mes_25":    round(v_mes_25),
@@ -439,6 +477,96 @@ async def get_pm_resumen(
     current_user: dict = Depends(get_current_user),
 ):
     return _load_pm(zona, categorias, subclase, codigo)
+
+
+@router.get("/detalle_clase")
+async def get_pm_detalle_clase(
+    zona:      str = Query(""),
+    categoria: str = Query(""),
+    familia:   str = Query(""),
+    current_user: dict = Depends(get_current_user),
+):
+    """Devuelve todos los productos de una categoría + familia para el mes actual."""
+    ck = f"pm:detalle_clase:{zona}:{categoria}:{familia}"
+    cached = mem_get(ck)
+    if cached:
+        return cached
+
+    h = hoy()
+    _ANO, _MES = h["ano"], h["mes"]
+
+    z_fact = _zona_sql(zona)
+    fam_esc = familia.strip().replace("'", "''")
+    fam_sql = f"LTRIM(RTRIM(FAMILIA)) = '{fam_esc}'" if fam_esc else "1=1"
+    cat_f   = f"({_CAT_CASE}) = '{categoria.strip()}'" if categoria else f"({_CAT_CASE}) IN ({_CATS_IN})"
+
+    conn = get_conn()
+    cur  = conn.cursor()
+    _FG  = filtro_guias_mat(cur)
+
+    cur.execute(f"""
+        SELECT LTRIM(RTRIM(CODIGO)) AS codigo,
+               MAX(DESCRIPCION) AS descripcion,
+               SUM(CAST(VENTA AS float)) AS v_mes,
+               SUM(CAST(CONTRIBUCION AS float)) AS contrib_mes
+        FROM BI_TOTAL_FACTURA
+        WHERE ANO = {_ANO} AND MES = {_MES} AND {_EXCL_DW} AND {_FG}
+          AND ({z_fact}) AND ({fam_sql}) AND ({cat_f})
+        GROUP BY LTRIM(RTRIM(CODIGO))
+        ORDER BY SUM(CAST(VENTA AS float)) DESC
+    """)
+    prods_mes: dict = {}
+    for r in cur.fetchall():
+        prods_mes[str(r[0]).strip()] = {
+            "descripcion": str(r[1] or "").strip(),
+            "v_mes":  float(r[2] or 0),
+            "c_mes":  float(r[3] or 0),
+        }
+
+    # Promedio 6 meses anteriores
+    _mes6_list = []
+    for i in range(1, 7):
+        m, y = _MES - i, _ANO
+        if m <= 0: m += 12; y -= 1
+        _mes6_list.append((y, m))
+    m6_cond = " OR ".join(f"(ANO={y} AND MES={m})" for y, m in _mes6_list)
+    cur.execute(f"""
+        SELECT LTRIM(RTRIM(CODIGO)), SUM(CAST(VENTA AS float))
+        FROM BI_TOTAL_FACTURA
+        WHERE ({m6_cond}) AND {_EXCL_DW} AND {_FG}
+          AND ({z_fact}) AND ({fam_sql}) AND ({cat_f})
+        GROUP BY LTRIM(RTRIM(CODIGO))
+    """)
+    prods_6m = {str(r[0]).strip(): float(r[1] or 0) / 6 for r in cur.fetchall()}
+
+    # Stock
+    stock_por_cod: dict = {}
+    if prods_mes:
+        ph = ",".join(f"'{c}'" for c in list(prods_mes.keys())[:300])
+        cur.execute(f"""
+            SELECT codigo_producto, SUM(stock_unidades)
+            FROM vw_stock_actual WHERE codigo_producto IN ({ph})
+            GROUP BY codigo_producto
+        """)
+        stock_por_cod = {str(r[0]).strip(): int(r[1] or 0) for r in cur.fetchall()}
+
+    conn.close()
+
+    productos = []
+    for cod, d in prods_mes.items():
+        v = d["v_mes"]
+        productos.append({
+            "codigo":      cod,
+            "descripcion": d["descripcion"],
+            "venta_mes":   round(v),
+            "vta_prom_6m": round(prods_6m.get(cod, 0)),
+            "q_stock":     stock_por_cod.get(cod, 0),
+            "margen":      round(d["c_mes"] / v * 100, 1) if v > 0 else 0.0,
+        })
+
+    result = {"productos": productos}
+    mem_set(ck, result)
+    return result
 
 
 @router.get("/filtros")

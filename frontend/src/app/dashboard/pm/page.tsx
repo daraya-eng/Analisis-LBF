@@ -355,7 +355,7 @@ export default function PlanDeMesPage() {
   }, []);
 
   const loadData = useCallback(async () => {
-    setLoading(true); setError(null);
+    setLoading(true); setError(null); setData(null);
     try {
       const params = new URLSearchParams();
       if (selectedZona) params.set("zona",      selectedZona);
@@ -397,7 +397,7 @@ export default function PlanDeMesPage() {
   const zonaLabel  = (z: string) => { const p = z.split("-"); return p.length > 1 ? p.slice(1).join("-").trim() : z; };
   const activeCats = data?.categorias?.filter(c => c.venta_mes > 0 || c.ppto_mes > 0) ?? [];
 
-  const mesActual = kpis?.mes ?? new Date().getMonth() + 1;
+  const mesActual = new Date().getMonth() + 1;
   const mesesDisponibles = Array.from({ length: mesActual }, (_, i) => i + 1);
 
   /* ─── Render ─────────────────────────────────────────────────────── */

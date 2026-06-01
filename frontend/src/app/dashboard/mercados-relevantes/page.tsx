@@ -92,69 +92,6 @@ interface MesData {
   v2026_of: number; v2026_adj: number; l2026_part: number; l2026_adj: number; i2026_part: number; i2026_adj: number;
 }
 
-interface SerresAno {
-  ano: number;
-  adj_mercado: number;
-  lbf_adj: number;
-  cuota_lbf: number;
-  lics_total: number;
-  lbf_lics_part: number;
-  lbf_lics_adj: number;
-  lbf_items_of: number;
-  lbf_items_adj: number;
-  lbf_ef_items: number;
-}
-
-interface SerresComp {
-  rank: number;
-  nombre: string;
-  rut: string;
-  lics_adj: number;
-  items_adj: number;
-  adj: number;
-  unidades: number;
-  cuota: number;
-  cuota_unid: number;
-  es_lbf: boolean;
-}
-
-interface SerresOport {
-  codigo: string;
-  tipo: string;
-  ganador: string;
-  organismo: string;
-  fecha: string;
-  adj: number;
-}
-
-interface SerresPeriodo {
-  mercado_adj: number;
-  mercado_unidades: number;
-  lbf_adj: number;
-  lbf_unidades: number;
-  cuota_adj: number;
-  cuota_unidades: number;
-}
-
-interface SerresCuadro {
-  periodos: {
-    "2024": SerresPeriodo;
-    "2025": SerresPeriodo;
-    ytd_2026: SerresPeriodo;
-    mat: SerresPeriodo;
-  };
-}
-interface SerresTendOrg {
-  nombre: string;
-  shortname: string;
-  es_lbf: boolean;
-  data: Record<string, { adj: number; unidades: number }>;
-}
-
-interface SerresTendencia {
-  trimestres: string[];
-  organismos: SerresTendOrg[];
-}
 
 // ── constants ─────────────────────────────────────────────────────────────────
 
@@ -280,37 +217,11 @@ const ChartTooltip = ({ active, payload, label }: {
   );
 };
 
-const SerresChartTooltip = ({ active, payload, label }: {
-  active?: boolean;
-  payload?: { name: string; value: number; color: string; payload: SerresAno }[];
-  label?: string;
-}) => {
-  if (!active || !payload?.length) return null;
-  const row = payload[0]?.payload;
-  return (
-    <div style={{
-      background: "white", border: "1px solid #E2E8F0", borderRadius: 8,
-      padding: "10px 14px", fontSize: 12, boxShadow: "0 4px 16px rgba(0,0,0,0.08)",
-    }}>
-      <div style={{ fontWeight: 700, marginBottom: 6, color: "#0F172A" }}>{label}</div>
-      {payload.map(p => (
-        <div key={p.name} style={{ color: p.color, marginBottom: 2 }}>
-          {p.name}: <strong>{fmtFull(p.value)}</strong>
-        </div>
-      ))}
-      {row && (
-        <div style={{ marginTop: 6, paddingTop: 6, borderTop: "1px solid #F1F5F9", color: "#64748B" }}>
-          Cuota LBF: <strong style={{ color: LBF_BLUE }}>{row.cuota_lbf}%</strong>
-        </div>
-      )}
-    </div>
-  );
-};
 
 // ── main page ─────────────────────────────────────────────────────────────────
 
 export default function MercadosRelevantesPage() {
-  const [activeTab, setActiveTab] = useState<"lbf" | "serres" | "perdidos">("lbf");
+  const [activeTab, setActiveTab] = useState<"lbf" | "perdidos">("lbf");
 
   // tab lbf
   const [summary, setSummary]           = useState<LbfAno[]>([]);
@@ -334,16 +245,6 @@ export default function MercadosRelevantesPage() {
   const [showAllA, setShowAllA]               = useState(false);
   const [showAllB, setShowAllB]               = useState(false);
 
-  // tab serres
-  const [serresLoaded, setSerresLoaded]   = useState(false);
-  const [serresAnos, setSerresAnos]       = useState<SerresAno[]>([]);
-  const [serresComps, setSerresComps]     = useState<SerresComp[]>([]);
-  const [serresOport, setSerresOport]     = useState<SerresOport[]>([]);
-  const [serresCuadro, setSerresCuadro]     = useState<SerresCuadro | null>(null);
-  const [serresTendencia, setSerresTendencia] = useState<SerresTendencia | null>(null);
-  const [qPeriodo, setQPeriodo]             = useState<string>("Todo");
-  const [qMetrica, setQMetrica]             = useState<"adj" | "unidades">("adj");
-  const [serresLoading, setSerresLoading]   = useState(false);
 
   const loadLbf = useCallback(() => {
     setLoading(true);
@@ -430,25 +331,6 @@ export default function MercadosRelevantesPage() {
     }
   }, [activeTab, perdidosData, perdidosLoading, perdidosAno, perdidosMes, loadPerdidos]);
 
-  useEffect(() => {
-    if (activeTab !== "serres" || serresLoaded) return;
-    setSerresLoading(true);
-    Promise.all([
-      api.get("/api/mercados-relevantes/mercado-serres/resumen", { noCache: true }),
-      api.get("/api/mercados-relevantes/mercado-serres/competidores", { noCache: true }),
-      api.get("/api/mercados-relevantes/mercado-serres/oportunidades", { noCache: true }),
-      api.get("/api/mercados-relevantes/mercado-serres/cuadro-comparativo", { noCache: true }),
-      api.get("/api/mercados-relevantes/mercado-serres/tendencia-clientes", { noCache: true }),
-    ]).then(([r, c, o, q, td]) => {
-      setSerresAnos((r as any).anos ?? []);
-      setSerresComps((c as any).competidores ?? []);
-      setSerresOport((o as any).oportunidades ?? []);
-      setSerresCuadro(q as SerresCuadro);
-      setSerresTendencia(td as SerresTendencia);
-      setSerresLoaded(true);
-      setSerresLoading(false);
-    }).catch(() => setSerresLoading(false));
-  }, [activeTab, serresLoaded]);
 
   if (loading) {
     return <div style={{ color: "#94A3B8", padding: 40, textAlign: "center" }}>Cargando datos...</div>;
@@ -463,48 +345,6 @@ export default function MercadosRelevantesPage() {
   const ult26   = ano2026?.ultimo_mes ?? 0;
   const ytdLabel = ult26 > 0 ? `Ene–${MESES_LABEL[ult26]} 2026` : "2026 YTD";
 
-  const serres2025 = serresAnos.find(a => a.ano === 2025);
-  const serres2026 = serresAnos.find(a => a.ano === 2026);
-
-  const RANK_COLORS = [
-    "#2563EB","#DC2626","#16A34A","#D97706","#7C3AED",
-    "#0891B2","#C026D3","#EA580C","#65A30D","#BE123C",
-    "#0D9488","#B45309","#7C3AED","#374151","#4F46E5",
-    "#94A3B8",
-  ];
-  const top15Comps = serresComps.slice(0, 15);
-  const maxTop15Adj = Math.max(...top15Comps.map(c => c.adj), 1);
-
-  const CUADRO_PERIODOS: { key: keyof SerresCuadro["periodos"]; label: string }[] = [
-    { key: "2024",     label: "2024" },
-    { key: "2025",     label: "2025" },
-    { key: "ytd_2026", label: "YTD 2026" },
-    { key: "mat",      label: "MAT" },
-  ];
-
-  const LINE_COLORS = [
-    "#2563EB","#DC2626","#16A34A","#D97706","#7C3AED",
-    "#0891B2","#C026D3","#EA580C","#65A30D","#BE123C",
-  ];
-
-  const filteredTrim = (serresTendencia?.trimestres ?? []).filter(t => {
-    if (qPeriodo === "Todo") return true;
-    return t.startsWith(qPeriodo.replace(" YTD",""));
-  });
-
-  const qChartData = filteredTrim.map(t => {
-    const [yr, mm] = t.split("-"); const mABR = ["","Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
-    const row: Record<string,any> = { t: `${mABR[parseInt(mm)]}'${yr.slice(2)}` };
-    (serresTendencia?.organismos ?? []).forEach(o => {
-      row[o.shortname] = qMetrica === "adj" ? (o.data[t]?.adj ?? null) : (o.data[t]?.unidades ?? null);
-    });
-    return row;
-  });
-
-  const orgList  = (serresTendencia?.organismos ?? []);
-  const orgNames = orgList.map(o => o.shortname);
-  const Q_PERIODOS = ["Todo","2024","2025","2026 YTD"];
-
   return (
     <div style={{ fontFamily: "inherit" }}>
 
@@ -512,7 +352,7 @@ export default function MercadosRelevantesPage() {
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 20 }}>
         <div>
           <h1 style={{ fontSize: 20, fontWeight: 800, color: "#0F172A", margin: 0 }}>
-            Mercados Relevantes
+            Análisis de Licitaciones
           </h1>
           <p style={{ fontSize: 12, color: "#64748B", marginTop: 4 }}>
             Fuente: DWLBF.dbo.dw_datos_abiertos_licitaciones &nbsp;·&nbsp;
@@ -521,18 +361,18 @@ export default function MercadosRelevantesPage() {
           </p>
         </div>
         <button
-          onClick={() => { loadLbf(); setSerresLoaded(false); }}
-          disabled={loading || serresLoading}
+          onClick={() => { loadLbf(); }}
+          disabled={loading}
           style={{
             display: "flex", alignItems: "center", gap: 6,
             padding: "7px 16px", borderRadius: 8, border: "1px solid #E2E8F0",
-            background: (loading || serresLoading) ? "#F1F5F9" : "white",
+            background: loading ? "#F1F5F9" : "white",
             fontSize: 12, fontWeight: 600,
-            color: (loading || serresLoading) ? "#94A3B8" : "#475569",
-            cursor: (loading || serresLoading) ? "not-allowed" : "pointer",
+            color: loading ? "#94A3B8" : "#475569",
+            cursor: loading ? "not-allowed" : "pointer",
           }}
         >
-          <RefreshCw size={12} style={{ animation: (loading || serresLoading) ? "spin 0.9s linear infinite" : "none" }} />
+          <RefreshCw size={12} style={{ animation: loading ? "spin 0.9s linear infinite" : "none" }} />
           Actualizar
         </button>
       </div>
@@ -541,7 +381,6 @@ export default function MercadosRelevantesPage() {
       <div style={{ display: "flex", gap: 0, marginBottom: 24 }}>
         {([
           { id: "lbf",      label: "Participación LBF",   first: true,  last: false },
-          { id: "serres",   label: "Mercado Serres",       first: false, last: false },
           { id: "perdidos", label: "🔴 Perdidos ↓ Precio", first: false, last: true  },
         ] as const).map(t => (
           <button key={t.id} onClick={() => setActiveTab(t.id)} style={{
@@ -906,293 +745,6 @@ export default function MercadosRelevantesPage() {
         </>
       )}
 
-      {/* ── TAB: Mercado Serres ───────────────────────────────────────────────── */}
-      {activeTab === "serres" && (
-        <>
-          {serresLoading ? (
-            <div style={{ color: "#94A3B8", padding: 40, textAlign: "center" }}>Cargando datos Serres...</div>
-          ) : (
-            <>
-              {/* Header */}
-              <div style={{ marginBottom: 20 }}>
-                <h2 style={{ fontSize: 16, fontWeight: 800, color: "#0F172A", margin: 0 }}>
-                  Mercado Bolsas de Aspiración — Categoría EQM
-                </h2>
-                <p style={{ fontSize: 12, color: "#64748B", marginTop: 4 }}>
-                  Fuente: DWLBF.dbo.dw_datos_abiertos_licitaciones · Filtro: bolsas de aspiración quirúrgica · 2024–2026 · c/IVA incluido
-                </p>
-              </div>
-
-              {/* KPI Cards */}
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 24 }}>
-                <KpiCard label="Mercado Total 2025"    value={fmtM(serres2025?.adj_mercado ?? 0)} sub={`${fmtN(serres2025?.lics_total ?? 0)} licitaciones`} />
-                <KpiCard label="Mercado Total YTD 2026" value={fmtM(serres2026?.adj_mercado ?? 0)} sub={`${fmtN(serres2026?.lics_total ?? 0)} licitaciones`} accent={LBF_BLUE} />
-                <KpiCard label="LBF Adjudicado 2025"  value={fmtM(serres2025?.lbf_adj ?? 0)} sub={`MS ${serres2025?.cuota_lbf ?? 0}%`} accent={GREEN} />
-                <KpiCard label="LBF Adjudicado YTD 2026" value={fmtM(serres2026?.lbf_adj ?? 0)} sub={`MS ${serres2026?.cuota_lbf ?? 0}% · ef. ${serres2026?.lbf_ef_items ?? 0}%`} accent={GREEN} />
-              </div>
-
-              {/* Top 15 ranking */}
-              {serresComps.length > 0 && (
-                <div style={{ background: "white", borderRadius: 10, border: "1px solid #E2E8F0", padding: "20px 24px", marginBottom: 24 }}>
-                  <h2 style={{ fontSize: 14, fontWeight: 700, color: "#0F172A", margin: "0 0 4px" }}>
-                    Market Share — Top 15
-                  </h2>
-                  <p style={{ fontSize: 11, color: "#94A3B8", margin: "0 0 20px" }}>2024–2026 acumulado · monto adjudicado c/IVA</p>
-                  <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-                    {top15Comps.map((c, i) => (
-                      <div key={c.rut}>
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 5 }}>
-                          <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0, flex: 1 }}>
-                            <span style={{
-                              width: 22, height: 22, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center",
-                              background: RANK_COLORS[i], color: "white", fontSize: 10, fontWeight: 800, flexShrink: 0,
-                            }}>{i + 1}</span>
-                            <span style={{
-                              fontSize: 13, fontWeight: c.es_lbf ? 800 : 500,
-                              color: c.es_lbf ? LBF_BLUE : "#1F2937",
-                              overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-                            }}>
-                              {c.nombre}
-                              {c.es_lbf && <span style={{ marginLeft: 6, fontSize: 10, background: LBF_BLUE, color: "white", borderRadius: 3, padding: "0 5px" }}>LBF</span>}
-                            </span>
-                          </div>
-                          <div style={{ display: "flex", alignItems: "center", gap: 16, flexShrink: 0, marginLeft: 12 }}>
-                            <span style={{ fontSize: 11, color: "#94A3B8", whiteSpace: "nowrap" }}>{fmtM(c.adj)}</span>
-                            <span style={{ fontSize: 13, fontWeight: 700, color: c.es_lbf ? LBF_BLUE : GRAY_DARK, minWidth: 42, textAlign: "right" }}>
-                              {c.cuota}%
-                            </span>
-                          </div>
-                        </div>
-                        <div style={{ background: "#F1F5F9", borderRadius: 4, height: 6, overflow: "hidden" }}>
-                          <div style={{
-                            height: "100%", borderRadius: 4,
-                            width: `${Math.min((c.adj / maxTop15Adj) * 100, 100)}%`,
-                            background: RANK_COLORS[i],
-                            opacity: c.es_lbf ? 1 : 0.75,
-                          }} />
-                        </div>
-                        <div style={{ fontSize: 10, color: "#CBD5E1", marginTop: 2 }}>
-                          {fmtN(c.lics_adj)} lics adj{c.unidades > 0 ? ` · ${fmtN(c.unidades)} unid` : ""}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Cuadro comparativo */}
-              {serresCuadro && (
-                <div style={{ marginBottom: 24 }}>
-                  <h2 style={{ fontSize: 14, fontWeight: 700, color: "#0F172A", marginBottom: 10 }}>
-                    Cuadro Comparativo por Período
-                  </h2>
-                  <table style={{ borderCollapse: "collapse", width: "100%" }}>
-                    <thead>
-                      <tr>
-                        <th style={{ ...thL, minWidth: 120 }}>Período</th>
-                        {CUADRO_PERIODOS.map(p => (
-                          <th key={p.key} style={{ ...thG, minWidth: 80 }} colSpan={3}>
-                            {p.label}
-                          </th>
-                        ))}
-                      </tr>
-                      <tr>
-                        <th style={thL}></th>
-                        {CUADRO_PERIODOS.map(p => (
-                          <React.Fragment key={p.key}>
-                            <th style={{ ...thS, background: "#F8FAFC", color: "#374151" }}>Mercado</th>
-                            <th style={{ ...thS, background: "#EFF6FF", color: LBF_BLUE }}>LBF</th>
-                            <th style={{ ...thS, background: "#F0FDF4", color: "#166534" }}>MS%</th>
-                          </React.Fragment>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <tr>
-                        <td style={{ ...tdL, fontWeight: 700 }}>Monto c/IVA</td>
-                        {CUADRO_PERIODOS.map(p => {
-                          const pd = serresCuadro.periodos[p.key];
-                          return pd ? (
-                            <React.Fragment key={p.key}>
-                              <td style={tdS}>{fmtM(pd.mercado_adj)}</td>
-                              <td style={{ ...tdS, color: GREEN, fontWeight: 700 }}>{fmtM(pd.lbf_adj)}</td>
-                              <td style={{ ...tdS, fontWeight: 700, color: pctColor(pd.cuota_adj) }}>{fmtPct(pd.cuota_adj)}</td>
-                            </React.Fragment>
-                          ) : <React.Fragment key={p.key}><td style={tdS}>—</td><td style={tdS}>—</td><td style={tdS}>—</td></React.Fragment>;
-                        })}
-                      </tr>
-                      <tr style={{ background: "#FAFBFC" }}>
-                        <td style={{ ...tdL, fontWeight: 700 }}>Unidades</td>
-                        {CUADRO_PERIODOS.map(p => {
-                          const pd = serresCuadro.periodos[p.key];
-                          return pd ? (
-                            <React.Fragment key={p.key}>
-                              <td style={tdS}>{pd.mercado_unidades > 0 ? fmtN(pd.mercado_unidades) : "—"}</td>
-                              <td style={{ ...tdS, color: GREEN, fontWeight: 700 }}>{pd.lbf_unidades > 0 ? fmtN(pd.lbf_unidades) : "—"}</td>
-                              <td style={{ ...tdS, fontWeight: 700, color: pd.cuota_unidades > 0 ? pctColor(pd.cuota_unidades) : "#94A3B8" }}>
-                                {pd.cuota_unidades > 0 ? fmtPct(pd.cuota_unidades) : "—"}
-                              </td>
-                            </React.Fragment>
-                          ) : <React.Fragment key={p.key}><td style={tdS}>—</td><td style={tdS}>—</td><td style={tdS}>—</td></React.Fragment>;
-                        })}
-                      </tr>
-                    </tbody>
-                  </table>
-                  <p style={{ fontSize: 10, color: "#94A3B8", marginTop: 6 }}>
-                    MAT = Últimos 12 meses · YTD = Enero 2026 a la fecha · MS% = Market Share según adjudicación neta × 1.19
-                  </p>
-                </div>
-              )}
-
-              {/* Evolución tendencia */}
-              {serresAnos.length > 0 && (
-                <div style={{ background:"white", borderRadius:10, border:"1px solid #E2E8F0", padding:"20px 24px", marginBottom:20 }}>
-                  <h2 style={{ fontSize:14, fontWeight:700, color:"#0F172A", margin:"0 0 2px" }}>Tendencia del Mercado (2022–2026)</h2>
-                  <p style={{ fontSize:11, color:"#94A3B8", margin:"0 0 14px" }}>Adjudicado c/IVA por año</p>
-                  <ResponsiveContainer width="100%" height={240}>
-                    <AreaChart data={serresAnos} margin={{ top:4, right:8, left:0, bottom:0 }}>
-                      <defs>
-                        <linearGradient id="gradMercado" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%"  stopColor={GRAY_BAR}  stopOpacity={0.15} />
-                          <stop offset="95%" stopColor={GRAY_BAR}  stopOpacity={0} />
-                        </linearGradient>
-                        <linearGradient id="gradLBF" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%"  stopColor={LBF_BLUE} stopOpacity={0.2} />
-                          <stop offset="95%" stopColor={LBF_BLUE} stopOpacity={0} />
-                        </linearGradient>
-                      </defs>
-                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#F1F5F9" />
-                      <XAxis dataKey="ano" tick={{ fontSize:11, fill:"#64748B" }} axisLine={false} tickLine={false} />
-                      <YAxis tickFormatter={v => v>=1e9?`$${(v/1e9).toFixed(1)}MM`:v>=1e6?`$${(v/1e6).toFixed(0)}M`:`$${v}`} tick={{ fontSize:10, fill:"#94A3B8" }} axisLine={false} tickLine={false} width={64} />
-                      <Tooltip content={<SerresChartTooltip />} />
-                      <Legend wrapperStyle={{ fontSize:11, paddingTop:8 }} />
-                      <Area type="monotone" dataKey="adj_mercado" name="Mercado Total" stroke={GRAY_BAR}  fill="url(#gradMercado)" strokeWidth={2}   dot={{ r:4, fill:GRAY_BAR  }} activeDot={{ r:6 }} />
-                      <Area type="monotone" dataKey="lbf_adj"     name="LBF"           stroke={LBF_BLUE} fill="url(#gradLBF)"     strokeWidth={2.5} dot={{ r:4, fill:LBF_BLUE }} activeDot={{ r:6 }} />
-                    </AreaChart>
-                  </ResponsiveContainer>
-                </div>
-              )}
-
-              {/* Tendencia trimestral por cliente */}
-              {serresTendencia && serresTendencia.organismos.length > 0 && (
-                <div style={{ marginBottom:24 }}>
-                  {/* Header + filtros */}
-                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:12 }}>
-                    <div>
-                      <h2 style={{ fontSize:14, fontWeight:700, color:"#0F172A", margin:"0 0 2px" }}>Tendencia por Trimestre — LBF vs Competidores</h2>
-                      <p style={{ fontSize:11, color:"#94A3B8", margin:0 }}>Adjudicado c/IVA por trimestre · LBF destacado + top 7 competidores</p>
-                    </div>
-                    <div style={{ display:"flex", gap:12, alignItems:"center" }}>
-                      {/* Métrica toggle */}
-                      <div style={{ display:"flex", gap:0 }}>
-                        {(["adj","unidades"] as const).map((m,i) => (
-                          <button key={m} onClick={()=>setQMetrica(m)} style={{
-                            padding:"4px 12px", fontSize:11, fontWeight:600, cursor:"pointer",
-                            border:`1px solid ${qMetrica===m?"#7C3AED":"#E2E8F0"}`,
-                            background:qMetrica===m?"#7C3AED":"white",
-                            color:qMetrica===m?"white":"#64748B",
-                            borderRadius:i===0?"6px 0 0 6px":"0 6px 6px 0",
-                          }}>{m==="adj"?"Monto":"Unidades"}</button>
-                        ))}
-                      </div>
-                      {/* Período filter */}
-                      <div style={{ display:"flex", gap:4 }}>
-                        {Q_PERIODOS.map(p => (
-                          <button key={p} onClick={()=>setQPeriodo(p)} style={{
-                            padding:"4px 10px", fontSize:11, fontWeight:600, cursor:"pointer",
-                            border:`1px solid ${qPeriodo===p?LBF_BLUE:"#E2E8F0"}`,
-                            background:qPeriodo===p?LBF_BLUE:"white",
-                            color:qPeriodo===p?"white":"#64748B",
-                            borderRadius:6,
-                          }}>{p}</button>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-
-                  <div style={{ background:"white", borderRadius:10, border:"1px solid #E2E8F0", padding:"20px 24px" }}>
-                    {qChartData.length === 0 ? (
-                      <div style={{ color:"#94A3B8", textAlign:"center", padding:32 }}>Sin datos para el período seleccionado</div>
-                    ) : (
-                      <ResponsiveContainer width="100%" height={320}>
-                        <LineChart data={qChartData} margin={{ top:4, right:16, left:0, bottom:0 }}>
-                          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#F1F5F9" />
-                          <XAxis dataKey="t" tick={{ fontSize:10, fill:"#64748B" }} axisLine={false} tickLine={false} />
-                          <YAxis
-                            tickFormatter={v=>v>=1e9?`$${(v/1e9).toFixed(1)}MM`:v>=1e6?`$${(v/1e6).toFixed(0)}M`:qMetrica==="unidades"?fmtN(v):`$${v}`}
-                            tick={{ fontSize:10, fill:"#94A3B8" }} axisLine={false} tickLine={false} width={68}
-                          />
-                          <Tooltip
-                            formatter={(value:any, name:any) => [
-                              qMetrica==="adj" ? fmtFull(Number(value)) : fmtN(Number(value)),
-                              name,
-                            ]}
-                            contentStyle={{ fontSize:12, borderRadius:8, border:"1px solid #E2E8F0" }}
-                            labelStyle={{ fontWeight:700, marginBottom:4 }}
-                          />
-                          <Legend wrapperStyle={{ fontSize:11, paddingTop:8 }} />
-                          {orgList.map((org, i) => {
-                            const isLBF = org.es_lbf;
-                            const color = isLBF ? LBF_BLUE : LINE_COLORS[1 + (i - (orgList.findIndex(o=>o.es_lbf) < i ? 1 : 0)) % (LINE_COLORS.length - 1)];
-                            return (
-                              <Line
-                                key={org.shortname}
-                                type="monotone"
-                                dataKey={org.shortname}
-                                name={org.shortname}
-                                stroke={color}
-                                strokeWidth={isLBF ? 3 : 1.5}
-                                strokeDasharray={isLBF ? undefined : undefined}
-                                dot={{ r: isLBF ? 5 : 2.5, fill: color, strokeWidth: isLBF ? 2 : 0, stroke: "white" }}
-                                activeDot={{ r: isLBF ? 7 : 5 }}
-                                connectNulls={false}
-                                zIndex={isLBF ? 10 : 1}
-                              />
-                            );
-                          })}
-                        </LineChart>
-                      </ResponsiveContainer>
-                    )}
-                  </div>
-                </div>
-              )}
-
-              {/* Oportunidades table */}
-              {serresOport.length > 0 && (
-                <div>
-                  <h2 style={{ fontSize: 14, fontWeight: 700, color: "#0F172A", marginBottom: 10 }}>
-                    Oportunidades No Capturadas (2024–2026)
-                  </h2>
-                  <table style={{ borderCollapse: "collapse", width: "100%" }}>
-                    <thead>
-                      <tr>
-                        <th style={{ ...thL, minWidth: 110 }}>Código</th>
-                        <th style={{ ...thS, textAlign: "center", minWidth: 60 }}>Tipo</th>
-                        <th style={{ ...thL, minWidth: 200 }}>Organismo</th>
-                        <th style={{ ...thL, minWidth: 180 }}>Ganador</th>
-                        <th style={{ ...thS, minWidth: 90 }}>Fecha</th>
-                        <th style={{ ...thS, minWidth: 130 }}>Adj c/IVA</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {serresOport.map((o, i) => (
-                        <tr key={`${o.codigo}-${i}`} style={{ background: i % 2 === 1 ? "#FAFBFC" : undefined }}>
-                          <td style={{ ...tdL, fontFamily: "monospace", fontSize: 11, color: "#475569" }}>{o.codigo}</td>
-                          <td style={{ ...tdS, textAlign: "center", color: GRAY_DARK }}>{o.tipo ?? "—"}</td>
-                          <td style={tdL}>{o.organismo}</td>
-                          <td style={{ ...tdL, color: "#DC2626" }}>{o.ganador}</td>
-                          <td style={{ ...tdS, color: GRAY_DARK }}>{fmtFecha(o.fecha)}</td>
-                          <td style={{ ...tdS, fontWeight: 700, color: "#DC2626" }}>{fmtFull(o.adj)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </>
-          )}
-        </>
-      )}
 
       {/* ── TAB: Perdidos ↓ Precio ───────────────────────────────────────────── */}
       {activeTab === "perdidos" && (

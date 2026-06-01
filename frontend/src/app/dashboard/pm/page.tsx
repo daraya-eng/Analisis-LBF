@@ -341,6 +341,7 @@ export default function PlanDeMesPage() {
   const [drillData,      setDrillData]      = useState<DrillItem[]>([]);
   const [drillLoading,   setDrillLoading]   = useState(false);
   const [drillError,     setDrillError]     = useState<string | null>(null);
+  const [selectedMes,    setSelectedMes]    = useState(0); // 0 = mes actual
   const [data,           setData]           = useState<PMData | null>(null);
   const [loading,        setLoading]        = useState(false);
   const [loadingFiltros, setLoadingFiltros] = useState(true);
@@ -359,6 +360,7 @@ export default function PlanDeMesPage() {
       const params = new URLSearchParams();
       if (selectedZona) params.set("zona",      selectedZona);
       if (selectedCat)  params.set("categorias", selectedCat);
+      if (selectedMes)  params.set("mes",        String(selectedMes));
       const res = await api.get<PMData>(`/api/pm/resumen?${params.toString()}`, { noCache: true });
       setData(res);
       setSelectedClase(null);
@@ -367,7 +369,7 @@ export default function PlanDeMesPage() {
     } finally {
       setLoading(false);
     }
-  }, [selectedZona, selectedCat]);
+  }, [selectedZona, selectedCat, selectedMes]);
 
   useEffect(() => { if (!loadingFiltros) loadData(); }, [loadingFiltros, loadData]);
 
@@ -450,6 +452,15 @@ export default function PlanDeMesPage() {
         padding: "10px 16px", display: "flex", alignItems: "center", gap: 20,
         flexWrap: "wrap", marginBottom: 16,
       }}>
+        <FilterSelect label="Mes" value={String(selectedMes)} onChange={v => setSelectedMes(Number(v))}>
+          <option value="0">Mes actual</option>
+          {Object.entries(MESES).map(([n, label]) => (
+            <option key={n} value={n}>{label}</option>
+          ))}
+        </FilterSelect>
+
+        <div style={{ width: 1, height: 24, background: "#E2E8F0" }} />
+
         <FilterSelect label="Zona" value={selectedZona} onChange={setSelectedZona}>
           <option value="">Todas las zonas</option>
           {(filtros?.zonas ?? []).map(z => <option key={z} value={z}>{zonaLabel(z)}</option>)}

@@ -6,7 +6,7 @@ import { RefreshCw } from "lucide-react";
 import {
   AreaChart, Area, LineChart, Line, BarChart, Bar,
   ComposedChart, XAxis, YAxis, CartesianGrid, Tooltip,
-  Legend, ResponsiveContainer, Cell,
+  Legend, ResponsiveContainer, Cell, LabelList,
 } from "recharts";
 
 // ── interfaces ───────────────────────────────────────────────────────────────
@@ -501,7 +501,7 @@ export default function MercadosRelevantesPage() {
             // Construir timeline de últimos 15 meses
             const today = new Date();
             const timeline: { year: number; month: number; label: string }[] = [];
-            for (let i = 14; i >= 0; i--) {
+            for (let i = 15; i >= 1; i--) {
               const d = new Date(today.getFullYear(), today.getMonth() - i, 1);
               const y = d.getFullYear();
               const m = d.getMonth() + 1;
@@ -555,24 +555,31 @@ export default function MercadosRelevantesPage() {
                   <h2 style={{ fontSize: 14, fontWeight: 700, color: "#0F172A", margin: "0 0 2px" }}>
                     Tendencia Mensual — Ítems (últimos 15 meses)
                   </h2>
-                  <p style={{ fontSize: 11, color: "#94A3B8", margin: 0 }}>
+                  <p style={{ fontSize: 11, color: "#475569", margin: 0 }}>
                     Ítems participados vs adjudicados · línea naranja = tasa de adjudicación %
                   </p>
                 </div>
-                <ResponsiveContainer width="100%" height={280}>
-                  <ComposedChart data={chartData} margin={{ top: 8, right: 48, left: 0, bottom: 0 }} barCategoryGap="35%" barGap={2}>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#F1F5F9" />
-                    <XAxis dataKey="label" tick={{ fontSize: 10, fill: "#64748B" }} axisLine={false} tickLine={false} />
-                    <YAxis yAxisId="items" tick={{ fontSize: 10, fill: "#94A3B8" }} axisLine={false} tickLine={false} width={35} allowDecimals={false} />
-                    <YAxis yAxisId="pct" orientation="right" tick={{ fontSize: 10, fill: "#D97706" }} axisLine={false} tickLine={false} width={40}
+                <ResponsiveContainer width="100%" height={300}>
+                  <ComposedChart data={chartData} margin={{ top: 36, right: 52, left: 0, bottom: 0 }} barCategoryGap="20%" barGap={3}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E2E8F0" />
+                    <XAxis dataKey="label" tick={{ fontSize: 11, fill: "#374151", fontWeight: 500 }} axisLine={false} tickLine={false} />
+                    <YAxis yAxisId="items" tick={{ fontSize: 10, fill: "#374151" }} axisLine={false} tickLine={false} width={38} allowDecimals={false} />
+                    <YAxis yAxisId="pct" orientation="right" tick={{ fontSize: 10, fill: "#B45309", fontWeight: 600 }} axisLine={false} tickLine={false} width={44}
                       tickFormatter={v => `${v}%`} domain={[0, 100]} />
                     <Tooltip content={<ItemsTooltip />} />
-                    <Legend wrapperStyle={{ fontSize: 11, paddingTop: 8 }} />
-                    <Bar yAxisId="items" dataKey="part" name="Participados" fill="#CBD5E1" radius={[3,3,0,0]} />
-                    <Bar yAxisId="items" dataKey="adj"  name="Adjudicados"  fill={LBF_BLUE}  radius={[3,3,0,0]} />
+                    <Legend wrapperStyle={{ fontSize: 12, paddingTop: 10, color: "#374151" }} />
+                    <Bar yAxisId="items" dataKey="part" name="Participados" fill="#A5B4FC" radius={[4,4,0,0]}>
+                      <LabelList dataKey="part" position="top" style={{ fontSize: 10, fill: "#3730A3", fontWeight: 600 }} />
+                    </Bar>
+                    <Bar yAxisId="items" dataKey="adj" name="Adjudicados" fill="#4ADE80" radius={[4,4,0,0]}>
+                      <LabelList dataKey="adj" position="top" style={{ fontSize: 10, fill: "#14532D", fontWeight: 700 }} />
+                    </Bar>
                     <Line yAxisId="pct" type="monotone" dataKey="tasa" name="Tasa %"
                       stroke="#D97706" strokeWidth={2.5} dot={{ r: 4, fill: "#D97706", stroke: "white", strokeWidth: 2 }}
-                      activeDot={{ r: 6 }} connectNulls={false} />
+                      activeDot={{ r: 6 }} connectNulls={false}>
+                      <LabelList dataKey="tasa" position="top" offset={10} style={{ fontSize: 12, fill: "#B45309", fontWeight: 800, letterSpacing: "-0.02em" }}
+                        formatter={(v: number) => `${v}%`} />
+                    </Line>
                   </ComposedChart>
                 </ResponsiveContainer>
               </div>

@@ -52,7 +52,7 @@ MODULE_LABELS = {
     "pm": "PM",
     "renasys": "Renasys TPN",
     "kam_maule": "KAM Maule Sur",
-    "mercados_relevantes": "Mercados Relevantes",
+    "mercados_relevantes": "Análisis de Licitaciones",
 }
 
 # ── User storage (JSON file) ─────────────────────────────────────────────────

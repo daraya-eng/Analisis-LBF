@@ -4,7 +4,7 @@ Fuente unica: DWLBF.dbo.dw_datos_abiertos_licitaciones (SQL Server).
 Rubros: Equipamiento y Suministros Medicos + Equipamiento para Laboratorios.
 """
 import traceback
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from auth import get_current_user
 from db import get_conn
 from cache import mem_get, mem_set
@@ -253,6 +253,74 @@ async def licitaciones_lbf_tipo(
         return {"filas": rows}
     except Exception as e:
         return {"filas": [], "error": str(e), "detail": traceback.format_exc()}
+
+
+@router.get("/licitaciones-lbf-tipo-periodo")
+async def licitaciones_lbf_tipo_periodo(
+    current_user: dict = Depends(get_current_user),
+):
+    """Desglose por tipo — mismo periodo Ene-May 2025 vs 2026."""
+    ck = "mercados_relevantes:lic_lbf_tipo_periodo_v1"
+    if cached := mem_get(ck):
+        return cached
+
+    conn = None
+    try:
+        conn = get_conn()
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT ISNULL(Tipo,'(sin tipo)') AS tipo,"
+            " COUNT(DISTINCT CASE WHEN YEAR(FechaAdjudicacion)=2025 THEN Codigo END) AS total_lics_25,"
+            " COUNT(DISTINCT CASE WHEN YEAR(FechaAdjudicacion)=2025 AND Ofertaseleccionada='Seleccionada' THEN Codigo END) AS lics_adj_25,"
+            " COUNT(DISTINCT CASE WHEN YEAR(FechaAdjudicacion)=2025"
+            "   THEN CONCAT(CAST(Codigo AS VARCHAR),'-',CAST(CodigoItem AS VARCHAR)) END) AS items_part_25,"
+            " COUNT(DISTINCT CASE WHEN YEAR(FechaAdjudicacion)=2025 AND Ofertaseleccionada='Seleccionada'"
+            "   THEN CONCAT(CAST(Codigo AS VARCHAR),'-',CAST(CodigoItem AS VARCHAR)) END) AS items_adj_25,"
+            " SUM(CASE WHEN YEAR(FechaAdjudicacion)=2025 THEN CAST(ISNULL(MontoLineaAdjudica,0) AS FLOAT) ELSE 0 END) AS monto_adj_25,"
+            " COUNT(DISTINCT CASE WHEN YEAR(FechaAdjudicacion)=2026 THEN Codigo END) AS total_lics_26,"
+            " COUNT(DISTINCT CASE WHEN YEAR(FechaAdjudicacion)=2026 AND Ofertaseleccionada='Seleccionada' THEN Codigo END) AS lics_adj_26,"
+            " COUNT(DISTINCT CASE WHEN YEAR(FechaAdjudicacion)=2026"
+            "   THEN CONCAT(CAST(Codigo AS VARCHAR),'-',CAST(CodigoItem AS VARCHAR)) END) AS items_part_26,"
+            " COUNT(DISTINCT CASE WHEN YEAR(FechaAdjudicacion)=2026 AND Ofertaseleccionada='Seleccionada'"
+            "   THEN CONCAT(CAST(Codigo AS VARCHAR),'-',CAST(CodigoItem AS VARCHAR)) END) AS items_adj_26,"
+            " SUM(CASE WHEN YEAR(FechaAdjudicacion)=2026 THEN CAST(ISNULL(MontoLineaAdjudica,0) AS FLOAT) ELSE 0 END) AS monto_adj_26"
+            " FROM DWLBF.dbo.dw_datos_abiertos_licitaciones"
+            " WHERE RutProveedor='93.366.000-1' AND FechaAdjudicacion IS NOT NULL"
+            "   AND YEAR(FechaAdjudicacion) IN (2025,2026)"
+            "   AND MONTH(FechaAdjudicacion) BETWEEN 1 AND 5"
+            "   AND (Rubro1 LIKE 'EQUIPAMIENTO Y SUMINISTROS M%DICOS'"
+            "     OR Rubro1 = 'EQUIPAMIENTO PARA LABORATORIOS')"
+            " GROUP BY ISNULL(Tipo,'(sin tipo)')"
+            " ORDER BY SUM(CASE WHEN YEAR(FechaAdjudicacion)=2026"
+            "   THEN CAST(ISNULL(MontoLineaAdjudica,0) AS FLOAT) ELSE 0 END) DESC"
+        )
+        cols = [d[0] for d in cur.description]
+        raw = cur.fetchall()
+
+        filas = []
+        for r in raw:
+            d = dict(zip(cols, r))
+            filas.append({
+                "tipo":          d["tipo"],
+                "total_lics_25": int(d["total_lics_25"] or 0),
+                "lics_adj_25":   int(d["lics_adj_25"]   or 0),
+                "items_adj_25":  int(d["items_adj_25"]   or 0),
+                "monto_adj_25":  round(float(d["monto_adj_25"] or 0) * IVA),
+                "total_lics_26": int(d["total_lics_26"] or 0),
+                "lics_adj_26":   int(d["lics_adj_26"]   or 0),
+                "items_adj_26":  int(d["items_adj_26"]   or 0),
+                "monto_adj_26":  round(float(d["monto_adj_26"] or 0) * IVA),
+            })
+
+        result = {"filas": filas}
+        mem_set(ck, result)
+        return result
+
+    except Exception as e:
+        return {"filas": [], "error": str(e), "detail": traceback.format_exc()}
+    finally:
+        if conn:
+            conn.close()
 
 
 @router.get("/evolucion-mensual")
@@ -726,5 +794,269 @@ async def mercado_serres_tendencia_competidores(current_user: dict = Depends(get
         return result
     except Exception as e:
         return {"trimestres": [], "organismos": [], "error": str(e), "detail": traceback.format_exc()}
+    finally:
+        if conn: conn.close()
+
+
+@router.get("/perdidos-precio")
+async def perdidos_precio(
+    ano: int = Query(2025),
+    mes: int = Query(0),
+    current_user: dict = Depends(get_current_user),
+):
+    """
+    Items donde LBF participó pero no fue adjudicado:
+      - 'Aceptada' + precio mínimo → anomalía real (ganador cobró más que LBF)
+      - 'Rechazada' → oferta inadmisible (descartada antes de evaluación de precio)
+    Incluye resumen de participación, desglose por tipo y precio unitario.
+    """
+    ck = f"mercados_relevantes:perdidos_precio_v3:{ano}:{mes}"
+    if cached := mem_get(ck):
+        return cached
+
+    mes_filter = f"AND MONTH(FechaAdjudicacion) = {mes}" if mes > 0 else ""
+    rubro = ("(Rubro1 LIKE 'EQUIPAMIENTO Y SUMINISTROS M%DICOS'"
+             " OR Rubro1 = 'EQUIPAMIENTO PARA LABORATORIOS')")
+    rubro_b = ("(d.Rubro1 LIKE 'EQUIPAMIENTO Y SUMINISTROS M%DICOS'"
+               " OR d.Rubro1 = 'EQUIPAMIENTO PARA LABORATORIOS')")
+
+    conn = None
+    try:
+        conn = get_conn()
+        cur = conn.cursor()
+
+        # ── Grupo A: Aceptadas con precio mínimo pero no adjudicadas ─────────
+        cur.execute(
+            "WITH lbf_ok AS ("
+            "  SELECT Codigo, CodigoItem,"
+            "    ISNULL(NULLIF(NombrelineaAdquisicion,''), DescripcionlineaAdquisicion) AS producto,"
+            "    NombreOrganismo, Tipo,"
+            "    CAST(FechaAdjudicacion AS DATE) AS fecha_adj,"
+            "    CAST(ISNULL(ValorTotalOfertado,0) AS FLOAT) AS lbf_precio,"
+            "    CAST(ISNULL(MontoUnitarioOferta,0) AS FLOAT) AS lbf_precio_unit"
+            "  FROM DWLBF.dbo.dw_datos_abiertos_licitaciones"
+            f" WHERE RutProveedor='93.366.000-1' AND EstadoOferta='Aceptada'"
+            f"   AND ISNULL(Ofertaseleccionada,'')<>'Seleccionada'"
+            f"   AND CAST(ISNULL(ValorTotalOfertado,0) AS FLOAT) >= 1000"
+            f"   AND YEAR(FechaAdjudicacion)={ano} AND {rubro} {mes_filter}"
+            "),"
+            "min_p AS ("
+            "  SELECT d.Codigo, d.CodigoItem,"
+            "    MIN(CAST(ISNULL(d.ValorTotalOfertado,0) AS FLOAT)) AS min_precio"
+            "  FROM DWLBF.dbo.dw_datos_abiertos_licitaciones d"
+            "  WHERE CAST(ISNULL(d.ValorTotalOfertado,0) AS FLOAT) > 0"
+            "    AND EXISTS (SELECT 1 FROM lbf_ok x WHERE x.Codigo=d.Codigo AND x.CodigoItem=d.CodigoItem)"
+            "  GROUP BY d.Codigo, d.CodigoItem"
+            "),"
+            "gan AS ("
+            "  SELECT d.Codigo, d.CodigoItem,"
+            "    MAX(d.NombreProveedor) AS ganador_nombre,"
+            "    MAX(CAST(ISNULL(d.ValorTotalOfertado,0) AS FLOAT)) AS ganador_precio,"
+            "    MAX(CAST(ISNULL(d.MontoUnitarioOferta,0) AS FLOAT)) AS ganador_precio_unit"
+            "  FROM DWLBF.dbo.dw_datos_abiertos_licitaciones d"
+            "  WHERE d.Ofertaseleccionada='Seleccionada'"
+            "    AND EXISTS (SELECT 1 FROM lbf_ok x WHERE x.Codigo=d.Codigo AND x.CodigoItem=d.CodigoItem)"
+            "  GROUP BY d.Codigo, d.CodigoItem"
+            ")"
+            "SELECT TOP 500"
+            "  a.Codigo, a.CodigoItem, a.producto, a.NombreOrganismo, a.Tipo,"
+            "  a.fecha_adj, a.lbf_precio, a.lbf_precio_unit,"
+            "  g.ganador_precio, g.ganador_precio_unit, g.ganador_nombre,"
+            "  ROUND((g.ganador_precio/NULLIF(a.lbf_precio,0)-1)*100,1) AS dif_pct"
+            " FROM lbf_ok a"
+            " JOIN min_p m ON m.Codigo=a.Codigo AND m.CodigoItem=a.CodigoItem"
+            "   AND a.lbf_precio <= m.min_precio"
+            " JOIN gan g ON g.Codigo=a.Codigo AND g.CodigoItem=a.CodigoItem"
+            " WHERE g.ganador_precio > a.lbf_precio"
+            " ORDER BY dif_pct DESC"
+        )
+        cols = [d[0] for d in cur.description]
+        grupo_a = []
+        for r in cur.fetchall():
+            d = dict(zip(cols, r))
+            grupo_a.append({
+                "codigo":              d["Codigo"],
+                "codigo_item":         int(d["CodigoItem"] or 0),
+                "producto":            d["producto"] or "",
+                "organismo":           d["NombreOrganismo"] or "",
+                "tipo":                d["Tipo"] or "",
+                "fecha_adj":           str(d["fecha_adj"]),
+                "lbf_precio":          round(float(d["lbf_precio"] or 0) * IVA),
+                "lbf_precio_unit":     round(float(d["lbf_precio_unit"] or 0) * IVA),
+                "ganador_precio":      round(float(d["ganador_precio"] or 0) * IVA),
+                "ganador_precio_unit": round(float(d["ganador_precio_unit"] or 0) * IVA),
+                "ganador_nombre":      d["ganador_nombre"] or "",
+                "dif_pct":             float(d["dif_pct"] or 0),
+            })
+
+        # ── Grupo B: Rechazadas (inadmisibles) ───────────────────────────────
+        cur.execute(
+            "SELECT TOP 500"
+            "  d.Codigo, d.CodigoItem,"
+            "  ISNULL(NULLIF(d.NombrelineaAdquisicion,''), d.DescripcionlineaAdquisicion) AS producto,"
+            "  d.NombreOrganismo, d.Tipo,"
+            "  CAST(d.FechaAdjudicacion AS DATE) AS fecha_adj,"
+            "  CAST(ISNULL(d.ValorTotalOfertado,0) AS FLOAT) AS lbf_precio,"
+            "  CAST(ISNULL(d.MontoUnitarioOferta,0) AS FLOAT) AS lbf_precio_unit,"
+            "  g.NombreProveedor AS ganador_nombre,"
+            "  CAST(ISNULL(g.ValorTotalOfertado,0) AS FLOAT) AS ganador_precio"
+            " FROM DWLBF.dbo.dw_datos_abiertos_licitaciones d"
+            " LEFT JOIN DWLBF.dbo.dw_datos_abiertos_licitaciones g"
+            "   ON g.Codigo=d.Codigo AND g.CodigoItem=d.CodigoItem AND g.Ofertaseleccionada='Seleccionada'"
+            f" WHERE d.RutProveedor='93.366.000-1' AND d.EstadoOferta='Rechazada'"
+            f"   AND YEAR(d.FechaAdjudicacion)={ano} AND {rubro_b} {mes_filter}"
+            " ORDER BY d.FechaAdjudicacion DESC"
+        )
+        cols2 = [d[0] for d in cur.description]
+        grupo_b = []
+        for r in cur.fetchall():
+            d = dict(zip(cols2, r))
+            grupo_b.append({
+                "codigo":          d["Codigo"],
+                "codigo_item":     int(d["CodigoItem"] or 0),
+                "producto":        d["producto"] or "",
+                "organismo":       d["NombreOrganismo"] or "",
+                "tipo":            d["Tipo"] or "",
+                "fecha_adj":       str(d["fecha_adj"]),
+                "lbf_precio":      round(float(d["lbf_precio"] or 0) * IVA),
+                "lbf_precio_unit": round(float(d["lbf_precio_unit"] or 0) * IVA),
+                "ganador_nombre":  d["ganador_nombre"] or "",
+                "ganador_precio":  round(float(d["ganador_precio"] or 0) * IVA),
+            })
+
+        # ── Resumen de participación global ───────────────────────────────────
+        cur.execute(
+            "SELECT"
+            " COUNT(DISTINCT Codigo) AS lics_part,"
+            " COUNT(DISTINCT CASE WHEN Ofertaseleccionada='Seleccionada' THEN Codigo END) AS lics_adj,"
+            " COUNT(DISTINCT CONCAT(CAST(Codigo AS VARCHAR),'-',CAST(CodigoItem AS VARCHAR))) AS items_part,"
+            " COUNT(DISTINCT CASE WHEN Ofertaseleccionada='Seleccionada'"
+            "   THEN CONCAT(CAST(Codigo AS VARCHAR),'-',CAST(CodigoItem AS VARCHAR)) END) AS items_adj,"
+            " COUNT(DISTINCT CASE WHEN EstadoOferta='Rechazada'"
+            "   THEN CONCAT(CAST(Codigo AS VARCHAR),'-',CAST(CodigoItem AS VARCHAR)) END) AS items_inadmisibles,"
+            " COUNT(DISTINCT CASE WHEN EstadoOferta='Rechazada' THEN Codigo END) AS lics_inadmisibles"
+            " FROM DWLBF.dbo.dw_datos_abiertos_licitaciones"
+            f" WHERE RutProveedor='93.366.000-1' AND YEAR(FechaAdjudicacion)={ano}"
+            f"   AND {rubro} {mes_filter}"
+        )
+        r_res = cur.fetchone()
+        c_res = [d[0] for d in cur.description]
+        res_d = dict(zip(c_res, r_res))
+        resumen = {
+            "lics_part":          int(res_d["lics_part"] or 0),
+            "lics_adj":           int(res_d["lics_adj"] or 0),
+            "items_part":         int(res_d["items_part"] or 0),
+            "items_adj":          int(res_d["items_adj"] or 0),
+            "items_inadmisibles": int(res_d["items_inadmisibles"] or 0),
+            "lics_inadmisibles":  int(res_d["lics_inadmisibles"] or 0),
+            "items_menor_precio": len(grupo_a),
+        }
+
+        # ── Inadmisibles por tipo ─────────────────────────────────────────────
+        cur.execute(
+            "SELECT ISNULL(Tipo,'(sin tipo)') AS tipo,"
+            " COUNT(DISTINCT Codigo) AS lics,"
+            " COUNT(*) AS items"
+            " FROM DWLBF.dbo.dw_datos_abiertos_licitaciones"
+            f" WHERE RutProveedor='93.366.000-1' AND EstadoOferta='Rechazada'"
+            f"   AND YEAR(FechaAdjudicacion)={ano} AND {rubro} {mes_filter}"
+            " GROUP BY ISNULL(Tipo,'(sin tipo)')"
+            " ORDER BY items DESC"
+        )
+        c_tipo = [d[0] for d in cur.description]
+        inadmisibles_por_tipo = [
+            {"tipo": r[0], "lics": int(r[1] or 0), "items": int(r[2] or 0)}
+            for r in cur.fetchall()
+        ]
+
+        result = {
+            "aceptadas": grupo_a,
+            "rechazadas": grupo_b,
+            "resumen": resumen,
+            "inadmisibles_por_tipo": inadmisibles_por_tipo,
+        }
+        mem_set(ck, result)
+        return result
+
+    except Exception as e:
+        return {
+            "aceptadas": [], "rechazadas": [],
+            "resumen": {}, "inadmisibles_por_tipo": [],
+            "error": str(e), "detail": traceback.format_exc(),
+        }
+    finally:
+        if conn: conn.close()
+
+
+@router.get("/perdidos-licitacion")
+async def perdidos_licitacion(
+    codigo: str = Query(...),
+    current_user: dict = Depends(get_current_user),
+):
+    """Todos los ítems + proveedores de una licitación donde LBF participó."""
+    ck = f"mercados_relevantes:perdidos_licitacion_v1:{codigo}"
+    if cached := mem_get(ck):
+        return cached
+
+    conn = None
+    try:
+        conn = get_conn()
+        cur = conn.cursor()
+        # Step 1: get LBF's item codes for this licitacion (fast point lookup)
+        cur.execute(
+            "SELECT DISTINCT CodigoItem"
+            " FROM DWLBF.dbo.dw_datos_abiertos_licitaciones"
+            " WHERE Codigo=? AND RutProveedor=?",
+            (codigo, LBF_RUT)
+        )
+        lbf_items = [r[0] for r in cur.fetchall()]
+        if not lbf_items:
+            result = {"codigo": codigo, "items": []}
+            mem_set(ck, result)
+            return result
+
+        # Step 2: all providers for those items only (IN list, no full-table correlated scan)
+        placeholders = ",".join(["?" for _ in lbf_items])
+        cur.execute(
+            "SELECT d.CodigoItem,"
+            " ISNULL(NULLIF(d.NombrelineaAdquisicion,''), d.DescripcionlineaAdquisicion) AS producto,"
+            " d.NombreProveedor, d.RutProveedor,"
+            " ISNULL(d.EstadoOferta,'') AS estado_oferta,"
+            " ISNULL(d.Ofertaseleccionada,'') AS oferta_sel,"
+            " CAST(ISNULL(d.MontoUnitarioOferta,0) AS FLOAT) AS precio_unit,"
+            " CAST(ISNULL(d.ValorTotalOfertado,0) AS FLOAT) AS precio_total,"
+            " CAST(ISNULL(d.Cantidad,0) AS FLOAT) AS cantidad_req"
+            f" FROM DWLBF.dbo.dw_datos_abiertos_licitaciones d"
+            f" WHERE d.Codigo=? AND d.CodigoItem IN ({placeholders})"
+            " ORDER BY d.CodigoItem, d.ValorTotalOfertado",
+            [codigo] + lbf_items
+        )
+        cols = [d[0] for d in cur.description]
+        rows = cur.fetchall()
+
+        from collections import OrderedDict
+        items_map: dict = OrderedDict()
+        for r in rows:
+            d = dict(zip(cols, r))
+            ci = int(d["CodigoItem"] or 0)
+            if ci not in items_map:
+                items_map[ci] = {"codigo_item": ci, "producto": d["producto"] or "", "proveedores": []}
+            items_map[ci]["proveedores"].append({
+                "nombre":        d["NombreProveedor"] or "",
+                "rut":           d["RutProveedor"] or "",
+                "es_lbf":        d["RutProveedor"] == LBF_RUT,
+                "estado_oferta": d["estado_oferta"],
+                "seleccionada":  d["oferta_sel"] == "Seleccionada",
+                "precio_unit":   round(float(d["precio_unit"] or 0) * IVA),
+                "precio_total":  round(float(d["precio_total"] or 0) * IVA),
+                "cantidad_req":  round(float(d["cantidad_req"] or 0)),
+            })
+
+        result = {"codigo": codigo, "items": list(items_map.values())}
+        mem_set(ck, result)
+        return result
+
+    except Exception as e:
+        return {"codigo": codigo, "items": [], "error": str(e), "detail": traceback.format_exc()}
     finally:
         if conn: conn.close()

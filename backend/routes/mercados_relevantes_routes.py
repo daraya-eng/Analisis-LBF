@@ -260,7 +260,7 @@ async def evolucion_mensual(
     current_user: dict = Depends(get_current_user),
 ):
     """Evolucion mensual ofertado y adjudicado LBF para 2024/2025/2026 (todos los meses)."""
-    ck = "mercados_relevantes:evolucion_mensual_adj_v6_items"
+    ck = "mercados_relevantes:evolucion_mensual_adj_v7_items"
     if cached := mem_get(ck):
         return cached
 
@@ -272,9 +272,8 @@ async def evolucion_mensual(
             "SELECT YEAR(FechaAdjudicacion) AS ano, MONTH(FechaAdjudicacion) AS mes,"
             " COUNT(DISTINCT Codigo) AS lics_part,"
             " COUNT(DISTINCT CASE WHEN Ofertaseleccionada='Seleccionada' THEN Codigo END) AS lics_adj,"
-            " COUNT(DISTINCT CASE WHEN ISNULL(ValorTotalOfertado,0)>0"
-            "   THEN CONCAT(CAST(Codigo AS VARCHAR),'-',CAST(CodigoItem AS VARCHAR)) END) AS items_part,"
-            " COUNT(DISTINCT CASE WHEN Ofertaseleccionada='Seleccionada' AND ISNULL(ValorTotalOfertado,0)>0"
+            " COUNT(DISTINCT CONCAT(CAST(Codigo AS VARCHAR),'-',CAST(CodigoItem AS VARCHAR))) AS items_part,"
+            " COUNT(DISTINCT CASE WHEN Ofertaseleccionada='Seleccionada'"
             "   THEN CONCAT(CAST(Codigo AS VARCHAR),'-',CAST(CodigoItem AS VARCHAR)) END) AS items_adj,"
             " SUM(CAST(ISNULL(ValorTotalOfertado,0) AS FLOAT)) AS monto_ofertado,"
             " SUM(CAST(ISNULL(MontoLineaAdjudica,0) AS FLOAT)) AS monto_adjudicado"

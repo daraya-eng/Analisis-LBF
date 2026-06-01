@@ -5,7 +5,7 @@ import { api, clearClientCache } from "@/lib/api";
 import { RefreshCw } from "lucide-react";
 import {
   AreaChart, Area, LineChart, Line, BarChart, Bar,
-  XAxis, YAxis, CartesianGrid, Tooltip,
+  ComposedChart, XAxis, YAxis, CartesianGrid, Tooltip,
   Legend, ResponsiveContainer, Cell,
 } from "recharts";
 
@@ -528,18 +528,20 @@ export default function MercadosRelevantesPage() {
               if (!active || !payload?.length) return null;
               const part = payload.find(p => p.name === "Participados")?.value ?? 0;
               const adj  = payload.find(p => p.name === "Adjudicados")?.value ?? 0;
-              const tasa = part > 0 ? ((adj / part) * 100).toFixed(1) : "—";
+              const tasa = payload.find(p => p.name === "Tasa %")?.value;
               return (
                 <div style={{
                   background: "white", border: "1px solid #E2E8F0", borderRadius: 8,
                   padding: "10px 14px", fontSize: 12, boxShadow: "0 4px 16px rgba(0,0,0,0.08)",
                 }}>
                   <div style={{ fontWeight: 700, marginBottom: 6, color: "#0F172A" }}>{label}</div>
-                  <div style={{ color: "#94A3B8", marginBottom: 2 }}>Participados: <strong style={{ color: "#0F172A" }}>{part}</strong></div>
+                  <div style={{ color: "#64748B", marginBottom: 2 }}>Participados: <strong style={{ color: "#0F172A" }}>{part}</strong></div>
                   <div style={{ color: GREEN, marginBottom: 4 }}>Adjudicados: <strong>{adj}</strong></div>
-                  <div style={{ color: LBF_BLUE, fontWeight: 700, borderTop: "1px solid #F1F5F9", paddingTop: 4 }}>
-                    Tasa: {tasa}%
-                  </div>
+                  {tasa != null && (
+                    <div style={{ color: "#D97706", fontWeight: 700, borderTop: "1px solid #F1F5F9", paddingTop: 4 }}>
+                      Tasa adj: {tasa.toFixed(1)}%
+                    </div>
+                  )}
                 </div>
               );
             };
@@ -554,19 +556,24 @@ export default function MercadosRelevantesPage() {
                     Tendencia Mensual — Ítems (últimos 15 meses)
                   </h2>
                   <p style={{ fontSize: 11, color: "#94A3B8", margin: 0 }}>
-                    Ítems participados vs adjudicados por mes · sin acumulado
+                    Ítems participados vs adjudicados · línea naranja = tasa de adjudicación %
                   </p>
                 </div>
-                <ResponsiveContainer width="100%" height={260}>
-                  <BarChart data={chartData} margin={{ top: 4, right: 8, left: 0, bottom: 0 }} barCategoryGap="30%" barGap={2}>
+                <ResponsiveContainer width="100%" height={280}>
+                  <ComposedChart data={chartData} margin={{ top: 8, right: 48, left: 0, bottom: 0 }} barCategoryGap="35%" barGap={2}>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#F1F5F9" />
                     <XAxis dataKey="label" tick={{ fontSize: 10, fill: "#64748B" }} axisLine={false} tickLine={false} />
-                    <YAxis tick={{ fontSize: 10, fill: "#94A3B8" }} axisLine={false} tickLine={false} width={35} allowDecimals={false} />
+                    <YAxis yAxisId="items" tick={{ fontSize: 10, fill: "#94A3B8" }} axisLine={false} tickLine={false} width={35} allowDecimals={false} />
+                    <YAxis yAxisId="pct" orientation="right" tick={{ fontSize: 10, fill: "#D97706" }} axisLine={false} tickLine={false} width={40}
+                      tickFormatter={v => `${v}%`} domain={[0, 100]} />
                     <Tooltip content={<ItemsTooltip />} />
                     <Legend wrapperStyle={{ fontSize: 11, paddingTop: 8 }} />
-                    <Bar dataKey="part" name="Participados" fill="#CBD5E1" radius={[3,3,0,0]} />
-                    <Bar dataKey="adj"  name="Adjudicados"  fill={LBF_BLUE}  radius={[3,3,0,0]} />
-                  </BarChart>
+                    <Bar yAxisId="items" dataKey="part" name="Participados" fill="#CBD5E1" radius={[3,3,0,0]} />
+                    <Bar yAxisId="items" dataKey="adj"  name="Adjudicados"  fill={LBF_BLUE}  radius={[3,3,0,0]} />
+                    <Line yAxisId="pct" type="monotone" dataKey="tasa" name="Tasa %"
+                      stroke="#D97706" strokeWidth={2.5} dot={{ r: 4, fill: "#D97706", stroke: "white", strokeWidth: 2 }}
+                      activeDot={{ r: 6 }} connectNulls={false} />
+                  </ComposedChart>
                 </ResponsiveContainer>
               </div>
             );

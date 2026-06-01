@@ -397,9 +397,34 @@ export default function PlanDeMesPage() {
   const zonaLabel  = (z: string) => { const p = z.split("-"); return p.length > 1 ? p.slice(1).join("-").trim() : z; };
   const activeCats = data?.categorias?.filter(c => c.venta_mes > 0 || c.ppto_mes > 0) ?? [];
 
+  const mesActual = kpis?.mes ?? new Date().getMonth() + 1;
+  const mesesDisponibles = Array.from({ length: mesActual }, (_, i) => i + 1);
+
   /* ─── Render ─────────────────────────────────────────────────────── */
   return (
     <div style={{ fontFamily: "'Calibri', 'Segoe UI', sans-serif" }}>
+
+      {/* ── Selector de mes ───────────────────────────────────────── */}
+      <div style={{
+        background: "white", borderRadius: 10, border: "1px solid #E2E8F0",
+        padding: "10px 16px", display: "flex", alignItems: "center", gap: 6,
+        flexWrap: "wrap", marginBottom: 12,
+      }}>
+        <span style={{ fontSize: 11, fontWeight: 700, color: "#64748B", textTransform: "uppercase", letterSpacing: "0.05em", marginRight: 4 }}>Mes</span>
+        {mesesDisponibles.map(m => {
+          const active = selectedMes === m || (selectedMes === 0 && m === mesActual);
+          return (
+            <button key={m} onClick={() => setSelectedMes(selectedMes === m ? 0 : m)} style={{
+              padding: "4px 12px", borderRadius: 6, fontSize: 12, fontWeight: active ? 700 : 500,
+              cursor: "pointer", border: `1px solid ${active ? LBF_BLUE : "#E2E8F0"}`,
+              background: active ? LBF_BLUE : "white",
+              color: active ? "white" : "#64748B", transition: "all 0.15s",
+            }}>
+              {MESES[m].slice(0, 3)}
+            </button>
+          );
+        })}
+      </div>
 
       {/* ── Header ────────────────────────────────────────────────── */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: activeCats.length >= 2 ? 8 : 12 }}>
@@ -452,15 +477,6 @@ export default function PlanDeMesPage() {
         padding: "10px 16px", display: "flex", alignItems: "center", gap: 20,
         flexWrap: "wrap", marginBottom: 16,
       }}>
-        <FilterSelect label="Mes" value={String(selectedMes)} onChange={v => setSelectedMes(Number(v))}>
-          <option value="0">Mes actual</option>
-          {Object.entries(MESES).map(([n, label]) => (
-            <option key={n} value={n}>{label}</option>
-          ))}
-        </FilterSelect>
-
-        <div style={{ width: 1, height: 24, background: "#E2E8F0" }} />
-
         <FilterSelect label="Zona" value={selectedZona} onChange={setSelectedZona}>
           <option value="">Todas las zonas</option>
           {(filtros?.zonas ?? []).map(z => <option key={z} value={z}>{zonaLabel(z)}</option>)}

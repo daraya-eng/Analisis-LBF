@@ -80,15 +80,14 @@ def _codigo_sql(codigo: str, alias: str = "") -> str:
     return f"{pref}CODIGO = '{cod}'"
 
 
-def _load_pm(zona: str = "", categorias: str = "", subclase: str = "", codigo: str = "") -> dict:
-    ck = f"pm:resumen:{zona}:{categorias}:{subclase}:{codigo}"
+def _load_pm(zona: str = "", categorias: str = "", subclase: str = "", codigo: str = "", mes: int = 0) -> dict:
+    h = hoy()
+    _ANO = h["ano"]
+    _MES = mes if 1 <= mes <= 12 else h["mes"]
+    ck = f"pm:resumen:{zona}:{categorias}:{subclase}:{codigo}:{_MES}"
     cached = mem_get(ck)
     if cached:
         return cached
-
-    h = hoy()
-    _ANO = h["ano"]
-    _MES = h["mes"]
     hab_trans, hab_rest, hab_total = calc_dias_habiles([_MES], _ANO)
     pct_dias = round(hab_trans / hab_total * 100, 2) if hab_total > 0 else 0
 
@@ -253,6 +252,21 @@ def _load_pm(zona: str = "", categorias: str = "", subclase: str = "", codigo: s
     """)
     cat_v25 = {row[0]: float(row[1] or 0) for row in cur.fetchall()}
 
+    # Venta sin GF por categoría (solo facturas emitidas)
+    cur.execute(f"""
+        SELECT ({_CAT_CASE}) AS cat,
+               SUM(CASE WHEN MES = {_MES} THEN CAST(VENTA AS float) ELSE 0 END) AS v26_sin_gf
+        FROM BI_TOTAL_FACTURA
+        WHERE ANO = {_ANO} AND MES <= {_MES} AND {_EXCL_DW}
+          AND DOC_CODE <> 'GF'
+          AND ({z_fact})
+          AND ({s_sql})
+          AND ({k_sql})
+          AND ({_CAT_CASE}) IN ({_CATS_IN})
+        GROUP BY ({_CAT_CASE})
+    """)
+    cat_v26_sin_gf = {row[0]: float(row[1] or 0) for row in cur.fetchall()}
+
     # ═══ 4b. Top 5 FAMILIA (clase) por categoría — mes actual ═══
     cur.execute(f"""
         SELECT ({_CAT_CASE}) AS cat,
@@ -309,8 +323,10 @@ def _load_pm(zona: str = "", categorias: str = "", subclase: str = "", codigo: s
         ppto_c   = _meta_cat_mg.get(cat, {}).get(_MES, {}).get("meta_venta", 0)
         ppto_a   = sum(_meta_cat_mg.get(cat, {}).get(m, {}).get("meta_venta", 0) for m in range(1, 13))
         ppto_ytd_c = sum(_meta_cat_mg.get(cat, {}).get(m, {}).get("meta_venta", 0) for m in range(1, _MES + 1))
-        cump_ppto = round(v26 / ppto_c * 100, 1)         if ppto_c     > 0 else 0.0
-        cump_ytd  = round(v26_ytd / ppto_ytd_c * 100, 1) if ppto_ytd_c > 0 else 0.0
+        v26_sin_gf  = cat_v26_sin_gf.get(cat, 0)
+        cump_ppto   = round(v26 / ppto_c * 100, 1)          if ppto_c     > 0 else 0.0
+        cump_sin_gf = round(v26_sin_gf / ppto_c * 100, 1)   if ppto_c     > 0 else 0.0
+        cump_ytd    = round(v26_ytd / ppto_ytd_c * 100, 1)  if ppto_ytd_c > 0 else 0.0
         var_ant   = round((v26 / v25 - 1) * 100, 1) if v25 > 0 else (100.0 if v26 > 0 else 0.0)
         mg_cat    = round(c26 / v26 * 100, 1) if v26 > 0 else 0.0
         _mg_raw   = _meta_cat_mg.get(cat, {}).get(_MES, {}).get("margen_pct", 0.0)
@@ -324,6 +340,7 @@ def _load_pm(zona: str = "", categorias: str = "", subclase: str = "", codigo: s
             "ppto_ytd":     round(ppto_ytd_c),
             "ppto_anual":   round(ppto_a),
             "cump_ppto":    cump_ppto,
+            "cump_sin_gf":  cump_sin_gf,
             "cump_ytd":     cump_ytd,
             "var_ant":      var_ant,
             "pct_dias":     pct_dias,
@@ -474,9 +491,10 @@ async def get_pm_resumen(
     categorias: str = Query(""),
     subclase: str = Query(""),
     codigo: str = Query(""),
+    mes: int = Query(0),
     current_user: dict = Depends(get_current_user),
 ):
-    return _load_pm(zona, categorias, subclase, codigo)
+    return _load_pm(zona, categorias, subclase, codigo, mes)
 
 
 @router.get("/detalle_clase")

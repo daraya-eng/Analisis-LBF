@@ -149,6 +149,14 @@ const fmtM = (n: number): string => {
   return `$${Math.round(n).toLocaleString("es-CL")}`;
 };
 
+const fmtM5 = (n: number): string => {
+  if (!n) return "$0";
+  const abs = Math.abs(n);
+  if (abs >= 1_000_000_000) return `$${Math.round(n / 1_000_000).toLocaleString("es-CL")}M`;
+  if (abs >= 1_000_000)     return `$${Math.round(n / 1_000).toLocaleString("es-CL")}K`;
+  return `$${Math.round(n).toLocaleString("es-CL")}`;
+};
+
 const fmtFull = (n: number): string =>
   `$${Math.round(n).toLocaleString("es-CL")}`;
 
@@ -429,60 +437,53 @@ export default function MercadosRelevantesPage() {
       {/* ── TAB: Participación LBF ────────────────────────────────────────────── */}
       {activeTab === "lbf" && (
         <>
-          {/* KPI Cards */}
+          {/* KPI Cards — 3 columnas por año */}
           <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12, marginBottom: 20 }}>
-            <KpiCard
-              label="Ofertado 2024"
-              value={fmtM(ano2024?.monto_ofertado ?? 0)}
-              sub={`${fmtN(ano2024?.total_items ?? 0)} ítems`}
-            />
-            <KpiCard
-              label="Ofertado 2025"
-              value={fmtM(ano2025?.monto_ofertado ?? 0)}
-              sub={`${fmtN(ano2025?.total_items ?? 0)} ítems`}
-            />
-            <KpiCard
-              label={`Ofertado ${ytdLabel}`}
-              value={fmtM(ano2026?.monto_ofertado ?? 0)}
-              sub={`${fmtN(ano2026?.total_items ?? 0)} ítems`}
-              accent={LBF_BLUE}
-            />
-            <KpiCard
-              label="Adjudicado 2024"
-              value={fmtM(ano2024?.monto_adjudicado ?? 0)}
-              sub={`${fmtPct(ano2024?.pct_ganado_ofertado ?? 0)} del ofertado`}
-              accent={GREEN}
-            />
-            <KpiCard
-              label="Adjudicado 2025"
-              value={fmtM(ano2025?.monto_adjudicado ?? 0)}
-              sub={`${fmtPct(ano2025?.pct_ganado_ofertado ?? 0)} del ofertado`}
-              accent={GREEN}
-            />
-            <KpiCard
-              label={`Adjudicado ${ytdLabel}`}
-              value={fmtM(ano2026?.monto_adjudicado ?? 0)}
-              sub={`${fmtPct(ano2026?.pct_ganado_ofertado ?? 0)} del ofertado`}
-              accent={GREEN}
-            />
-            <KpiCard
-              label="Lics Adj 2024"
-              value={`${fmtN(ano2024?.lics_adj ?? 0)} / ${fmtN(ano2024?.total_lics ?? 0)}`}
-              sub={`Tasa ${fmtPct(ano2024?.tasa_adj_lics ?? 0)}`}
-              accent={pctColor(ano2024?.tasa_adj_lics ?? 0)}
-            />
-            <KpiCard
-              label="Lics Adj 2025"
-              value={`${fmtN(ano2025?.lics_adj ?? 0)} / ${fmtN(ano2025?.total_lics ?? 0)}`}
-              sub={`Tasa ${fmtPct(ano2025?.tasa_adj_lics ?? 0)}`}
-              accent={pctColor(ano2025?.tasa_adj_lics ?? 0)}
-            />
-            <KpiCard
-              label={`Lics Adj ${ytdLabel}`}
-              value={`${fmtN(ano2026?.lics_adj ?? 0)} / ${fmtN(ano2026?.total_lics ?? 0)}`}
-              sub={`Tasa ${fmtPct(ano2026?.tasa_adj_lics ?? 0)}`}
-              accent={pctColor(ano2026?.tasa_adj_lics ?? 0)}
-            />
+            {([
+              { data: ano2024, label: "2024", accent: false },
+              { data: ano2025, label: "2025", accent: false },
+              { data: ano2026, label: ytdLabel, accent: true },
+            ] as { data: LbfAno | undefined; label: string; accent: boolean }[]).map(({ data, label, accent }) => (
+              <div key={label} style={{
+                background: "white", borderRadius: 10,
+                border: `1px solid ${accent ? "#BFDBFE" : "#E2E8F0"}`,
+                padding: "14px 18px",
+              }}>
+                {/* Año header */}
+                <div style={{
+                  fontSize: 13, fontWeight: 800, color: accent ? LBF_BLUE : GRAY_DARK,
+                  marginBottom: 12, paddingBottom: 8, borderBottom: `2px solid ${accent ? "#BFDBFE" : "#F1F5F9"}`,
+                }}>{label}</div>
+
+                {/* Ofertado */}
+                <div style={{ marginBottom: 10 }}>
+                  <div style={{ fontSize: 10, fontWeight: 700, color: "#94A3B8", textTransform: "uppercase", letterSpacing: "0.05em" }}>Ofertado</div>
+                  <div style={{ fontSize: 20, fontWeight: 800, color: "#0F172A", lineHeight: 1.2 }}>{fmtM5(data?.monto_ofertado ?? 0)}</div>
+                  <div style={{ fontSize: 11, color: "#94A3B8" }}>{fmtN(data?.total_items ?? 0)} ítems</div>
+                </div>
+
+                {/* Adjudicado */}
+                <div style={{ marginBottom: 10, paddingTop: 10, borderTop: "1px solid #F1F5F9" }}>
+                  <div style={{ fontSize: 10, fontWeight: 700, color: "#94A3B8", textTransform: "uppercase", letterSpacing: "0.05em" }}>Adjudicado</div>
+                  <div style={{ fontSize: 20, fontWeight: 800, color: GREEN, lineHeight: 1.2 }}>{fmtM5(data?.monto_adjudicado ?? 0)}</div>
+                  <div style={{ fontSize: 11, color: "#94A3B8" }}>{fmtPct(data?.pct_ganado_ofertado ?? 0)} del ofertado</div>
+                </div>
+
+                {/* Lics + Ítems */}
+                <div style={{ paddingTop: 10, borderTop: "1px solid #F1F5F9", display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                  <div>
+                    <div style={{ fontSize: 10, fontWeight: 700, color: "#94A3B8", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 2 }}>Lics adj</div>
+                    <div style={{ fontSize: 14, fontWeight: 800, color: "#0F172A" }}>{fmtN(data?.lics_adj ?? 0)}<span style={{ fontWeight: 400, color: "#94A3B8" }}> / {fmtN(data?.total_lics ?? 0)}</span></div>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: pctColor(data?.tasa_adj_lics ?? 0) }}>{fmtPct(data?.tasa_adj_lics ?? 0)}</div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 10, fontWeight: 700, color: "#94A3B8", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 2 }}>Ítems adj</div>
+                    <div style={{ fontSize: 14, fontWeight: 800, color: "#0F172A" }}>{fmtN(data?.items_adj ?? 0)}<span style={{ fontWeight: 400, color: "#94A3B8" }}> / {fmtN(data?.total_items ?? 0)}</span></div>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: pctColor(data?.tasa_adj_items ?? 0) }}>{fmtPct(data?.tasa_adj_items ?? 0)}</div>
+                  </div>
+                </div>
+              </div>
+            ))}
           </div>
 
           {/* Monthly Charts — N° licitaciones participadas | adjudicadas, Ene–May */}

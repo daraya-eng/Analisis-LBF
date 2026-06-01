@@ -440,46 +440,65 @@ export default function MercadosRelevantesPage() {
           {/* KPI Cards — 3 columnas por año */}
           <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12, marginBottom: 20 }}>
             {([
-              { data: ano2024, label: "2024", accent: false },
-              { data: ano2025, label: "2025", accent: false },
-              { data: ano2026, label: ytdLabel, accent: true },
-            ] as { data: LbfAno | undefined; label: string; accent: boolean }[]).map(({ data, label, accent }) => (
+              { data: ano2024, label: "2024",    headerBg: "#1E3A5F", accent: false },
+              { data: ano2025, label: "2025",    headerBg: "#1A4A6B", accent: false },
+              { data: ano2026, label: ytdLabel,  headerBg: LBF_BLUE,  accent: true  },
+            ] as { data: LbfAno | undefined; label: string; headerBg: string; accent: boolean }[]).map(({ data, label, headerBg, accent }) => (
               <div key={label} style={{
-                background: "white", borderRadius: 10,
-                border: `1px solid ${accent ? "#BFDBFE" : "#E2E8F0"}`,
-                padding: "14px 18px",
+                background: "white", borderRadius: 10, overflow: "hidden",
+                border: "1px solid #E2E8F0",
+                boxShadow: accent ? "0 2px 12px rgba(37,99,235,0.12)" : "0 1px 4px rgba(0,0,0,0.04)",
               }}>
-                {/* Año header */}
+                {/* Header con color */}
                 <div style={{
-                  fontSize: 13, fontWeight: 800, color: accent ? LBF_BLUE : GRAY_DARK,
-                  marginBottom: 12, paddingBottom: 8, borderBottom: `2px solid ${accent ? "#BFDBFE" : "#F1F5F9"}`,
-                }}>{label}</div>
-
-                {/* Ofertado */}
-                <div style={{ marginBottom: 10 }}>
-                  <div style={{ fontSize: 10, fontWeight: 700, color: "#94A3B8", textTransform: "uppercase", letterSpacing: "0.05em" }}>Ofertado</div>
-                  <div style={{ fontSize: 20, fontWeight: 800, color: "#0F172A", lineHeight: 1.2 }}>{fmtM5(data?.monto_ofertado ?? 0)}</div>
-                  <div style={{ fontSize: 11, color: "#94A3B8" }}>{fmtN(data?.total_items ?? 0)} ítems</div>
-                </div>
-
-                {/* Adjudicado */}
-                <div style={{ marginBottom: 10, paddingTop: 10, borderTop: "1px solid #F1F5F9" }}>
-                  <div style={{ fontSize: 10, fontWeight: 700, color: "#94A3B8", textTransform: "uppercase", letterSpacing: "0.05em" }}>Adjudicado</div>
-                  <div style={{ fontSize: 20, fontWeight: 800, color: GREEN, lineHeight: 1.2 }}>{fmtM5(data?.monto_adjudicado ?? 0)}</div>
-                  <div style={{ fontSize: 11, color: "#94A3B8" }}>{fmtPct(data?.pct_ganado_ofertado ?? 0)} del ofertado</div>
-                </div>
-
-                {/* Lics + Ítems */}
-                <div style={{ paddingTop: 10, borderTop: "1px solid #F1F5F9", display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-                  <div>
-                    <div style={{ fontSize: 10, fontWeight: 700, color: "#94A3B8", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 2 }}>Lics adj</div>
-                    <div style={{ fontSize: 14, fontWeight: 800, color: "#0F172A" }}>{fmtN(data?.lics_adj ?? 0)}<span style={{ fontWeight: 400, color: "#94A3B8" }}> / {fmtN(data?.total_lics ?? 0)}</span></div>
-                    <div style={{ fontSize: 12, fontWeight: 700, color: pctColor(data?.tasa_adj_lics ?? 0) }}>{fmtPct(data?.tasa_adj_lics ?? 0)}</div>
+                  background: headerBg, padding: "10px 16px",
+                  display: "flex", alignItems: "center", justifyContent: "space-between",
+                }}>
+                  <div style={{ fontSize: 13, fontWeight: 800, color: "white", letterSpacing: "0.02em" }}>
+                    Licitaciones {label}
                   </div>
-                  <div>
-                    <div style={{ fontSize: 10, fontWeight: 700, color: "#94A3B8", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 2 }}>Ítems adj</div>
-                    <div style={{ fontSize: 14, fontWeight: 800, color: "#0F172A" }}>{fmtN(data?.items_adj ?? 0)}<span style={{ fontWeight: 400, color: "#94A3B8" }}> / {fmtN(data?.total_items ?? 0)}</span></div>
-                    <div style={{ fontSize: 12, fontWeight: 700, color: pctColor(data?.tasa_adj_items ?? 0) }}>{fmtPct(data?.tasa_adj_items ?? 0)}</div>
+                  {accent && (
+                    <span style={{ fontSize: 10, fontWeight: 700, background: "rgba(255,255,255,0.2)", color: "white", padding: "2px 8px", borderRadius: 20 }}>
+                      En curso
+                    </span>
+                  )}
+                </div>
+
+                <div style={{ padding: "14px 16px" }}>
+                  {/* Ofertado */}
+                  <div style={{ background: "#F8FAFC", borderRadius: 8, padding: "10px 12px", marginBottom: 8 }}>
+                    <div style={{ fontSize: 10, fontWeight: 700, color: "#64748B", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 2 }}>Ofertado</div>
+                    <div style={{ fontSize: 22, fontWeight: 800, color: "#0F172A", lineHeight: 1.1 }}>{fmtM5(data?.monto_ofertado ?? 0)}</div>
+                    <div style={{ fontSize: 11, color: "#94A3B8", marginTop: 2 }}>{fmtN(data?.total_items ?? 0)} ítems participados</div>
+                  </div>
+
+                  {/* Adjudicado */}
+                  <div style={{ background: "#F0FDF4", borderRadius: 8, padding: "10px 12px", marginBottom: 8 }}>
+                    <div style={{ fontSize: 10, fontWeight: 700, color: "#16A34A", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 2 }}>Adjudicado</div>
+                    <div style={{ fontSize: 22, fontWeight: 800, color: GREEN, lineHeight: 1.1 }}>{fmtM5(data?.monto_adjudicado ?? 0)}</div>
+                    <div style={{ fontSize: 11, color: "#86EFAC", marginTop: 2 }}>{fmtPct(data?.pct_ganado_ofertado ?? 0)} del ofertado</div>
+                  </div>
+
+                  {/* Lics + Ítems */}
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                    <div style={{ background: "#F8FAFC", borderRadius: 8, padding: "10px 12px" }}>
+                      <div style={{ fontSize: 10, fontWeight: 700, color: "#64748B", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 4 }}>Lics adj</div>
+                      <div style={{ fontSize: 15, fontWeight: 800, color: "#0F172A" }}>
+                        {fmtN(data?.lics_adj ?? 0)}<span style={{ fontWeight: 400, color: "#CBD5E1", fontSize: 13 }}> / {fmtN(data?.total_lics ?? 0)}</span>
+                      </div>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: pctColor(data?.tasa_adj_lics ?? 0), marginTop: 2 }}>
+                        {fmtPct(data?.tasa_adj_lics ?? 0)} tasa
+                      </div>
+                    </div>
+                    <div style={{ background: "#F8FAFC", borderRadius: 8, padding: "10px 12px" }}>
+                      <div style={{ fontSize: 10, fontWeight: 700, color: "#64748B", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 4 }}>Ítems adj</div>
+                      <div style={{ fontSize: 15, fontWeight: 800, color: "#0F172A" }}>
+                        {fmtN(data?.items_adj ?? 0)}<span style={{ fontWeight: 400, color: "#CBD5E1", fontSize: 13 }}> / {fmtN(data?.total_items ?? 0)}</span>
+                      </div>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: pctColor(data?.tasa_adj_items ?? 0), marginTop: 2 }}>
+                        {fmtPct(data?.tasa_adj_items ?? 0)} tasa
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>

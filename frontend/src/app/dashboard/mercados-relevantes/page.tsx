@@ -546,7 +546,7 @@ export default function MercadosRelevantesPage() {
                       stroke="#D97706" strokeWidth={2.5} dot={{ r: 4, fill: "#D97706", stroke: "white", strokeWidth: 2 }}
                       activeDot={{ r: 6 }} connectNulls={false}>
                       <LabelList dataKey="tasa" position="top" offset={10} style={{ fontSize: 12, fill: "#B45309", fontWeight: 800, letterSpacing: "-0.02em" }}
-                        formatter={(v: number) => `${v}%`} />
+                        formatter={(v: unknown) => v != null ? `${v}%` : ""} />
                     </Line>
                   </ComposedChart>
                 </ResponsiveContainer>

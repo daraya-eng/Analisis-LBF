@@ -259,8 +259,8 @@ async def licitaciones_lbf_tipo(
 async def evolucion_mensual(
     current_user: dict = Depends(get_current_user),
 ):
-    """Evolucion mensual ofertado y adjudicado LBF para 2025 y 2026 (todos los meses)."""
-    ck = "mercados_relevantes:evolucion_mensual_adj_v5_iva"
+    """Evolucion mensual ofertado y adjudicado LBF para 2024/2025/2026 (todos los meses)."""
+    ck = "mercados_relevantes:evolucion_mensual_adj_v6_items"
     if cached := mem_get(ck):
         return cached
 
@@ -272,6 +272,10 @@ async def evolucion_mensual(
             "SELECT YEAR(FechaAdjudicacion) AS ano, MONTH(FechaAdjudicacion) AS mes,"
             " COUNT(DISTINCT Codigo) AS lics_part,"
             " COUNT(DISTINCT CASE WHEN Ofertaseleccionada='Seleccionada' THEN Codigo END) AS lics_adj,"
+            " COUNT(DISTINCT CASE WHEN ISNULL(ValorTotalOfertado,0)>0"
+            "   THEN CONCAT(CAST(Codigo AS VARCHAR),'-',CAST(CodigoItem AS VARCHAR)) END) AS items_part,"
+            " COUNT(DISTINCT CASE WHEN Ofertaseleccionada='Seleccionada' AND ISNULL(ValorTotalOfertado,0)>0"
+            "   THEN CONCAT(CAST(Codigo AS VARCHAR),'-',CAST(CodigoItem AS VARCHAR)) END) AS items_adj,"
             " SUM(CAST(ISNULL(ValorTotalOfertado,0) AS FLOAT)) AS monto_ofertado,"
             " SUM(CAST(ISNULL(MontoLineaAdjudica,0) AS FLOAT)) AS monto_adjudicado"
             " FROM DWLBF.dbo.dw_datos_abiertos_licitaciones"
@@ -286,48 +290,38 @@ async def evolucion_mensual(
         raw_rows = cur.fetchall()
 
         MESES = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"]
+        _zero = lambda: {
+            "v2024_of": 0, "v2024_adj": 0, "l2024_part": 0, "l2024_adj": 0, "i2024_part": 0, "i2024_adj": 0,
+            "v2025_of": 0, "v2025_adj": 0, "l2025_part": 0, "l2025_adj": 0, "i2025_part": 0, "i2025_adj": 0,
+            "v2026_of": 0, "v2026_adj": 0, "l2026_part": 0, "l2026_adj": 0, "i2026_part": 0, "i2026_adj": 0,
+        }
         by_mes: dict = {}
         for r in raw_rows:
             d = dict(zip(cols, r))
             ano = int(d["ano"])
             mes = int(d["mes"])
             if mes not in by_mes:
-                by_mes[mes] = {
-                    "mes": mes,
-                    "mes_nom": MESES[mes - 1],
-                    "v2024_of": 0, "v2024_adj": 0, "l2024_part": 0, "l2024_adj": 0,
-                    "v2025_of": 0, "v2025_adj": 0, "l2025_part": 0, "l2025_adj": 0,
-                    "v2026_of": 0, "v2026_adj": 0, "l2026_part": 0, "l2026_adj": 0,
-                }
+                by_mes[mes] = {"mes": mes, "mes_nom": MESES[mes - 1], **_zero()}
             of  = round(float(d["monto_ofertado"]  or 0))
             adj = round(float(d["monto_adjudicado"] or 0) * IVA)
-            lp  = int(d["lics_part"] or 0)
-            la  = int(d["lics_adj"]  or 0)
-            if ano == 2024:
-                by_mes[mes]["v2024_of"]   = of
-                by_mes[mes]["v2024_adj"]  = adj
-                by_mes[mes]["l2024_part"] = lp
-                by_mes[mes]["l2024_adj"]  = la
-            elif ano == 2025:
-                by_mes[mes]["v2025_of"]   = of
-                by_mes[mes]["v2025_adj"]  = adj
-                by_mes[mes]["l2025_part"] = lp
-                by_mes[mes]["l2025_adj"]  = la
-            else:
-                by_mes[mes]["v2026_of"]   = of
-                by_mes[mes]["v2026_adj"]  = adj
-                by_mes[mes]["l2026_part"] = lp
-                by_mes[mes]["l2026_adj"]  = la
+            lp  = int(d["lics_part"]  or 0)
+            la  = int(d["lics_adj"]   or 0)
+            ip  = int(d["items_part"] or 0)
+            ia  = int(d["items_adj"]  or 0)
+            prefix = {2024: "2024", 2025: "2025", 2026: "2026"}.get(ano)
+            if prefix:
+                by_mes[mes][f"v{prefix}_of"]    = of
+                by_mes[mes][f"v{prefix}_adj"]   = adj
+                by_mes[mes][f"l{prefix}_part"]  = lp
+                by_mes[mes][f"l{prefix}_adj"]   = la
+                by_mes[mes][f"i{prefix}_part"]  = ip
+                by_mes[mes][f"i{prefix}_adj"]   = ia
 
         # Build full 12-month list; missing months get zeros
         meses_full = []
         for m in range(1, 13):
-            meses_full.append(by_mes.get(m, {
-                "mes": m, "mes_nom": MESES[m - 1],
-                "v2024_of": 0, "v2024_adj": 0, "l2024_part": 0, "l2024_adj": 0,
-                "v2025_of": 0, "v2025_adj": 0, "l2025_part": 0, "l2025_adj": 0,
-                "v2026_of": 0, "v2026_adj": 0, "l2026_part": 0, "l2026_adj": 0,
-            }))
+            row = by_mes.get(m, {"mes": m, "mes_nom": MESES[m - 1], **_zero()})
+            meses_full.append(row)
 
         data = {"meses": meses_full}
         mem_set(ck, data)

@@ -4,9 +4,9 @@ import React, { useEffect, useState, useCallback } from "react";
 import { api, clearClientCache } from "@/lib/api";
 import { RefreshCw } from "lucide-react";
 import {
-  AreaChart, Area, LineChart, Line,
+  AreaChart, Area, LineChart, Line, BarChart, Bar,
   XAxis, YAxis, CartesianGrid, Tooltip,
-  Legend, ResponsiveContainer,
+  Legend, ResponsiveContainer, Cell,
 } from "recharts";
 
 // ── interfaces ───────────────────────────────────────────────────────────────
@@ -39,18 +39,9 @@ interface TipoFila {
 interface MesData {
   mes: number;
   mes_nom: string;
-  v2024_of: number;
-  v2024_adj: number;
-  l2024_part: number;
-  l2024_adj: number;
-  v2025_of: number;
-  v2025_adj: number;
-  l2025_part: number;
-  l2025_adj: number;
-  v2026_of: number;
-  v2026_adj: number;
-  l2026_part: number;
-  l2026_adj: number;
+  v2024_of: number; v2024_adj: number; l2024_part: number; l2024_adj: number; i2024_part: number; i2024_adj: number;
+  v2025_of: number; v2025_adj: number; l2025_part: number; l2025_adj: number; i2025_part: number; i2025_adj: number;
+  v2026_of: number; v2026_adj: number; l2026_part: number; l2026_adj: number; i2026_part: number; i2026_adj: number;
 }
 
 interface SerresAno {
@@ -505,73 +496,53 @@ export default function MercadosRelevantesPage() {
             ))}
           </div>
 
-          {/* Monthly Charts — N° licitaciones participadas | adjudicadas, Ene–May */}
+          {/* Tendencia mensual ítems — últimos 15 meses */}
           {evolucion.length > 0 && (() => {
-            const mesesFiltro = evolucion.filter(m => m.mes <= 5);
-            let cumPart24 = 0, cumPart25 = 0, cumPart26 = 0;
-            let cumAdj24  = 0, cumAdj25  = 0, cumAdj26  = 0;
-            const partData: Record<string,any>[] = [];
-            const adjData:  Record<string,any>[] = [];
-            mesesFiltro.forEach(m => {
-              const has26 = m.mes <= ult26;
-              cumPart24 += m.l2024_part; cumPart25 += m.l2025_part;
-              if (has26) cumPart26 += m.l2026_part;
-              partData.push({ mes: m.mes_nom, "2024": cumPart24, "2025": cumPart25, "2026": has26 ? cumPart26 : null });
+            // Construir timeline de últimos 15 meses
+            const today = new Date();
+            const timeline: { year: number; month: number; label: string }[] = [];
+            for (let i = 14; i >= 0; i--) {
+              const d = new Date(today.getFullYear(), today.getMonth() - i, 1);
+              const y = d.getFullYear();
+              const m = d.getMonth() + 1;
+              timeline.push({ year: y, month: m, label: `${MESES_LABEL[m]}'${String(y).slice(2)}` });
+            }
 
-              cumAdj24 += m.l2024_adj; cumAdj25 += m.l2025_adj;
-              if (has26) cumAdj26 += m.l2026_adj;
-              adjData.push({ mes: m.mes_nom, "2024": cumAdj24, "2025": cumAdj25, "2026": has26 ? cumAdj26 : null });
-            });
+            const chartData = timeline.map(({ year, month, label }) => {
+              const row = evolucion.find(r => r.mes === month);
+              if (!row) return { label, part: null, adj: null, tasa: null };
+              let part: number | null = null;
+              let adj:  number | null = null;
+              if (year === 2024) { part = row.i2024_part; adj = row.i2024_adj; }
+              else if (year === 2025) { part = row.i2025_part; adj = row.i2025_adj; }
+              else if (year === 2026 && month <= ult26) { part = row.i2026_part; adj = row.i2026_adj; }
+              const tasa = part && part > 0 ? Math.round(((adj ?? 0) / part) * 100) : null;
+              return { label, part, adj, tasa };
+            }).filter(r => r.part !== null);
 
-            const CountTooltip = ({ active, payload, label }: {
+            const ItemsTooltip = ({ active, payload, label }: {
               active?: boolean;
               payload?: { name: string; value: number; color: string }[];
               label?: string;
             }) => {
               if (!active || !payload?.length) return null;
+              const part = payload.find(p => p.name === "Participados")?.value ?? 0;
+              const adj  = payload.find(p => p.name === "Adjudicados")?.value ?? 0;
+              const tasa = part > 0 ? ((adj / part) * 100).toFixed(1) : "—";
               return (
                 <div style={{
                   background: "white", border: "1px solid #E2E8F0", borderRadius: 8,
                   padding: "10px 14px", fontSize: 12, boxShadow: "0 4px 16px rgba(0,0,0,0.08)",
                 }}>
                   <div style={{ fontWeight: 700, marginBottom: 6, color: "#0F172A" }}>{label}</div>
-                  {payload.map(p => p.value != null && (
-                    <div key={p.name} style={{ color: p.color, marginBottom: 2 }}>
-                      {p.name}: <strong>{p.value} lics</strong>
-                    </div>
-                  ))}
+                  <div style={{ color: "#94A3B8", marginBottom: 2 }}>Participados: <strong style={{ color: "#0F172A" }}>{part}</strong></div>
+                  <div style={{ color: GREEN, marginBottom: 4 }}>Adjudicados: <strong>{adj}</strong></div>
+                  <div style={{ color: LBF_BLUE, fontWeight: 700, borderTop: "1px solid #F1F5F9", paddingTop: 4 }}>
+                    Tasa: {tasa}%
+                  </div>
                 </div>
               );
             };
-
-            const miniChart = (data: Record<string,any>[], title: string) => (
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <h3 style={{ fontSize: 12, fontWeight: 700, color: "#0F172A", margin: "0 0 10px", textTransform: "uppercase", letterSpacing: "0.04em" }}>
-                  {title}
-                </h3>
-                <ResponsiveContainer width="100%" height={230}>
-                  <LineChart data={data} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#F1F5F9" />
-                    <XAxis dataKey="mes" tick={{ fontSize: 11, fill: "#64748B" }} axisLine={false} tickLine={false} />
-                    <YAxis
-                      tickFormatter={v => String(v)}
-                      tick={{ fontSize: 10, fill: "#94A3B8" }} axisLine={false} tickLine={false} width={30}
-                      allowDecimals={false}
-                    />
-                    <Tooltip content={<CountTooltip />} />
-                    <Legend wrapperStyle={{ fontSize: 11, paddingTop: 6 }} />
-                    <Line type="monotone" dataKey="2024" name="2024" stroke="#CBD5E1" strokeWidth={2}
-                      dot={{ r: 3, fill: "#CBD5E1" }} activeDot={{ r: 5 }} connectNulls={false} />
-                    <Line type="monotone" dataKey="2025" name="2025" stroke={GRAY_BAR} strokeWidth={2}
-                      dot={{ r: 3, fill: GRAY_BAR }} activeDot={{ r: 5 }} connectNulls={false} />
-                    <Line type="monotone" dataKey="2026" name={`2026 (hasta ${MESES_LABEL[ult26] || "—"})`}
-                      stroke={LBF_BLUE} strokeWidth={3}
-                      dot={{ r: 4, fill: LBF_BLUE, strokeWidth: 2, stroke: "white" }}
-                      activeDot={{ r: 6 }} connectNulls={false} />
-                  </LineChart>
-                </ResponsiveContainer>
-              </div>
-            );
 
             return (
               <div style={{
@@ -580,17 +551,23 @@ export default function MercadosRelevantesPage() {
               }}>
                 <div style={{ marginBottom: 16 }}>
                   <h2 style={{ fontSize: 14, fontWeight: 700, color: "#0F172A", margin: "0 0 2px" }}>
-                    Evolución Acumulada — Ene a May (N° Licitaciones)
+                    Tendencia Mensual — Ítems (últimos 15 meses)
                   </h2>
                   <p style={{ fontSize: 11, color: "#94A3B8", margin: 0 }}>
-                    Cantidad acumulada de licitaciones participadas vs adjudicadas · 2024 / 2025 / 2026
+                    Ítems participados vs adjudicados por mes · sin acumulado
                   </p>
                 </div>
-                <div style={{ display: "flex", gap: 32 }}>
-                  {miniChart(partData, "Participadas (Ofertadas)")}
-                  <div style={{ width: 1, background: "#F1F5F9", flexShrink: 0 }} />
-                  {miniChart(adjData, "Adjudicadas")}
-                </div>
+                <ResponsiveContainer width="100%" height={260}>
+                  <BarChart data={chartData} margin={{ top: 4, right: 8, left: 0, bottom: 0 }} barCategoryGap="30%" barGap={2}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#F1F5F9" />
+                    <XAxis dataKey="label" tick={{ fontSize: 10, fill: "#64748B" }} axisLine={false} tickLine={false} />
+                    <YAxis tick={{ fontSize: 10, fill: "#94A3B8" }} axisLine={false} tickLine={false} width={35} allowDecimals={false} />
+                    <Tooltip content={<ItemsTooltip />} />
+                    <Legend wrapperStyle={{ fontSize: 11, paddingTop: 8 }} />
+                    <Bar dataKey="part" name="Participados" fill="#CBD5E1" radius={[3,3,0,0]} />
+                    <Bar dataKey="adj"  name="Adjudicados"  fill={LBF_BLUE}  radius={[3,3,0,0]} />
+                  </BarChart>
+                </ResponsiveContainer>
               </div>
             );
           })()}

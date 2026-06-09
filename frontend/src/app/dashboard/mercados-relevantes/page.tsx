@@ -804,8 +804,35 @@ export default function MercadosRelevantesPage() {
                   ))}
                 </div>
 
+                {/* Gráfico de barras por mes */}
+                {por_mes.length > 0 && (
+                  <div style={{ ...card, marginBottom: 20, padding: "16px 20px" }}>
+                    <h3 style={{ margin: "0 0 4px", fontSize: 13, fontWeight: 700, color: "#0F172A" }}>Evolución mensual</h3>
+                    <p style={{ margin: "0 0 16px", fontSize: 11, color: "#64748B" }}>Licitaciones e ítems perdidos por precio más bajo</p>
+                    <ResponsiveContainer width="100%" height={220}>
+                      <ComposedChart data={por_mes} margin={{ top: 16, right: 24, bottom: 0, left: 0 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" vertical={false} />
+                        <XAxis dataKey="label" tick={{ fontSize: 11, fill: "#64748B" }} axisLine={false} tickLine={false} />
+                        <YAxis yAxisId="lics" orientation="left"  tick={{ fontSize: 10, fill: "#94A3B8" }} axisLine={false} tickLine={false} width={28} />
+                        <YAxis yAxisId="items" orientation="right" tick={{ fontSize: 10, fill: "#94A3B8" }} axisLine={false} tickLine={false} width={32} />
+                        <Tooltip
+                          contentStyle={{ fontSize: 12, borderRadius: 8, border: "1px solid #E2E8F0" }}
+                          formatter={(value: unknown, name: unknown) => [(Number(value) || 0).toLocaleString("es-CL"), String(name)]}
+                        />
+                        <Legend wrapperStyle={{ fontSize: 11, paddingTop: 8 }} />
+                        <Bar yAxisId="lics"  dataKey="lics"  name="Licitaciones" fill="#FECACA" stroke="#DC2626" strokeWidth={1} radius={[4,4,0,0]}>
+                          <LabelList dataKey="lics"  position="top" style={{ fontSize: 10, fill: "#DC2626", fontWeight: 700 }} />
+                        </Bar>
+                        <Bar yAxisId="items" dataKey="items" name="Ítems"         fill="#FCA5A5" stroke="#B91C1C" strokeWidth={1} radius={[4,4,0,0]}>
+                          <LabelList dataKey="items" position="top" style={{ fontSize: 10, fill: "#B91C1C", fontWeight: 700 }} />
+                        </Bar>
+                      </ComposedChart>
+                    </ResponsiveContainer>
+                  </div>
+                )}
+
                 {/* Tabla por mes */}
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, alignItems: "start" }}>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 20, alignItems: "start" }}>
                   <div style={{ ...card, padding: 0, overflow: "hidden" }}>
                     <div style={{ padding: "12px 16px", borderBottom: "1px solid #E2E8F0" }}>
                       <h3 style={{ margin: 0, fontSize: 13, fontWeight: 700, color: "#0F172A" }}>Por Mes</h3>
@@ -851,52 +878,83 @@ export default function MercadosRelevantesPage() {
                                   <td colSpan={3} style={{ padding: 0, background: "#FEFCE8" }}>
                                     {isLoading ? (
                                       <div style={{ padding: "12px 20px", fontSize: 12, color: "#94A3B8" }}>Cargando…</div>
-                                    ) : perdidosDrillData && perdidosDrillData.rows.length > 0 ? (
-                                      <table style={{ borderCollapse: "collapse", width: "100%" }}>
-                                        <thead>
-                                          <tr style={{ background: "#FEF3C7" }}>
-                                            <th style={{ ...thL, fontSize: 10, padding: "6px 10px", background: "transparent" }}>Licitación</th>
-                                            <th style={{ ...thL, fontSize: 10, padding: "6px 10px", background: "transparent" }}>Organismo</th>
-                                            <th style={{ ...th, fontSize: 10, padding: "6px 10px", background: "transparent", color: RED }}>Ítems</th>
-                                            <th style={{ ...thL, fontSize: 10, padding: "6px 10px", background: "transparent" }}>Competidor</th>
-                                            <th style={{ ...thL, fontSize: 10, padding: "6px 10px", background: "transparent" }}>Estado MP</th>
-                                          </tr>
-                                        </thead>
-                                        <tbody>
-                                          {perdidosDrillData.rows.map((dr, di) => (
-                                            <tr key={dr.licitacion_id} style={{ background: di % 2 === 1 ? "#FFFBEB" : "white" }}>
-                                              <td style={{ ...tdL, fontSize: 11, padding: "5px 10px", color: LBF_BLUE, fontFamily: "monospace" }}>
-                                                {dr.licitacion_id}
-                                              </td>
-                                              <td style={{ ...tdL, fontSize: 11, padding: "5px 10px", maxWidth: 160, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
-                                                title={dr.organismo}>
-                                                {dr.organismo}
-                                              </td>
-                                              <td style={{ ...td, fontSize: 11, padding: "5px 10px", color: RED, fontWeight: 700 }}>
-                                                {dr.items_perdidos}
-                                              </td>
-                                              <td style={{ ...tdL, fontSize: 11, padding: "5px 10px", maxWidth: 160, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
-                                                title={dr.competidor}>
-                                                {dr.competidor}
-                                              </td>
-                                              <td style={{ ...tdL, fontSize: 11, padding: "5px 10px" }}>
-                                                {dr.estado_mp ? (
-                                                  <span style={{
-                                                    display: "inline-block", padding: "1px 8px", borderRadius: 4, fontSize: 10, fontWeight: 700,
-                                                    background: dr.estado_mp.toLowerCase().includes("acept") ? "#DCFCE7" : dr.estado_mp.toLowerCase().includes("rechaz") ? "#FEE2E2" : "#F1F5F9",
-                                                    color: dr.estado_mp.toLowerCase().includes("acept") ? "#16A34A" : dr.estado_mp.toLowerCase().includes("rechaz") ? "#DC2626" : "#64748B",
-                                                  }}>
-                                                    {dr.estado_mp}
-                                                  </span>
-                                                ) : (
-                                                  <span style={{ color: "#CBD5E1", fontSize: 10 }}>sin info</span>
-                                                )}
-                                              </td>
-                                            </tr>
-                                          ))}
-                                        </tbody>
-                                      </table>
-                                    ) : (
+                                    ) : perdidosDrillData && perdidosDrillData.rows.length > 0 ? (() => {
+                                      const rechazadas = perdidosDrillData.rows.filter(r => r.estado_mp?.toLowerCase().includes("rechaz")).length;
+                                      const sinInfo    = perdidosDrillData.rows.filter(r => !r.estado_mp).length;
+                                      return (
+                                        <>
+                                          {/* Resumen inadmisibilidad */}
+                                          {rechazadas > 0 && (
+                                            <div style={{
+                                              padding: "8px 14px", margin: "8px 10px 4px",
+                                              background: "#FEF3C7", borderRadius: 6,
+                                              borderLeft: "3px solid #D97706",
+                                              fontSize: 11, color: "#92400E",
+                                            }}>
+                                              ⚠️ <strong>{rechazadas} licitación{rechazadas > 1 ? "es" : ""}</strong> con oferta <strong>Rechazada</strong> en MP —
+                                              posible inadmisibilidad documental o técnica.
+                                              En estos casos LBF puede haber sido excluida <em>antes</em> de la evaluación de precios.
+                                              {sinInfo > 0 && <span style={{ marginLeft: 8, color: "#78350F" }}>({sinInfo} sin datos en MP)</span>}
+                                            </div>
+                                          )}
+                                          <table style={{ borderCollapse: "collapse", width: "100%" }}>
+                                            <thead>
+                                              <tr style={{ background: "#FEF3C7" }}>
+                                                <th style={{ ...thL, fontSize: 10, padding: "6px 10px", background: "transparent" }}>Licitación</th>
+                                                <th style={{ ...thL, fontSize: 10, padding: "6px 10px", background: "transparent" }}>Organismo</th>
+                                                <th style={{ ...th, fontSize: 10, padding: "6px 10px", background: "transparent", color: RED }}>Ítems</th>
+                                                <th style={{ ...thL, fontSize: 10, padding: "6px 10px", background: "transparent" }}>Competidor</th>
+                                                <th style={{ ...thL, fontSize: 10, padding: "6px 10px", background: "transparent" }}>Estado en MP</th>
+                                              </tr>
+                                            </thead>
+                                            <tbody>
+                                              {perdidosDrillData.rows.map((dr, di) => {
+                                                const est    = dr.estado_mp?.toLowerCase() ?? "";
+                                                const isRech = est.includes("rechaz");
+                                                const isAcep = est.includes("acept");
+                                                const badgeBg    = isRech ? "#FEF3C7" : isAcep ? "#DCFCE7" : "#F1F5F9";
+                                                const badgeColor = isRech ? "#B45309" : isAcep ? "#16A34A" : "#64748B";
+                                                const badgeLabel = isRech ? "⚠️ Rechazada" : dr.estado_mp ?? "";
+                                                return (
+                                                  <tr key={dr.licitacion_id}
+                                                    style={{ background: isRech ? "#FFFBEB" : di % 2 === 1 ? "#FFFBEB" : "white" }}>
+                                                    <td style={{ ...tdL, fontSize: 11, padding: "5px 10px", color: LBF_BLUE, fontFamily: "monospace" }}>
+                                                      {dr.licitacion_id}
+                                                    </td>
+                                                    <td style={{ ...tdL, fontSize: 11, padding: "5px 10px", maxWidth: 160, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                                                      title={dr.organismo}>
+                                                      {dr.organismo}
+                                                    </td>
+                                                    <td style={{ ...td, fontSize: 11, padding: "5px 10px", color: RED, fontWeight: 700 }}>
+                                                      {dr.items_perdidos}
+                                                    </td>
+                                                    <td style={{ ...tdL, fontSize: 11, padding: "5px 10px", maxWidth: 160, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                                                      title={dr.competidor}>
+                                                      {dr.competidor}
+                                                    </td>
+                                                    <td style={{ ...tdL, fontSize: 11, padding: "5px 10px" }}>
+                                                      {dr.estado_mp ? (
+                                                        <span title={isRech ? "Oferta rechazada en MP — puede indicar inadmisibilidad antes de evaluación de precios" : undefined}
+                                                          style={{
+                                                            display: "inline-block", padding: "1px 8px", borderRadius: 4,
+                                                            fontSize: 10, fontWeight: 700,
+                                                            background: badgeBg, color: badgeColor,
+                                                            cursor: isRech ? "help" : undefined,
+                                                          }}>
+                                                          {badgeLabel}
+                                                        </span>
+                                                      ) : (
+                                                        <span style={{ color: "#CBD5E1", fontSize: 10 }}>sin info</span>
+                                                      )}
+                                                    </td>
+                                                  </tr>
+                                                );
+                                              })}
+                                            </tbody>
+                                          </table>
+                                        </>
+                                      );
+                                    })() : (
                                       <div style={{ padding: "10px 20px", fontSize: 12, color: "#94A3B8" }}>Sin datos para este mes.</div>
                                     )}
                                   </td>
@@ -909,35 +967,6 @@ export default function MercadosRelevantesPage() {
                     </table>
                   </div>
 
-                  {/* Por competidor */}
-                  {competidores.length > 0 && (
-                    <div style={{ ...card, padding: 0, overflow: "hidden" }}>
-                      <div style={{ padding: "12px 16px", borderBottom: "1px solid #E2E8F0" }}>
-                        <h3 style={{ margin: 0, fontSize: 13, fontWeight: 700, color: "#0F172A" }}>Por Competidor</h3>
-                        <p style={{ margin: "2px 0 0", fontSize: 11, color: "#64748B" }}>Empresas que nos superaron con precio menor</p>
-                      </div>
-                      <table style={{ borderCollapse: "collapse", width: "100%" }}>
-                        <thead>
-                          <tr>
-                            <th style={{ ...thC, width: 32 }}>#</th>
-                            <th style={thL}>Empresa</th>
-                            <th style={th}>Licitaciones</th>
-                            <th style={{ ...th, color: RED }}>Ítems</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {competidores.map((c, ci) => (
-                            <tr key={c.empresa} style={{ background: ci % 2 === 1 ? "#FAFBFC" : undefined }}>
-                              <td style={{ ...td, textAlign: "center", color: "#94A3B8", fontWeight: 700, fontSize: 11 }}>{ci + 1}</td>
-                              <td style={{ ...tdL, maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis" }} title={c.empresa}>{c.empresa}</td>
-                              <td style={td}>{c.lics.toLocaleString("es-CL")}</td>
-                              <td style={{ ...td, color: RED, fontWeight: 700 }}>{c.items.toLocaleString("es-CL")}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
                 </div>
               </>
             );

@@ -3158,11 +3158,12 @@ async def falcon_perdidos_conteo(
     ano: int = Query(2026),
     current_user: dict = Depends(get_current_user),
 ):
-    """Conteo de ítems donde LBF perdió frente a un competidor con MENOR precio.
-    Fuente: falcon_gestion (SQL Server) — join item a item.
-    Agrupado por mes (fecha_adj) y por competidor.
+    """Conteo de ítems perdidos — dos grupos:
+      mejor: LBF precio < adjudicado (éramos más baratos pero no ganamos)
+      mayor: LBF precio > adjudicado (éramos más caros, pérdida esperada)
+    Solo licitaciones Adjudicadas. Fuente: falcon_gestion (SQL Server).
     """
-    ck = f"mercados_relevantes:falcon_perdidos_conteo_v1:{ano}"
+    ck = f"mercados_relevantes:falcon_perdidos_conteo_v2:{ano}"
     if cached := mem_get(ck):
         return cached
     conn = None
@@ -3175,13 +3176,14 @@ async def falcon_perdidos_conteo(
 
         MESES = ["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"]
 
-        # Por mes (fecha_adj del adjudicado)
         cur.execute(f"""
             SELECT
                 YEAR(adj.fecha_adj)  AS ano,
                 MONTH(adj.fecha_adj) AS mes,
-                COUNT(DISTINCT lbf.licitacion_id) AS lics,
-                COUNT(*)                           AS items
+                COUNT(DISTINCT CASE WHEN lbf.precio < adj.precio THEN lbf.licitacion_id END) AS mejor_lics,
+                SUM(CASE WHEN lbf.precio < adj.precio THEN 1 ELSE 0 END)                     AS mejor_items,
+                COUNT(DISTINCT CASE WHEN lbf.precio > adj.precio THEN lbf.licitacion_id END) AS mayor_lics,
+                SUM(CASE WHEN lbf.precio > adj.precio THEN 1 ELSE 0 END)                     AS mayor_items
             FROM falcon_gestion lbf
             JOIN falcon_gestion adj
               ON lbf.licitacion_id = adj.licitacion_id
@@ -3191,7 +3193,6 @@ async def falcon_perdidos_conteo(
               AND lbf.canal     = 'Licitacion'
               AND adj.estado_mp = 'Adjudicada'
               AND adj.empresa  <> 'COMERCIAL LBF LIMITADA'
-              AND adj.precio    < lbf.precio
               AND lbf.precio    > 0
               AND adj.precio    > 0
               AND adj.fecha_adj IS NOT NULL
@@ -3199,56 +3200,31 @@ async def falcon_perdidos_conteo(
             GROUP BY YEAR(adj.fecha_adj), MONTH(adj.fecha_adj)
             ORDER BY ano, mes
         """, params)
+
         por_mes = []
-        total_lics = 0
-        total_items = 0
+        tot_ml = tot_mi = tot_ayl = tot_ayi = 0
         for r in cur.fetchall():
-            y, m, lics, items = int(r[0]), int(r[1]), int(r[2] or 0), int(r[3] or 0)
-            total_lics  += lics
-            total_items += items
+            y, m = int(r[0]), int(r[1])
+            ml, mi, ayl, ayi = int(r[2] or 0), int(r[3] or 0), int(r[4] or 0), int(r[5] or 0)
+            tot_ml += ml; tot_mi += mi; tot_ayl += ayl; tot_ayi += ayi
             por_mes.append({
                 "ano": y, "mes": m,
                 "label": f"{MESES[m-1]}'{str(y)[2:]}",
-                "lics": lics, "items": items,
+                "mejor_lics": ml, "mejor_items": mi,
+                "mayor_lics": ayl, "mayor_items": ayi,
             })
 
-        # Por competidor
-        cur.execute(f"""
-            SELECT
-                adj.empresa                        AS empresa,
-                COUNT(DISTINCT lbf.licitacion_id)  AS lics,
-                COUNT(*)                            AS items
-            FROM falcon_gestion lbf
-            JOIN falcon_gestion adj
-              ON lbf.licitacion_id = adj.licitacion_id
-             AND lbf.item_nbr      = adj.item_nbr
-            WHERE lbf.empresa   = 'COMERCIAL LBF LIMITADA'
-              AND lbf.estado_mp = 'No Adjudicada'
-              AND lbf.canal     = 'Licitacion'
-              AND adj.estado_mp = 'Adjudicada'
-              AND adj.empresa  <> 'COMERCIAL LBF LIMITADA'
-              AND adj.precio    < lbf.precio
-              AND lbf.precio    > 0
-              AND adj.precio    > 0
-              AND adj.fecha_adj IS NOT NULL
-              {ano_filter}
-            GROUP BY adj.empresa
-            ORDER BY items DESC
-        """, params)
-        competidores = [
-            {"empresa": r[0] or "", "lics": int(r[1] or 0), "items": int(r[2] or 0)}
-            for r in cur.fetchall()
-        ]
-
         result = {
-            "kpis": {"lics": total_lics, "items": total_items},
+            "kpis": {
+                "mejor_lics": tot_ml, "mejor_items": tot_mi,
+                "mayor_lics": tot_ayl, "mayor_items": tot_ayi,
+            },
             "por_mes": por_mes,
-            "competidores": competidores,
         }
         mem_set(ck, result)
         return result
     except Exception as e:
-        return {"kpis": {}, "por_mes": [], "competidores": [], "error": str(e), "detail": traceback.format_exc()}
+        return {"kpis": {}, "por_mes": [], "error": str(e), "detail": traceback.format_exc()}
     finally:
         if conn: _ss_close(conn)
 
@@ -3257,11 +3233,17 @@ async def falcon_perdidos_conteo(
 
 @router.get("/falcon-perdidos-detalle-mes")
 async def falcon_perdidos_detalle_mes(
-    ano: int = Query(2026),
-    mes: int = Query(1),
+    ano:   int = Query(2026),
+    mes:   int = Query(1),
+    grupo: str = Query("mejor"),   # "mejor" | "mayor"
     current_user: dict = Depends(get_current_user),
 ):
-    ck = f"falcon_perdidos_detalle_v1:{ano}:{mes}"
+    """Detalle por licitación de ítems perdidos en un mes.
+    grupo='mejor': LBF era más barato pero no adjudicado (lbf.precio < adj.precio).
+    grupo='mayor': LBF era más caro (lbf.precio > adj.precio).
+    Incluye precios promedio y dif% para diagnóstico.
+    """
+    ck = f"falcon_perdidos_detalle_v2:{ano}:{mes}:{grupo}"
     cached = mem_get(ck)
     if cached is not None:
         return cached
@@ -3270,17 +3252,19 @@ async def falcon_perdidos_detalle_mes(
     pg_conn = None
     try:
         MESES = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"]
+        precio_cond = "lbf.precio < adj.precio" if grupo == "mejor" else "lbf.precio > adj.precio"
 
-        # ── 1. SQL Server: licitaciones donde LBF perdió por precio ese mes ──
         ss_conn = get_conn()
         cur = ss_conn.cursor()
-        cur.execute("""
+        cur.execute(f"""
             SELECT
-                lbf.licitacion_id                  AS licitacion_id,
-                MAX(lbf.organismo)                  AS organismo,
-                COUNT(*)                            AS items_perdidos,
-                -- competidor más frecuente (empresa que ganó más ítems)
-                MAX(adj.empresa)                    AS competidor
+                lbf.licitacion_id                                                         AS licitacion_id,
+                MAX(lbf.organismo)                                                         AS organismo,
+                COUNT(*)                                                                   AS items_perdidos,
+                MAX(adj.empresa)                                                           AS competidor,
+                ROUND(AVG(lbf.precio), 0)                                                 AS precio_lbf_avg,
+                ROUND(AVG(adj.precio), 0)                                                 AS precio_adj_avg,
+                ROUND((AVG(adj.precio) / NULLIF(AVG(lbf.precio), 0) - 1) * 100, 1)       AS dif_pct
             FROM falcon_gestion lbf
             JOIN falcon_gestion adj
               ON lbf.licitacion_id = adj.licitacion_id
@@ -3290,12 +3274,12 @@ async def falcon_perdidos_detalle_mes(
               AND lbf.canal     = 'Licitacion'
               AND adj.estado_mp = 'Adjudicada'
               AND adj.empresa  <> 'COMERCIAL LBF LIMITADA'
-              AND adj.precio    < lbf.precio
               AND lbf.precio    > 0
               AND adj.precio    > 0
               AND adj.fecha_adj IS NOT NULL
               AND YEAR(adj.fecha_adj)  = ?
               AND MONTH(adj.fecha_adj) = ?
+              AND {precio_cond}
             GROUP BY lbf.licitacion_id
             ORDER BY items_perdidos DESC
         """, (ano, mes))
@@ -3304,60 +3288,51 @@ async def falcon_perdidos_detalle_mes(
         licitacion_ids = [r[0] for r in ss_rows]
         rows_by_lic = {
             r[0]: {
-                "licitacion_id": r[0],
-                "organismo": r[1] or "",
+                "licitacion_id":  r[0],
+                "organismo":      r[1] or "",
                 "items_perdidos": int(r[2] or 0),
-                "competidor": r[3] or "",
-                "estado_mp": None,
+                "competidor":     r[3] or "",
+                "precio_lbf_avg": round(float(r[4] or 0)),
+                "precio_adj_avg": round(float(r[5] or 0)),
+                "dif_pct":        round(float(r[6] or 0), 1),
+                "estado_mp":      None,
             }
             for r in ss_rows
         }
 
-        # ── 2. PostgreSQL: estado de la oferta LBF en cada licitación ────────
+        # PG enrichment: estado LBF por licitación (opcional)
         if licitacion_ids:
             try:
                 pg_conn = get_pg_conn()
                 pg_cur = pg_conn.cursor()
-                # Collect per-licitacion the LBF offer status from the JSONB oferentes array.
-                # We pick the first matching ofertante with rut = '93.366.000-1'.
                 pg_cur.execute("""
                     SELECT
                         l.codigo,
-                        (
-                            SELECT o->>'estado'
-                            FROM jsonb_array_elements(li.oferentes) AS o
-                            WHERE o->>'rut' = '93.366.000-1'
-                            LIMIT 1
-                        ) AS estado_lbf
+                        (SELECT o->>'estado' FROM jsonb_array_elements(li.oferentes) AS o
+                         WHERE o->>'rut' = '93.366.000-1' LIMIT 1) AS estado_lbf
                     FROM licitaciones l
                     JOIN licitaciones_items li ON li.licitacion_id = l.id
                     WHERE l.codigo = ANY(%s)
                       AND li.oferentes IS NOT NULL
                       AND li.oferentes != '[]'::jsonb
                     GROUP BY l.codigo,
-                        (
-                            SELECT o->>'estado'
-                            FROM jsonb_array_elements(li.oferentes) AS o
-                            WHERE o->>'rut' = '93.366.000-1'
-                            LIMIT 1
-                        )
+                        (SELECT o->>'estado' FROM jsonb_array_elements(li.oferentes) AS o
+                         WHERE o->>'rut' = '93.366.000-1' LIMIT 1)
                 """, (licitacion_ids,))
                 for pg_row in pg_cur.fetchall():
                     cod, estado = pg_row
                     if cod in rows_by_lic and estado:
                         rows_by_lic[cod]["estado_mp"] = estado
             except Exception:
-                pass  # PG unavailable — omit estado_mp, still return SS data
+                pass
             finally:
                 if pg_conn:
-                    try:
-                        pg_conn.close()
-                    except Exception:
-                        pass
+                    try: pg_conn.close()
+                    except Exception: pass
+                pg_conn = None
 
         result = {
-            "ano": ano,
-            "mes": mes,
+            "ano": ano, "mes": mes, "grupo": grupo,
             "label": f"{MESES[mes-1]}'{str(ano)[2:]}",
             "rows": list(rows_by_lic.values()),
         }

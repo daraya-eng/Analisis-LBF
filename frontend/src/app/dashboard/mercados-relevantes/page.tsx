@@ -83,21 +83,27 @@ interface PostRow {
   lics_res: number; lics_adj: number; items_res: number; items_adj: number; monto_adj: number;
 }
 interface PostDetalle { licitacion_id: string; organismo: string; unidad_compra: string; region: string; items: number; monto: number; fecha_inicio: string; fecha_termino: string; estado_mp: string; }
-interface PerdidosConteoKpis { lics: number; items: number; }
-interface PerdidosConteoMes { ano: number; mes: number; label: string; lics: number; items: number; }
-interface PerdidosConteoComp { empresa: string; lics: number; items: number; }
+interface PerdidosConteoKpis {
+  mejor_lics: number; mejor_items: number;
+  mayor_lics: number; mayor_items: number;
+}
+interface PerdidosConteoMes {
+  ano: number; mes: number; label: string;
+  mejor_lics: number; mejor_items: number;
+  mayor_lics: number; mayor_items: number;
+}
 interface PerdidosConteoData {
   kpis: PerdidosConteoKpis;
   por_mes: PerdidosConteoMes[];
-  competidores: PerdidosConteoComp[];
 }
 interface PerdidosDrillRow {
   licitacion_id: string; organismo: string;
   items_perdidos: number; competidor: string;
+  precio_lbf_avg: number; precio_adj_avg: number; dif_pct: number;
   estado_mp: string | null;
 }
 interface PerdidosDrillData {
-  ano: number; mes: number; label: string;
+  ano: number; mes: number; grupo: string; label: string;
   rows: PerdidosDrillRow[];
 }
 
@@ -303,14 +309,14 @@ export default function MercadosRelevantesPage() {
      .catch(() => setPerdidosLoading(false));
   }, []);
 
-  const loadPerdidosDrillMes = useCallback((ano: number, mes: number) => {
-    const key = `${ano}-${mes}`;
+  const loadPerdidosDrillMes = useCallback((ano: number, mes: number, grupo: "mejor" | "mayor") => {
+    const key = `${grupo}-${ano}-${mes}`;
     if (perdidosDrillKey === key) { setPerdidosDrillKey(null); setPerdidosDrillData(null); return; }
     setPerdidosDrillKey(key);
     setPerdidosDrillLoading(true);
     setPerdidosDrillData(null);
     api.get<PerdidosDrillData>(
-      `/api/mercados-relevantes/falcon-perdidos-detalle-mes?ano=${ano}&mes=${mes}`, { noCache: true }
+      `/api/mercados-relevantes/falcon-perdidos-detalle-mes?ano=${ano}&mes=${mes}&grupo=${grupo}`, { noCache: true }
     ).then(d => { setPerdidosDrillData(d ?? null); setPerdidosDrillLoading(false); })
      .catch(() => setPerdidosDrillLoading(false));
   }, [perdidosDrillKey]);
@@ -753,23 +759,23 @@ export default function MercadosRelevantesPage() {
           {/* Header + filtro año */}
           <div style={{ marginBottom: 20 }}>
             <p style={{ fontSize: 12, color: "#64748B", margin: "0 0 14px" }}>
-              Ítems donde LBF ofertó con precio menor o igual al mínimo del mercado pero no fue adjudicado · agrupado por fecha de adjudicación del ganador
+              Solo licitaciones <strong>Adjudicadas</strong> · compara precio LBF vs precio del adjudicado ítem por ítem · fuente: falcon_gestion
             </p>
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
               <span style={{ fontSize: 12, fontWeight: 600, color: "#374151" }}>Año:</span>
               {[2024, 2025, 2026].map(y => (
                 <button key={y} onClick={() => { setPerdidosAno(y); setPerdidosLoaded(false); loadPerdidos(y); }}
                   style={{ padding: "5px 14px", fontSize: 12, fontWeight: 700, borderRadius: 6, cursor: "pointer",
-                    border: `1px solid ${perdidosAno === y ? "#DC2626" : "#E2E8F0"}`,
-                    background: perdidosAno === y ? "#DC2626" : "white",
+                    border: `1px solid ${perdidosAno === y ? "#1D4ED8" : "#E2E8F0"}`,
+                    background: perdidosAno === y ? "#1D4ED8" : "white",
                     color: perdidosAno === y ? "white" : "#64748B" }}>
                   {y}
                 </button>
               ))}
               <button onClick={() => { setPerdidosAno(0); setPerdidosLoaded(false); loadPerdidos(0); }}
                 style={{ padding: "5px 14px", fontSize: 12, fontWeight: 700, borderRadius: 6, cursor: "pointer",
-                  border: `1px solid ${perdidosAno === 0 ? "#DC2626" : "#E2E8F0"}`,
-                  background: perdidosAno === 0 ? "#DC2626" : "white",
+                  border: `1px solid ${perdidosAno === 0 ? "#1D4ED8" : "#E2E8F0"}`,
+                  background: perdidosAno === 0 ? "#1D4ED8" : "white",
                   color: perdidosAno === 0 ? "white" : "#64748B" }}>
                 Todos
               </button>
@@ -779,195 +785,218 @@ export default function MercadosRelevantesPage() {
           {perdidosLoading && <div style={{ textAlign: "center", padding: "40px 0", color: "#94A3B8", fontSize: 14 }}>Cargando…</div>}
 
           {perdidosLoaded && perdidosData && (() => {
-            const { kpis, por_mes, competidores } = perdidosData;
-            const RED = "#DC2626";
-            const th: React.CSSProperties = { padding: "8px 12px", fontSize: 11, fontWeight: 700, color: "#6B7280", borderBottom: "2px solid #E2E8F0", whiteSpace: "nowrap", textAlign: "right", background: "#F8FAFC" };
-            const thL: React.CSSProperties = { ...th, textAlign: "left" };
-            const thC: React.CSSProperties = { ...th, textAlign: "center" };
-            const td: React.CSSProperties = { padding: "7px 12px", fontSize: 12, color: "#374151", borderBottom: "1px solid #F1F5F9", textAlign: "right", whiteSpace: "nowrap" };
-            const tdL: React.CSSProperties = { ...td, textAlign: "left" };
-            const tdTot: React.CSSProperties = { ...td, fontWeight: 800, background: "#FEF2F2", borderTop: "2px solid #DC2626" };
-            const tdTotL: React.CSSProperties = { ...tdTot, textAlign: "left" };
+            const { kpis, por_mes } = perdidosData;
+
+            const renderSeccion = (tipo: "mejor" | "mayor") => {
+              const isMejor   = tipo === "mejor";
+              const color     = isMejor ? "#B45309" : "#DC2626";
+              const colorBg   = isMejor ? "#FFFBEB" : "#FEF2F2";
+              const colorBord = isMejor ? "#FDE68A" : "#FCA5A5";
+              const colorAcct = isMejor ? "#D97706" : "#B91C1C";
+              const lics      = isMejor ? kpis.mejor_lics  : kpis.mayor_lics;
+              const items     = isMejor ? kpis.mejor_items : kpis.mayor_items;
+              const titulo    = isMejor
+                ? "Perdimos con Precio Mejor — LBF era más barato pero no fue adjudicado"
+                : "Perdimos con Precio Mayor — LBF era más caro (pérdida esperada por precio)";
+              const subtitulo = isMejor
+                ? "Casos críticos: el comprador eligió al competidor a pesar de que LBF ofrecía mejor precio"
+                : "Pérdida por competitividad de precio: el ganador cotizó más barato que LBF";
+
+              const mesData = por_mes.filter(m =>
+                isMejor ? (m.mejor_lics > 0 || m.mejor_items > 0)
+                         : (m.mayor_lics > 0 || m.mayor_items > 0)
+              );
+
+              const th: React.CSSProperties = { padding: "7px 10px", fontSize: 10, fontWeight: 700, color: "#6B7280", borderBottom: `2px solid ${colorBord}`, whiteSpace: "nowrap", textAlign: "right", background: "#F8FAFC" };
+              const thL: React.CSSProperties = { ...th, textAlign: "left" };
+              const td: React.CSSProperties  = { padding: "6px 10px", fontSize: 12, color: "#374151", borderBottom: "1px solid #F1F5F9", textAlign: "right", whiteSpace: "nowrap" };
+              const tdL: React.CSSProperties = { ...td, textAlign: "left" };
+
+              return (
+                <div key={tipo} style={{ ...card, marginBottom: 20, borderLeft: `4px solid ${color}` }}>
+                  {/* Header */}
+                  <div style={{ marginBottom: 14 }}>
+                    <h3 style={{ margin: "0 0 2px", fontSize: 13, fontWeight: 800, color }}>
+                      {isMejor ? "🟡" : "🔴"} {titulo}
+                    </h3>
+                    <p style={{ margin: 0, fontSize: 11, color: "#64748B" }}>{subtitulo}</p>
+                  </div>
+
+                  {/* KPIs */}
+                  <div style={{ display: "flex", gap: 12, marginBottom: 16 }}>
+                    <div style={{ background: colorBg, border: `1px solid ${colorBord}`, borderRadius: 8, padding: "10px 18px", flex: 1 }}>
+                      <div style={{ fontSize: 10, fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: "0.05em" }}>Licitaciones</div>
+                      <div style={{ fontSize: 26, fontWeight: 800, color }}>{lics.toLocaleString("es-CL")}</div>
+                    </div>
+                    <div style={{ background: colorBg, border: `1px solid ${colorBord}`, borderRadius: 8, padding: "10px 18px", flex: 1 }}>
+                      <div style={{ fontSize: 10, fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: "0.05em" }}>Ítems perdidos</div>
+                      <div style={{ fontSize: 26, fontWeight: 800, color }}>{items.toLocaleString("es-CL")}</div>
+                    </div>
+                  </div>
+
+                  {/* Gráfico */}
+                  {mesData.length > 0 && (
+                    <div style={{ marginBottom: 16 }}>
+                      <ResponsiveContainer width="100%" height={180}>
+                        <ComposedChart
+                          data={mesData.map(m => ({
+                            label:  m.label,
+                            lics:   isMejor ? m.mejor_lics  : m.mayor_lics,
+                            items:  isMejor ? m.mejor_items : m.mayor_items,
+                          }))}
+                          margin={{ top: 14, right: 24, bottom: 0, left: 0 }}
+                        >
+                          <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" vertical={false} />
+                          <XAxis dataKey="label" tick={{ fontSize: 10, fill: "#64748B" }} axisLine={false} tickLine={false} />
+                          <YAxis yAxisId="lics"  orientation="left"  tick={{ fontSize: 9, fill: "#94A3B8" }} axisLine={false} tickLine={false} width={24} />
+                          <YAxis yAxisId="items" orientation="right" tick={{ fontSize: 9, fill: "#94A3B8" }} axisLine={false} tickLine={false} width={28} />
+                          <Tooltip
+                            contentStyle={{ fontSize: 12, borderRadius: 8, border: "1px solid #E2E8F0" }}
+                            formatter={(value: unknown, name: unknown) => [(Number(value) || 0).toLocaleString("es-CL"), String(name)]}
+                          />
+                          <Legend wrapperStyle={{ fontSize: 10, paddingTop: 6 }} />
+                          <Bar yAxisId="lics"  dataKey="lics"  name="Licitaciones" fill={colorBg} stroke={colorAcct} strokeWidth={1} radius={[3,3,0,0]}>
+                            <LabelList dataKey="lics"  position="top" style={{ fontSize: 9, fill: colorAcct, fontWeight: 700 }} />
+                          </Bar>
+                          <Bar yAxisId="items" dataKey="items" name="Ítems"         fill={colorBord} stroke={color} strokeWidth={1} radius={[3,3,0,0]}>
+                            <LabelList dataKey="items" position="top" style={{ fontSize: 9, fill: color, fontWeight: 700 }} />
+                          </Bar>
+                        </ComposedChart>
+                      </ResponsiveContainer>
+                    </div>
+                  )}
+
+                  {/* Tabla por mes con drill-down */}
+                  {mesData.length > 0 && (
+                    <div style={{ overflowX: "auto" }}>
+                      <table style={{ borderCollapse: "collapse", width: "100%" }}>
+                        <thead>
+                          <tr>
+                            <th style={thL}>Mes</th>
+                            <th style={{ ...th, color }}>Licitaciones</th>
+                            <th style={{ ...th, color }}>Ítems</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {mesData.map((m, i) => {
+                            const drillKey = `${tipo}-${m.ano}-${m.mes}`;
+                            const isOpen   = perdidosDrillKey === drillKey;
+                            const isLoading = isOpen && perdidosDrillLoading;
+                            const mLics  = isMejor ? m.mejor_lics  : m.mayor_lics;
+                            const mItems = isMejor ? m.mejor_items : m.mayor_items;
+                            return (
+                              <React.Fragment key={drillKey}>
+                                <tr
+                                  onClick={() => loadPerdidosDrillMes(m.ano, m.mes, tipo)}
+                                  style={{
+                                    background: isOpen ? colorBg : i % 2 === 1 ? "#FAFBFC" : undefined,
+                                    cursor: "pointer",
+                                    borderLeft: isOpen ? `3px solid ${color}` : "3px solid transparent",
+                                  }}
+                                >
+                                  <td style={{ ...tdL, color: isOpen ? color : undefined, fontWeight: isOpen ? 700 : undefined }}>
+                                    <span style={{ marginRight: 6, fontSize: 10, color: "#94A3B8" }}>{isOpen ? "▼" : "▶"}</span>
+                                    {m.label}
+                                  </td>
+                                  <td style={td}>{mLics.toLocaleString("es-CL")}</td>
+                                  <td style={{ ...td, color, fontWeight: 700 }}>{mItems.toLocaleString("es-CL")}</td>
+                                </tr>
+                                {isOpen && (
+                                  <tr>
+                                    <td colSpan={3} style={{ padding: 0, background: colorBg }}>
+                                      {isLoading ? (
+                                        <div style={{ padding: "12px 20px", fontSize: 12, color: "#94A3B8" }}>Cargando…</div>
+                                      ) : perdidosDrillData && perdidosDrillData.rows.length > 0 ? (() => {
+                                        const rechazadas = perdidosDrillData.rows.filter(r => r.estado_mp?.toLowerCase().includes("rechaz")).length;
+                                        return (
+                                          <>
+                                            {isMejor && rechazadas > 0 && (
+                                              <div style={{ padding: "8px 14px", margin: "8px 10px 4px", background: "#FEF3C7", borderRadius: 6, borderLeft: "3px solid #D97706", fontSize: 11, color: "#92400E" }}>
+                                                ⚠️ <strong>{rechazadas} licitación{rechazadas > 1 ? "es" : ""}</strong> con oferta <strong>Rechazada</strong> en MP —
+                                                posible inadmisibilidad documental antes de evaluación de precios.
+                                              </div>
+                                            )}
+                                            <div style={{ overflowX: "auto" }}>
+                                              <table style={{ borderCollapse: "collapse", width: "100%" }}>
+                                                <thead>
+                                                  <tr style={{ background: colorBg }}>
+                                                    <th style={{ ...thL, fontSize: 10, padding: "6px 10px", background: "transparent" }}>Licitación</th>
+                                                    <th style={{ ...thL, fontSize: 10, padding: "6px 10px", background: "transparent" }}>Organismo</th>
+                                                    <th style={{ ...th,  fontSize: 10, padding: "6px 10px", background: "transparent", color }}>Ítems</th>
+                                                    <th style={{ ...th,  fontSize: 10, padding: "6px 10px", background: "transparent" }}>P. LBF</th>
+                                                    <th style={{ ...th,  fontSize: 10, padding: "6px 10px", background: "transparent" }}>P. Adj.</th>
+                                                    <th style={{ ...th,  fontSize: 10, padding: "6px 10px", background: "transparent" }}>Dif %</th>
+                                                    <th style={{ ...thL, fontSize: 10, padding: "6px 10px", background: "transparent" }}>Competidor</th>
+                                                    <th style={{ ...thL, fontSize: 10, padding: "6px 10px", background: "transparent" }}>Estado MP</th>
+                                                  </tr>
+                                                </thead>
+                                                <tbody>
+                                                  {perdidosDrillData.rows.map((dr, di) => {
+                                                    const est     = dr.estado_mp?.toLowerCase() ?? "";
+                                                    const isRech  = est.includes("rechaz");
+                                                    const isAcep  = est.includes("acept");
+                                                    const bBg     = isRech ? "#FEF3C7" : isAcep ? "#DCFCE7" : "#F1F5F9";
+                                                    const bColor  = isRech ? "#B45309" : isAcep ? "#16A34A" : "#64748B";
+                                                    const bLabel  = isRech ? "⚠️ Rechazada" : (dr.estado_mp ?? "");
+                                                    const difSign = dr.dif_pct > 0 ? "+" : "";
+                                                    const difColor = isMejor
+                                                      ? "#059669"   // verde: ganador pagó más
+                                                      : "#DC2626";  // rojo: ganador era más barato
+                                                    return (
+                                                      <tr key={dr.licitacion_id}
+                                                        style={{ background: di % 2 === 1 ? colorBg : "white" }}>
+                                                        <td style={{ ...tdL, fontSize: 11, padding: "5px 10px", color: LBF_BLUE, fontFamily: "monospace" }}>
+                                                          {dr.licitacion_id}
+                                                        </td>
+                                                        <td style={{ ...tdL, fontSize: 11, padding: "5px 10px", maxWidth: 140, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                                                          title={dr.organismo}>{dr.organismo}</td>
+                                                        <td style={{ ...td, fontSize: 11, padding: "5px 10px", color, fontWeight: 700 }}>{dr.items_perdidos}</td>
+                                                        <td style={{ ...td, fontSize: 11, padding: "5px 10px" }}>{fmtFull(dr.precio_lbf_avg)}</td>
+                                                        <td style={{ ...td, fontSize: 11, padding: "5px 10px" }}>{fmtFull(dr.precio_adj_avg)}</td>
+                                                        <td style={{ ...td, fontSize: 11, padding: "5px 10px", color: difColor, fontWeight: 700 }}>
+                                                          {difSign}{dr.dif_pct.toFixed(1)}%
+                                                        </td>
+                                                        <td style={{ ...tdL, fontSize: 11, padding: "5px 10px", maxWidth: 140, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                                                          title={dr.competidor}>{dr.competidor}</td>
+                                                        <td style={{ ...tdL, fontSize: 11, padding: "5px 10px" }}>
+                                                          {dr.estado_mp ? (
+                                                            <span title={isRech ? "Oferta rechazada en MP — posible inadmisibilidad" : undefined}
+                                                              style={{ display: "inline-block", padding: "1px 8px", borderRadius: 4, fontSize: 10, fontWeight: 700, background: bBg, color: bColor, cursor: isRech ? "help" : undefined }}>
+                                                              {bLabel}
+                                                            </span>
+                                                          ) : (
+                                                            <span style={{ color: "#CBD5E1", fontSize: 10 }}>—</span>
+                                                          )}
+                                                        </td>
+                                                      </tr>
+                                                    );
+                                                  })}
+                                                </tbody>
+                                              </table>
+                                            </div>
+                                          </>
+                                        );
+                                      })() : (
+                                        <div style={{ padding: "10px 20px", fontSize: 12, color: "#94A3B8" }}>Sin datos para este mes.</div>
+                                      )}
+                                    </td>
+                                  </tr>
+                                )}
+                              </React.Fragment>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              );
+            };
 
             return (
               <>
-                {/* KPI cards */}
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 12, marginBottom: 24, maxWidth: 480 }}>
-                  {[
-                    { label: "Licitaciones con ítems perdidos", value: kpis.lics.toLocaleString("es-CL") },
-                    { label: "Ítems perdidos con precio más bajo", value: kpis.items.toLocaleString("es-CL") },
-                  ].map(k => (
-                    <div key={k.label} style={{ background: "white", borderRadius: 10, border: "1px solid #FCA5A5", padding: "16px 20px", borderLeft: `4px solid ${RED}` }}>
-                      <div style={{ fontSize: 10, fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6 }}>{k.label}</div>
-                      <div style={{ fontSize: 28, fontWeight: 800, color: RED }}>{k.value}</div>
-                    </div>
-                  ))}
-                </div>
-
-                {/* Gráfico de barras por mes */}
-                {por_mes.length > 0 && (
-                  <div style={{ ...card, marginBottom: 20, padding: "16px 20px" }}>
-                    <h3 style={{ margin: "0 0 4px", fontSize: 13, fontWeight: 700, color: "#0F172A" }}>Evolución mensual</h3>
-                    <p style={{ margin: "0 0 16px", fontSize: 11, color: "#64748B" }}>Licitaciones e ítems perdidos por precio más bajo</p>
-                    <ResponsiveContainer width="100%" height={220}>
-                      <ComposedChart data={por_mes} margin={{ top: 16, right: 24, bottom: 0, left: 0 }}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" vertical={false} />
-                        <XAxis dataKey="label" tick={{ fontSize: 11, fill: "#64748B" }} axisLine={false} tickLine={false} />
-                        <YAxis yAxisId="lics" orientation="left"  tick={{ fontSize: 10, fill: "#94A3B8" }} axisLine={false} tickLine={false} width={28} />
-                        <YAxis yAxisId="items" orientation="right" tick={{ fontSize: 10, fill: "#94A3B8" }} axisLine={false} tickLine={false} width={32} />
-                        <Tooltip
-                          contentStyle={{ fontSize: 12, borderRadius: 8, border: "1px solid #E2E8F0" }}
-                          formatter={(value: unknown, name: unknown) => [(Number(value) || 0).toLocaleString("es-CL"), String(name)]}
-                        />
-                        <Legend wrapperStyle={{ fontSize: 11, paddingTop: 8 }} />
-                        <Bar yAxisId="lics"  dataKey="lics"  name="Licitaciones" fill="#FECACA" stroke="#DC2626" strokeWidth={1} radius={[4,4,0,0]}>
-                          <LabelList dataKey="lics"  position="top" style={{ fontSize: 10, fill: "#DC2626", fontWeight: 700 }} />
-                        </Bar>
-                        <Bar yAxisId="items" dataKey="items" name="Ítems"         fill="#FCA5A5" stroke="#B91C1C" strokeWidth={1} radius={[4,4,0,0]}>
-                          <LabelList dataKey="items" position="top" style={{ fontSize: 10, fill: "#B91C1C", fontWeight: 700 }} />
-                        </Bar>
-                      </ComposedChart>
-                    </ResponsiveContainer>
-                  </div>
-                )}
-
-                {/* Tabla por mes */}
-                <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 20, alignItems: "start" }}>
-                  <div style={{ ...card, padding: 0, overflow: "hidden" }}>
-                    <div style={{ padding: "12px 16px", borderBottom: "1px solid #E2E8F0" }}>
-                      <h3 style={{ margin: 0, fontSize: 13, fontWeight: 700, color: "#0F172A" }}>Por Mes</h3>
-                      <p style={{ margin: "2px 0 0", fontSize: 11, color: "#64748B" }}>Haz clic en un mes para ver el detalle</p>
-                    </div>
-                    <table style={{ borderCollapse: "collapse", width: "100%" }}>
-                      <thead>
-                        <tr>
-                          <th style={thL}>Mes</th>
-                          <th style={{ ...th, color: RED }}>Licitaciones</th>
-                          <th style={{ ...th, color: RED }}>Ítems</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        <tr>
-                          <td style={tdTotL}>Total</td>
-                          <td style={{ ...tdTot, color: RED }}>{kpis.lics.toLocaleString("es-CL")}</td>
-                          <td style={{ ...tdTot, color: RED }}>{kpis.items.toLocaleString("es-CL")}</td>
-                        </tr>
-                        {por_mes.map((m, i) => {
-                          const drillKey = `${m.ano}-${m.mes}`;
-                          const isOpen = perdidosDrillKey === drillKey;
-                          const isLoading = isOpen && perdidosDrillLoading;
-                          return (
-                            <React.Fragment key={drillKey}>
-                              <tr
-                                onClick={() => loadPerdidosDrillMes(m.ano, m.mes)}
-                                style={{
-                                  background: isOpen ? "#FFF7ED" : i % 2 === 1 ? "#FAFBFC" : undefined,
-                                  cursor: "pointer",
-                                  borderLeft: isOpen ? `3px solid ${RED}` : "3px solid transparent",
-                                }}
-                              >
-                                <td style={{ ...tdL, color: isOpen ? RED : undefined, fontWeight: isOpen ? 700 : undefined }}>
-                                  <span style={{ marginRight: 6, fontSize: 10, color: "#94A3B8" }}>{isOpen ? "▼" : "▶"}</span>
-                                  {m.label}
-                                </td>
-                                <td style={td}>{m.lics.toLocaleString("es-CL")}</td>
-                                <td style={{ ...td, color: RED, fontWeight: 700 }}>{m.items.toLocaleString("es-CL")}</td>
-                              </tr>
-                              {isOpen && (
-                                <tr>
-                                  <td colSpan={3} style={{ padding: 0, background: "#FEFCE8" }}>
-                                    {isLoading ? (
-                                      <div style={{ padding: "12px 20px", fontSize: 12, color: "#94A3B8" }}>Cargando…</div>
-                                    ) : perdidosDrillData && perdidosDrillData.rows.length > 0 ? (() => {
-                                      const rechazadas = perdidosDrillData.rows.filter(r => r.estado_mp?.toLowerCase().includes("rechaz")).length;
-                                      const sinInfo    = perdidosDrillData.rows.filter(r => !r.estado_mp).length;
-                                      return (
-                                        <>
-                                          {/* Resumen inadmisibilidad */}
-                                          {rechazadas > 0 && (
-                                            <div style={{
-                                              padding: "8px 14px", margin: "8px 10px 4px",
-                                              background: "#FEF3C7", borderRadius: 6,
-                                              borderLeft: "3px solid #D97706",
-                                              fontSize: 11, color: "#92400E",
-                                            }}>
-                                              ⚠️ <strong>{rechazadas} licitación{rechazadas > 1 ? "es" : ""}</strong> con oferta <strong>Rechazada</strong> en MP —
-                                              posible inadmisibilidad documental o técnica.
-                                              En estos casos LBF puede haber sido excluida <em>antes</em> de la evaluación de precios.
-                                              {sinInfo > 0 && <span style={{ marginLeft: 8, color: "#78350F" }}>({sinInfo} sin datos en MP)</span>}
-                                            </div>
-                                          )}
-                                          <table style={{ borderCollapse: "collapse", width: "100%" }}>
-                                            <thead>
-                                              <tr style={{ background: "#FEF3C7" }}>
-                                                <th style={{ ...thL, fontSize: 10, padding: "6px 10px", background: "transparent" }}>Licitación</th>
-                                                <th style={{ ...thL, fontSize: 10, padding: "6px 10px", background: "transparent" }}>Organismo</th>
-                                                <th style={{ ...th, fontSize: 10, padding: "6px 10px", background: "transparent", color: RED }}>Ítems</th>
-                                                <th style={{ ...thL, fontSize: 10, padding: "6px 10px", background: "transparent" }}>Competidor</th>
-                                                <th style={{ ...thL, fontSize: 10, padding: "6px 10px", background: "transparent" }}>Estado en MP</th>
-                                              </tr>
-                                            </thead>
-                                            <tbody>
-                                              {perdidosDrillData.rows.map((dr, di) => {
-                                                const est    = dr.estado_mp?.toLowerCase() ?? "";
-                                                const isRech = est.includes("rechaz");
-                                                const isAcep = est.includes("acept");
-                                                const badgeBg    = isRech ? "#FEF3C7" : isAcep ? "#DCFCE7" : "#F1F5F9";
-                                                const badgeColor = isRech ? "#B45309" : isAcep ? "#16A34A" : "#64748B";
-                                                const badgeLabel = isRech ? "⚠️ Rechazada" : dr.estado_mp ?? "";
-                                                return (
-                                                  <tr key={dr.licitacion_id}
-                                                    style={{ background: isRech ? "#FFFBEB" : di % 2 === 1 ? "#FFFBEB" : "white" }}>
-                                                    <td style={{ ...tdL, fontSize: 11, padding: "5px 10px", color: LBF_BLUE, fontFamily: "monospace" }}>
-                                                      {dr.licitacion_id}
-                                                    </td>
-                                                    <td style={{ ...tdL, fontSize: 11, padding: "5px 10px", maxWidth: 160, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
-                                                      title={dr.organismo}>
-                                                      {dr.organismo}
-                                                    </td>
-                                                    <td style={{ ...td, fontSize: 11, padding: "5px 10px", color: RED, fontWeight: 700 }}>
-                                                      {dr.items_perdidos}
-                                                    </td>
-                                                    <td style={{ ...tdL, fontSize: 11, padding: "5px 10px", maxWidth: 160, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
-                                                      title={dr.competidor}>
-                                                      {dr.competidor}
-                                                    </td>
-                                                    <td style={{ ...tdL, fontSize: 11, padding: "5px 10px" }}>
-                                                      {dr.estado_mp ? (
-                                                        <span title={isRech ? "Oferta rechazada en MP — puede indicar inadmisibilidad antes de evaluación de precios" : undefined}
-                                                          style={{
-                                                            display: "inline-block", padding: "1px 8px", borderRadius: 4,
-                                                            fontSize: 10, fontWeight: 700,
-                                                            background: badgeBg, color: badgeColor,
-                                                            cursor: isRech ? "help" : undefined,
-                                                          }}>
-                                                          {badgeLabel}
-                                                        </span>
-                                                      ) : (
-                                                        <span style={{ color: "#CBD5E1", fontSize: 10 }}>sin info</span>
-                                                      )}
-                                                    </td>
-                                                  </tr>
-                                                );
-                                              })}
-                                            </tbody>
-                                          </table>
-                                        </>
-                                      );
-                                    })() : (
-                                      <div style={{ padding: "10px 20px", fontSize: 12, color: "#94A3B8" }}>Sin datos para este mes.</div>
-                                    )}
-                                  </td>
-                                </tr>
-                              )}
-                            </React.Fragment>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-
-                </div>
+                {renderSeccion("mejor")}
+                {renderSeccion("mayor")}
               </>
             );
           })()}

@@ -16,9 +16,9 @@ export interface ModuleHelp {
 
 export const CATEGORIAS_HELP: HelpEntry[] = [
   { term: "SQ", definition: "Soluciones Quirurgicas — insumos y dispositivos para procedimientos quirurgicos (ej: suturas, instrumental)." },
-  { term: "MAH", definition: "Materiales de Alta Hospitalaria — insumos de uso hospitalario general (ej: guantes, jeringas, apositos)." },
+  { term: "MAH", definition: "Manejo Avanzado de Heridas — productos especializados para el cuidado y tratamiento de heridas complejas (ej: apositos avanzados, coberturas, sistemas de presion negativa)." },
   { term: "EQM", definition: "Equipamiento Medico — equipos, maquinaria y servicios asociados (incluye lo que antes era categoria Servicios)." },
-  { term: "EVA", definition: "Evaluacion y Diagnostico — productos de diagnostico, imagenologia y evaluacion clinica." },
+  { term: "EVA", definition: "Especialidades Vascular y Anestecia — insumos y dispositivos para procedimientos vasculares, anestesia y areas de especialidad clinica asociadas." },
 ];
 
 export const HELP: Record<string, ModuleHelp> = {

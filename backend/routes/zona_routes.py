@@ -311,11 +311,11 @@ def _load_zona_data(meses: list[int]) -> dict:
         venta_total = sum(c["venta"] for c in z["cats"].values())
         contrib_total = sum(c["contrib"] for c in z["cats"].values())
 
-        # Skip zones with no sales
-        if venta_total == 0:
+        # Skip zones with no sales AND no meta (zones not in 2026 plan)
+        meta_p = z["meta_periodo"]
+        if venta_total == 0 and meta_p == 0:
             continue
 
-        meta_p = z["meta_periodo"]
         meta_a = z["meta_anual"]
         cumpl = (venta_total / meta_p * 100) if meta_p > 0 else 0
         gap = venta_total - meta_p

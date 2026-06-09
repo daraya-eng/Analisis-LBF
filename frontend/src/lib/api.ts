@@ -1,6 +1,6 @@
 /**
  * Typed fetch wrapper for the LBF Analytics API.
- * Base URL: http://localhost:8000
+ * Base URL: configurada via NEXT_PUBLIC_API_URL (ver .env.local)
  *
  * - Automatically prepends the API base URL
  * - Attaches Authorization: Bearer <token> header from localStorage

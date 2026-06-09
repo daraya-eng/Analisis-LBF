@@ -59,7 +59,7 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/dashboard/incentivos", label: "Incentivos", icon: TrendingUp, module: "incentivos" },
   { href: "/dashboard/renasys", label: "Renasys TPN", icon: Bandage, module: "renasys" },
   { href: "/dashboard/kam-maule", label: "KAM Maule Sur", icon: MapPin, module: "kam_maule" },
-  { href: "/dashboard/mercados-relevantes", label: "Análisis de Licitaciones", icon: Globe2, module: "mercados_relevantes" },
+  { href: "/dashboard/mercados-relevantes", label: "Gestión de Licitaciones", icon: Globe2, module: "mercados_relevantes" },
   { href: "/dashboard/glosario", label: "Glosario", icon: BookOpen, module: "dashboard" },
 ];
 

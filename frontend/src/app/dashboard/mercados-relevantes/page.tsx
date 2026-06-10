@@ -101,6 +101,7 @@ interface PerdidosDrillRow {
   items_perdidos: number; competidor: string;
   precio_lbf_avg: number; precio_adj_avg: number; dif_pct: number;
   estado_sgl: string; url_acta?: string | null;
+  motivo_lbf?: string | null;
 }
 interface PerdidosDrillData {
   ano: number; mes: number; grupo: string; label: string;
@@ -922,6 +923,7 @@ export default function MercadosRelevantesPage() {
                                                     <th style={{ ...thL, fontSize: 10, padding: "6px 10px", background: "transparent" }}>Competidor</th>
                                                     <th style={{ ...thL, fontSize: 10, padding: "6px 10px", background: "transparent" }}>Estado SGL</th>
                                                     <th style={{ ...th,  fontSize: 10, padding: "6px 10px", background: "transparent" }}>Acta</th>
+                                                    <th style={{ ...thL, fontSize: 10, padding: "6px 10px", background: "transparent" }}>Motivo (acta)</th>
                                                   </tr>
                                                 </thead>
                                                 <tbody>
@@ -969,6 +971,18 @@ export default function MercadosRelevantesPage() {
                                                               style={{ display: "inline-block", padding: "2px 8px", borderRadius: 4, fontSize: 10, fontWeight: 700, background: "#EFF6FF", color: LBF_BLUE, textDecoration: "none", border: "1px solid #BFDBFE" }}>
                                                               📄 Ver
                                                             </a>
+                                                          ) : (
+                                                            <span style={{ color: "#CBD5E1", fontSize: 10 }}>—</span>
+                                                          )}
+                                                        </td>
+                                                        <td style={{ ...tdL, fontSize: 11, padding: "5px 10px", maxWidth: 260 }}>
+                                                          {dr.motivo_lbf ? (
+                                                            <span title={dr.motivo_lbf}
+                                                              style={{ display: "inline-block", padding: "2px 8px", borderRadius: 4, fontSize: 10, fontWeight: 600, background: "#FEF3C7", color: "#92400E", maxWidth: 250, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                                              ⚠️ {dr.motivo_lbf}
+                                                            </span>
+                                                          ) : dr.url_acta ? (
+                                                            <span style={{ color: "#94A3B8", fontSize: 10 }}>Sin inadmisibilidad</span>
                                                           ) : (
                                                             <span style={{ color: "#CBD5E1", fontSize: 10 }}>—</span>
                                                           )}

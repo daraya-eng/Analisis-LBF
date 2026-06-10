@@ -4,6 +4,9 @@ Endpoints Serres mantienen SQL Server hasta migración posterior.
 """
 import traceback
 import datetime
+import re as _re
+import urllib.request
+import concurrent.futures
 from collections import defaultdict, OrderedDict
 from fastapi import APIRouter, Depends, Query
 from auth import get_current_user
@@ -3229,6 +3232,52 @@ async def falcon_perdidos_conteo(
         if conn: _ss_close(conn)
 
 
+# ─── Parsing acta de adjudicación ────────────────────────────────────────────
+
+def _fetch_motivo_lbf(url_acta: str | None) -> str | None:
+    """Descarga el acta HTML y extrae el motivo de inadmisibilidad de LBF, si existe."""
+    if not url_acta:
+        return None
+    try:
+        req = urllib.request.Request(url_acta, headers={
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "Accept": "text/html,application/xhtml+xml",
+        })
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            html = resp.read().decode("utf-8", errors="ignore")
+
+        # Limpiar HTML
+        html = _re.sub(r"<script[^>]*>.*?</script>", "", html, flags=_re.DOTALL)
+        html = _re.sub(r"<style[^>]*>.*?</style>",  "", html, flags=_re.DOTALL)
+        clean = _re.sub(r"<[^>]+>", " ", html)
+        clean = _re.sub(r"[ \t]+", " ", clean)
+
+        # Buscar sección de inadmisibilidades
+        inad_m = _re.search(r"inadmisibili", clean, _re.IGNORECASE)
+        if not inad_m:
+            return None
+
+        # Ventana de búsqueda desde la sección de inadmisibilidades
+        window = clean[inad_m.start(): inad_m.start() + 6000]
+
+        # Buscar LBF en la ventana y tomar el texto que le sigue (el motivo)
+        lbf_m = _re.search(
+            r"(?:COMERCIAL\s+LBF\s+LIMITADA|93\.366\.000-1)\s+(.{10,350})",
+            window, _re.IGNORECASE,
+        )
+        if not lbf_m:
+            return None
+
+        motivo = lbf_m.group(1).strip()
+        # Cortar al primer salto de línea o al siguiente nombre de empresa
+        motivo = _re.split(r"\n|(?=[A-Z][A-Z ]{6,}\s{2,}\d{1,2}\.)", motivo)[0].strip()
+        # Cortar frases muy largas que pertenecen a otro oferente
+        motivo = motivo[:280].rstrip(" ,;")
+        return motivo if len(motivo) > 8 else None
+    except Exception:
+        return None
+
+
 # ─── Perdidos por precio — detalle de un mes (drill-down) ────────────────────
 
 @router.get("/falcon-perdidos-detalle-mes")
@@ -3322,9 +3371,19 @@ async def falcon_perdidos_detalle_mes(
                 "dif_pct":        round(float(r[6] or 0), 1),
                 "estado_sgl":     r[7] or "",
                 "url_acta":       url_map.get(r[0]),
+                "motivo_lbf":     None,
             }
             for r in ss_rows
         ]
+
+        # Solo parsear actas del mes actual (evita fetches costosos en meses históricos)
+        today = datetime.date.today()
+        if ano == today.year and mes == today.month and rows:
+            urls = [row["url_acta"] for row in rows]
+            with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
+                motivos = list(pool.map(_fetch_motivo_lbf, urls))
+            for row, motivo in zip(rows, motivos):
+                row["motivo_lbf"] = motivo
 
         result = {
             "ano": ano, "mes": mes, "grupo": grupo,

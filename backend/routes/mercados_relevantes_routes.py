@@ -3249,6 +3249,7 @@ async def falcon_perdidos_detalle_mes(
         return cached
 
     ss_conn = None
+    pg_conn = None
     try:
         MESES = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"]
         precio_cond = "lbf.precio < adj.precio" if grupo == "mejor" else "lbf.precio > adj.precio"
@@ -3285,6 +3286,31 @@ async def falcon_perdidos_detalle_mes(
         """, (ano, mes))
         ss_rows = cur.fetchall()
 
+        licitacion_ids = [r[0] for r in ss_rows]
+
+        # PG: solo para obtener UrlActa del acta de adjudicación
+        url_map: dict = {}
+        if licitacion_ids:
+            try:
+                pg_conn = get_pg_conn()
+                pg_cur = pg_conn.cursor()
+                pg_cur.execute("""
+                    SELECT codigo, adjudicacion->>'UrlActa' AS url_acta
+                    FROM licitaciones
+                    WHERE codigo = ANY(%s)
+                      AND adjudicacion IS NOT NULL
+                      AND adjudicacion->>'UrlActa' IS NOT NULL
+                """, (licitacion_ids,))
+                url_map = {r[0]: r[1] for r in pg_cur.fetchall()}
+                pg_cur.close()
+            except Exception:
+                pass
+            finally:
+                if pg_conn:
+                    try: pg_conn.close()
+                    except Exception: pass
+                pg_conn = None
+
         rows = [
             {
                 "licitacion_id":  r[0],
@@ -3295,6 +3321,7 @@ async def falcon_perdidos_detalle_mes(
                 "precio_adj_avg": round(float(r[5] or 0)),
                 "dif_pct":        round(float(r[6] or 0), 1),
                 "estado_sgl":     r[7] or "",
+                "url_acta":       url_map.get(r[0]),
             }
             for r in ss_rows
         ]
@@ -3310,3 +3337,6 @@ async def falcon_perdidos_detalle_mes(
         return {"rows": [], "error": str(e), "detail": traceback.format_exc()}
     finally:
         if ss_conn: _ss_close(ss_conn)
+        if pg_conn:
+            try: pg_conn.close()
+            except Exception: pass

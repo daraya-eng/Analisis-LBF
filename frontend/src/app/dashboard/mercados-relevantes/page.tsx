@@ -100,7 +100,7 @@ interface PerdidosDrillRow {
   licitacion_id: string; organismo: string;
   items_perdidos: number; competidor: string;
   precio_lbf_avg: number; precio_adj_avg: number; dif_pct: number;
-  estado_sgl: string;
+  estado_sgl: string; url_acta?: string | null;
 }
 interface PerdidosDrillData {
   ano: number; mes: number; grupo: string; label: string;
@@ -921,6 +921,7 @@ export default function MercadosRelevantesPage() {
                                                     <th style={{ ...th,  fontSize: 10, padding: "6px 10px", background: "transparent" }}>Dif %</th>
                                                     <th style={{ ...thL, fontSize: 10, padding: "6px 10px", background: "transparent" }}>Competidor</th>
                                                     <th style={{ ...thL, fontSize: 10, padding: "6px 10px", background: "transparent" }}>Estado SGL</th>
+                                                    <th style={{ ...th,  fontSize: 10, padding: "6px 10px", background: "transparent" }}>Acta</th>
                                                   </tr>
                                                 </thead>
                                                 <tbody>
@@ -957,6 +958,17 @@ export default function MercadosRelevantesPage() {
                                                             <span style={{ display: "inline-block", padding: "1px 8px", borderRadius: 4, fontSize: 10, fontWeight: 700, background: sglBg, color: sglColor }}>
                                                               {sgl}
                                                             </span>
+                                                          ) : (
+                                                            <span style={{ color: "#CBD5E1", fontSize: 10 }}>—</span>
+                                                          )}
+                                                        </td>
+                                                        <td style={{ ...td, fontSize: 11, padding: "5px 10px", textAlign: "center" }}>
+                                                          {dr.url_acta ? (
+                                                            <a href={dr.url_acta} target="_blank" rel="noopener noreferrer"
+                                                              title="Ver Acta de Adjudicación en Mercado Público"
+                                                              style={{ display: "inline-block", padding: "2px 8px", borderRadius: 4, fontSize: 10, fontWeight: 700, background: "#EFF6FF", color: LBF_BLUE, textDecoration: "none", border: "1px solid #BFDBFE" }}>
+                                                              📄 Ver
+                                                            </a>
                                                           ) : (
                                                             <span style={{ color: "#CBD5E1", fontSize: 10 }}>—</span>
                                                           )}

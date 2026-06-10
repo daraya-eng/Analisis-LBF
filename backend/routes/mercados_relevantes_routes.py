@@ -3376,15 +3376,6 @@ async def falcon_perdidos_detalle_mes(
             for r in ss_rows
         ]
 
-        # Solo parsear actas del mes actual (evita fetches costosos en meses históricos)
-        today = datetime.date.today()
-        if ano == today.year and mes == today.month and rows:
-            urls = [row["url_acta"] for row in rows]
-            with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
-                motivos = list(pool.map(_fetch_motivo_lbf, urls))
-            for row, motivo in zip(rows, motivos):
-                row["motivo_lbf"] = motivo
-
         result = {
             "ano": ano, "mes": mes, "grupo": grupo,
             "label": f"{MESES[mes-1]}'{str(ano)[2:]}",

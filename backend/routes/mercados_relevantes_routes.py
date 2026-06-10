@@ -3249,7 +3249,6 @@ async def falcon_perdidos_detalle_mes(
         return cached
 
     ss_conn = None
-    pg_conn = None
     try:
         MESES = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"]
         precio_cond = "lbf.precio < adj.precio" if grupo == "mejor" else "lbf.precio > adj.precio"
@@ -3264,7 +3263,8 @@ async def falcon_perdidos_detalle_mes(
                 MAX(adj.empresa)                                                           AS competidor,
                 ROUND(AVG(lbf.precio), 0)                                                 AS precio_lbf_avg,
                 ROUND(AVG(adj.precio), 0)                                                 AS precio_adj_avg,
-                ROUND((AVG(adj.precio) / NULLIF(AVG(lbf.precio), 0) - 1) * 100, 1)       AS dif_pct
+                ROUND((AVG(adj.precio) / NULLIF(AVG(lbf.precio), 0) - 1) * 100, 1)       AS dif_pct,
+                MAX(ISNULL(LTRIM(RTRIM(lbf.estado_sgl)), ''))                             AS estado_sgl
             FROM falcon_gestion lbf
             JOIN falcon_gestion adj
               ON lbf.licitacion_id = adj.licitacion_id
@@ -3285,9 +3285,8 @@ async def falcon_perdidos_detalle_mes(
         """, (ano, mes))
         ss_rows = cur.fetchall()
 
-        licitacion_ids = [r[0] for r in ss_rows]
-        rows_by_lic = {
-            r[0]: {
+        rows = [
+            {
                 "licitacion_id":  r[0],
                 "organismo":      r[1] or "",
                 "items_perdidos": int(r[2] or 0),
@@ -3295,46 +3294,15 @@ async def falcon_perdidos_detalle_mes(
                 "precio_lbf_avg": round(float(r[4] or 0)),
                 "precio_adj_avg": round(float(r[5] or 0)),
                 "dif_pct":        round(float(r[6] or 0), 1),
-                "estado_mp":      None,
+                "estado_sgl":     r[7] or "",
             }
             for r in ss_rows
-        }
-
-        # PG enrichment: estado LBF por licitación (opcional)
-        if licitacion_ids:
-            try:
-                pg_conn = get_pg_conn()
-                pg_cur = pg_conn.cursor()
-                pg_cur.execute("""
-                    SELECT
-                        l.codigo,
-                        (SELECT o->>'estado' FROM jsonb_array_elements(li.oferentes) AS o
-                         WHERE o->>'rut' = '93.366.000-1' LIMIT 1) AS estado_lbf
-                    FROM licitaciones l
-                    JOIN licitaciones_items li ON li.licitacion_id = l.id
-                    WHERE l.codigo = ANY(%s)
-                      AND li.oferentes IS NOT NULL
-                      AND li.oferentes != '[]'::jsonb
-                    GROUP BY l.codigo,
-                        (SELECT o->>'estado' FROM jsonb_array_elements(li.oferentes) AS o
-                         WHERE o->>'rut' = '93.366.000-1' LIMIT 1)
-                """, (licitacion_ids,))
-                for pg_row in pg_cur.fetchall():
-                    cod, estado = pg_row
-                    if cod in rows_by_lic and estado:
-                        rows_by_lic[cod]["estado_mp"] = estado
-            except Exception:
-                pass
-            finally:
-                if pg_conn:
-                    try: pg_conn.close()
-                    except Exception: pass
-                pg_conn = None
+        ]
 
         result = {
             "ano": ano, "mes": mes, "grupo": grupo,
             "label": f"{MESES[mes-1]}'{str(ano)[2:]}",
-            "rows": list(rows_by_lic.values()),
+            "rows": rows,
         }
         mem_set(ck, result)
         return result

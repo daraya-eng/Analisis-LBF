@@ -100,7 +100,7 @@ interface PerdidosDrillRow {
   licitacion_id: string; organismo: string;
   items_perdidos: number; competidor: string;
   precio_lbf_avg: number; precio_adj_avg: number; dif_pct: number;
-  estado_mp: string | null;
+  estado_sgl: string;
 }
 interface PerdidosDrillData {
   ano: number; mes: number; grupo: string; label: string;
@@ -793,8 +793,8 @@ export default function MercadosRelevantesPage() {
               const colorBg   = isMejor ? "#FFFBEB" : "#FEF2F2";
               const colorBord = isMejor ? "#FDE68A" : "#FCA5A5";
               const colorAcct = isMejor ? "#D97706" : "#B91C1C";
-              const lics      = isMejor ? kpis.mejor_lics  : kpis.mayor_lics;
-              const items     = isMejor ? kpis.mejor_items : kpis.mayor_items;
+              const lics      = isMejor ? (kpis.mejor_lics  ?? 0) : (kpis.mayor_lics  ?? 0);
+              const items     = isMejor ? (kpis.mejor_items ?? 0) : (kpis.mayor_items ?? 0);
               const titulo    = isMejor
                 ? "Perdimos con Precio Mejor — LBF era más barato pero no fue adjudicado"
                 : "Perdimos con Precio Mayor — LBF era más caro (pérdida esperada por precio)";
@@ -803,8 +803,8 @@ export default function MercadosRelevantesPage() {
                 : "Pérdida por competitividad de precio: el ganador cotizó más barato que LBF";
 
               const mesData = por_mes.filter(m =>
-                isMejor ? (m.mejor_lics > 0 || m.mejor_items > 0)
-                         : (m.mayor_lics > 0 || m.mayor_items > 0)
+                isMejor ? ((m.mejor_lics ?? 0) > 0 || (m.mejor_items ?? 0) > 0)
+                         : ((m.mayor_lics ?? 0) > 0 || (m.mayor_items ?? 0) > 0)
               );
 
               const th: React.CSSProperties = { padding: "7px 10px", fontSize: 10, fontWeight: 700, color: "#6B7280", borderBottom: `2px solid ${colorBord}`, whiteSpace: "nowrap", textAlign: "right", background: "#F8FAFC" };
@@ -841,8 +841,8 @@ export default function MercadosRelevantesPage() {
                         <ComposedChart
                           data={mesData.map(m => ({
                             label:  m.label,
-                            lics:   isMejor ? m.mejor_lics  : m.mayor_lics,
-                            items:  isMejor ? m.mejor_items : m.mayor_items,
+                            lics:   isMejor ? (m.mejor_lics  ?? 0) : (m.mayor_lics  ?? 0),
+                            items:  isMejor ? (m.mejor_items ?? 0) : (m.mayor_items ?? 0),
                           }))}
                           margin={{ top: 14, right: 24, bottom: 0, left: 0 }}
                         >
@@ -882,8 +882,8 @@ export default function MercadosRelevantesPage() {
                             const drillKey = `${tipo}-${m.ano}-${m.mes}`;
                             const isOpen   = perdidosDrillKey === drillKey;
                             const isLoading = isOpen && perdidosDrillLoading;
-                            const mLics  = isMejor ? m.mejor_lics  : m.mayor_lics;
-                            const mItems = isMejor ? m.mejor_items : m.mayor_items;
+                            const mLics  = isMejor ? (m.mejor_lics  ?? 0) : (m.mayor_lics  ?? 0);
+                            const mItems = isMejor ? (m.mejor_items ?? 0) : (m.mayor_items ?? 0);
                             return (
                               <React.Fragment key={drillKey}>
                                 <tr
@@ -907,15 +907,8 @@ export default function MercadosRelevantesPage() {
                                       {isLoading ? (
                                         <div style={{ padding: "12px 20px", fontSize: 12, color: "#94A3B8" }}>Cargando…</div>
                                       ) : perdidosDrillData && perdidosDrillData.rows.length > 0 ? (() => {
-                                        const rechazadas = perdidosDrillData.rows.filter(r => r.estado_mp?.toLowerCase().includes("rechaz")).length;
                                         return (
                                           <>
-                                            {isMejor && rechazadas > 0 && (
-                                              <div style={{ padding: "8px 14px", margin: "8px 10px 4px", background: "#FEF3C7", borderRadius: 6, borderLeft: "3px solid #D97706", fontSize: 11, color: "#92400E" }}>
-                                                ⚠️ <strong>{rechazadas} licitación{rechazadas > 1 ? "es" : ""}</strong> con oferta <strong>Rechazada</strong> en MP —
-                                                posible inadmisibilidad documental antes de evaluación de precios.
-                                              </div>
-                                            )}
                                             <div style={{ overflowX: "auto" }}>
                                               <table style={{ borderCollapse: "collapse", width: "100%" }}>
                                                 <thead>
@@ -927,21 +920,22 @@ export default function MercadosRelevantesPage() {
                                                     <th style={{ ...th,  fontSize: 10, padding: "6px 10px", background: "transparent" }}>P. Adj.</th>
                                                     <th style={{ ...th,  fontSize: 10, padding: "6px 10px", background: "transparent" }}>Dif %</th>
                                                     <th style={{ ...thL, fontSize: 10, padding: "6px 10px", background: "transparent" }}>Competidor</th>
-                                                    <th style={{ ...thL, fontSize: 10, padding: "6px 10px", background: "transparent" }}>Estado MP</th>
+                                                    <th style={{ ...thL, fontSize: 10, padding: "6px 10px", background: "transparent" }}>Estado SGL</th>
                                                   </tr>
                                                 </thead>
                                                 <tbody>
                                                   {perdidosDrillData.rows.map((dr, di) => {
-                                                    const est     = dr.estado_mp?.toLowerCase() ?? "";
-                                                    const isRech  = est.includes("rechaz");
-                                                    const isAcep  = est.includes("acept");
-                                                    const bBg     = isRech ? "#FEF3C7" : isAcep ? "#DCFCE7" : "#F1F5F9";
-                                                    const bColor  = isRech ? "#B45309" : isAcep ? "#16A34A" : "#64748B";
-                                                    const bLabel  = isRech ? "⚠️ Rechazada" : (dr.estado_mp ?? "");
-                                                    const difSign = dr.dif_pct > 0 ? "+" : "";
-                                                    const difColor = isMejor
-                                                      ? "#059669"   // verde: ganador pagó más
-                                                      : "#DC2626";  // rojo: ganador era más barato
+                                                    const sgl = dr.estado_sgl || "";
+                                                    const sglBg    = sgl === "Cotizada"      ? "#DCFCE7"
+                                                                   : sgl === "En Proceso"    ? "#EFF6FF"
+                                                                   : sgl === "Sin Gestionar" ? "#FEF2F2"
+                                                                   : "#F1F5F9";
+                                                    const sglColor = sgl === "Cotizada"      ? "#16A34A"
+                                                                   : sgl === "En Proceso"    ? "#2563EB"
+                                                                   : sgl === "Sin Gestionar" ? "#DC2626"
+                                                                   : "#94A3B8";
+                                                    const difSign  = dr.dif_pct > 0 ? "+" : "";
+                                                    const difColor = isMejor ? "#059669" : "#DC2626";
                                                     return (
                                                       <tr key={dr.licitacion_id}
                                                         style={{ background: di % 2 === 1 ? colorBg : "white" }}>
@@ -959,10 +953,9 @@ export default function MercadosRelevantesPage() {
                                                         <td style={{ ...tdL, fontSize: 11, padding: "5px 10px", maxWidth: 140, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
                                                           title={dr.competidor}>{dr.competidor}</td>
                                                         <td style={{ ...tdL, fontSize: 11, padding: "5px 10px" }}>
-                                                          {dr.estado_mp ? (
-                                                            <span title={isRech ? "Oferta rechazada en MP — posible inadmisibilidad" : undefined}
-                                                              style={{ display: "inline-block", padding: "1px 8px", borderRadius: 4, fontSize: 10, fontWeight: 700, background: bBg, color: bColor, cursor: isRech ? "help" : undefined }}>
-                                                              {bLabel}
+                                                          {sgl ? (
+                                                            <span style={{ display: "inline-block", padding: "1px 8px", borderRadius: 4, fontSize: 10, fontWeight: 700, background: sglBg, color: sglColor }}>
+                                                              {sgl}
                                                             </span>
                                                           ) : (
                                                             <span style={{ color: "#CBD5E1", fontSize: 10 }}>—</span>

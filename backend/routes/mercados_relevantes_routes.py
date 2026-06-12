@@ -2380,6 +2380,77 @@ async def falcon_por_mes(current_user: dict = Depends(get_current_user)):
         if conn: _ss_close(conn)
 
 
+@router.get("/falcon-por-tipo-mes")
+async def falcon_por_tipo_mes(current_user: dict = Depends(get_current_user)):
+    """Ítems participados y adjudicados por tipo de licitación × mes (fecha_adj)."""
+    ck = "mercados_relevantes:falcon_por_tipo_mes_v1"
+    if cached := mem_get(ck):
+        return cached
+    conn = None
+    try:
+        conn = get_conn()
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT
+                YEAR(fecha_adj)                                                       AS ano,
+                MONTH(fecha_adj)                                                      AS mes,
+                LEFT(
+                    SUBSTRING(licitacion_id,
+                        LEN(licitacion_id) - CHARINDEX('-', REVERSE(licitacion_id)) + 2,
+                        100),
+                    2)                                                                AS tipo,
+                COUNT(*)                                                              AS items_lbf,
+                COUNT(CASE WHEN estado_mp = 'Adjudicada' THEN 1 END)                 AS items_adj,
+                COUNT(DISTINCT licitacion_id)                                         AS lics_lbf,
+                COUNT(DISTINCT CASE WHEN estado_mp = 'Adjudicada'
+                                    THEN licitacion_id END)                           AS lics_adj,
+                ROUND(SUM(CASE WHEN estado_mp = 'Adjudicada'
+                               THEN ISNULL(total_adjudicado, 0) END), 0)             AS monto_adj
+            FROM falcon_gestion
+            WHERE canal = 'Licitacion'
+              AND empresa = 'COMERCIAL LBF LIMITADA'
+              AND fecha_adj IS NOT NULL
+              AND YEAR(fecha_adj) BETWEEN 2024 AND 2026
+              AND fecha_adj < DATEFROMPARTS(YEAR(GETDATE()), MONTH(GETDATE()), 1)
+              AND estado_mp IN ('Adjudicada', 'No Adjudicada')
+            GROUP BY
+                YEAR(fecha_adj), MONTH(fecha_adj),
+                LEFT(
+                    SUBSTRING(licitacion_id,
+                        LEN(licitacion_id) - CHARINDEX('-', REVERSE(licitacion_id)) + 2,
+                        100),
+                    2)
+            ORDER BY ano, mes, tipo
+        """)
+        cols = [d[0] for d in cur.description]
+        MES_NOM = {1:'Ene',2:'Feb',3:'Mar',4:'Abr',5:'May',6:'Jun',
+                   7:'Jul',8:'Ago',9:'Sep',10:'Oct',11:'Nov',12:'Dic'}
+        rows = []
+        for r in cur.fetchall():
+            d = dict(zip(cols, r))
+            ano, mes = int(d['ano']), int(d['mes'])
+            il = int(d['items_lbf'] or 0)
+            ia = int(d['items_adj'] or 0)
+            rows.append({
+                'ano': ano, 'mes': mes,
+                'label': f"{MES_NOM[mes]}'{str(ano)[2:]}",
+                'tipo': str(d['tipo']),
+                'items_lbf': il,
+                'items_adj': ia,
+                'tasa_adj': round(ia / il * 100, 1) if il else 0,
+                'lics_lbf': int(d['lics_lbf'] or 0),
+                'lics_adj': int(d['lics_adj'] or 0),
+                'monto_adj': round(float(d['monto_adj'] or 0)),
+            })
+        result = {"rows": rows}
+        mem_set(ck, result)
+        return result
+    except Exception as e:
+        return {"rows": [], "error": str(e), "detail": traceback.format_exc()}
+    finally:
+        if conn: _ss_close(conn)
+
+
 @router.get("/falcon-por-estado-sgl")
 async def falcon_por_estado_sgl(current_user: dict = Depends(get_current_user)):
     """Distribución por estado_sgl de ítems LBF en falcon_gestion."""
@@ -3292,7 +3363,7 @@ async def falcon_perdidos_detalle_mes(
     grupo='mayor': LBF era más caro (lbf.precio > adj.precio).
     Incluye precios promedio y dif% para diagnóstico.
     """
-    ck = f"falcon_perdidos_detalle_v2:{ano}:{mes}:{grupo}"
+    ck = f"falcon_perdidos_detalle_v3:{ano}:{mes}:{grupo}"
     cached = mem_get(ck)
     if cached is not None:
         return cached
@@ -3314,7 +3385,8 @@ async def falcon_perdidos_detalle_mes(
                 ROUND(AVG(lbf.precio), 0)                                                 AS precio_lbf_avg,
                 ROUND(AVG(adj.precio), 0)                                                 AS precio_adj_avg,
                 ROUND((AVG(adj.precio) / NULLIF(AVG(lbf.precio), 0) - 1) * 100, 1)       AS dif_pct,
-                MAX(ISNULL(LTRIM(RTRIM(lbf.estado_sgl)), ''))                             AS estado_sgl
+                MAX(ISNULL(LTRIM(RTRIM(lbf.estado_sgl)), ''))                             AS estado_sgl,
+                MAX(ISNULL(LTRIM(RTRIM(lbf.estado_mp)),  ''))                             AS estado_mp
             FROM falcon_gestion lbf
             JOIN falcon_gestion adj
               ON lbf.licitacion_id = adj.licitacion_id
@@ -3370,8 +3442,8 @@ async def falcon_perdidos_detalle_mes(
                 "precio_adj_avg": round(float(r[5] or 0)),
                 "dif_pct":        round(float(r[6] or 0), 1),
                 "estado_sgl":     r[7] or "",
+                "estado_mp":      r[8] or "",
                 "url_acta":       url_map.get(r[0]),
-                "motivo_lbf":     None,
             }
             for r in ss_rows
         ]

@@ -83,6 +83,12 @@ interface PostRow {
   lics_res: number; lics_adj: number; items_res: number; items_adj: number; monto_adj: number;
 }
 interface PostDetalle { licitacion_id: string; organismo: string; unidad_compra: string; region: string; items: number; monto: number; fecha_inicio: string; fecha_termino: string; estado_mp: string; }
+interface GestionTipoMes {
+  ano: number; mes: number; label: string; tipo: string;
+  items_lbf: number; items_adj: number; tasa_adj: number;
+  lics_lbf: number; lics_adj: number; monto_adj: number;
+}
+
 interface PerdidosConteoKpis {
   mejor_lics: number; mejor_items: number;
   mayor_lics: number; mayor_items: number;
@@ -100,8 +106,8 @@ interface PerdidosDrillRow {
   licitacion_id: string; organismo: string;
   items_perdidos: number; competidor: string;
   precio_lbf_avg: number; precio_adj_avg: number; dif_pct: number;
-  estado_sgl: string; url_acta?: string | null;
-  motivo_lbf?: string | null;
+  estado_sgl: string; estado_mp?: string;
+  url_acta?: string | null;
 }
 interface PerdidosDrillData {
   ano: number; mes: number; grupo: string; label: string;
@@ -242,6 +248,8 @@ export default function MercadosRelevantesPage() {
   const [sglLoaded, setSglLoaded]       = useState(false);
   const [sglCanal, setSglCanal]         = useState("");
   const [sglEquipoActual, setSglEquipoActual] = useState(false);
+  const [sglPeriodo, setSglPeriodo]     = useState<"mes" | "ytd" | "mat" | "ano">("mes");
+  const [sglTipoMes, setSglTipoMes]     = useState<GestionTipoMes[]>([]);
 
   // tabla de licitaciones
   const [licData, setLicData]       = useState<LicPagina | null>(null);
@@ -276,6 +284,7 @@ export default function MercadosRelevantesPage() {
   const [perdidosLoading, setPerdidosLoading] = useState(false);
   const [perdidosLoaded, setPerdidosLoaded]   = useState(false);
   const [perdidosAno, setPerdidosAno]         = useState(2026);
+  const [perdidosColEstado, setPerdidosColEstado] = useState<"sgl" | "mp">("sgl");
   const [perdidosDrillKey, setPerdidosDrillKey]     = useState<string | null>(null);
   const [perdidosDrillData, setPerdidosDrillData]   = useState<PerdidosDrillData | null>(null);
   const [perdidosDrillLoading, setPerdidosDrillLoading] = useState(false);
@@ -360,11 +369,13 @@ export default function MercadosRelevantesPage() {
       api.get<{ usuarios: GestionUsuario[] }>(`/api/mercados-relevantes/falcon-por-usuario${q}`, { noCache: true }),
       api.get<{ meses: GestionMes[] }>("/api/mercados-relevantes/falcon-por-mes", { noCache: true }),
       api.get<{ estados: GestionEstado[] }>("/api/mercados-relevantes/falcon-por-estado-sgl", { noCache: true }),
-    ]).then(([res, usr, mes, est]) => {
+      api.get<{ rows: GestionTipoMes[] }>("/api/mercados-relevantes/falcon-por-tipo-mes", { noCache: true }),
+    ]).then(([res, usr, mes, est, tipo]) => {
       setSglResumen(res ?? null);
       setSglUsuarios(usr.usuarios ?? []);
       setSglMeses(mes.meses ?? []);
       setSglEstados(est.estados ?? []);
+      setSglTipoMes(tipo.rows ?? []);
       setSglLoading(false);
       setSglLoaded(true);
     }).catch(() => { setSglLoading(false); setSglLoaded(true); });
@@ -387,13 +398,15 @@ export default function MercadosRelevantesPage() {
     <div style={{ fontFamily: "inherit" }}>
 
       {/* Header */}
-      <div style={{ marginBottom: 20 }}>
-        <h1 style={{ fontSize: 20, fontWeight: 800, color: "#0F172A", margin: 0 }}>
-          Gestión de Licitaciones
+      <div style={{ marginBottom: 20, borderBottom: "2px solid #FECDD3", paddingBottom: 16 }}>
+        <h1 style={{ fontSize: 24, fontWeight: 800, color: "#BE185D", textTransform: "uppercase", letterSpacing: "0.06em", margin: "0 0 6px" }}>
+          Departamento de Licitaciones
         </h1>
-        <p style={{ fontSize: 12, color: "#64748B", marginTop: 4 }}>
-          Fuente: SQL Server BI (falcon_gestion) · Gestión comercial del departamento de Licitaciones LBF
-        </p>
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <span style={{ fontSize: 12, color: "#374151", fontWeight: 600 }}>Carolina Jiménez</span>
+          <span style={{ fontSize: 11, color: "#94A3B8" }}>·</span>
+          <span style={{ fontSize: 11, color: "#64748B" }}>Jefe de Licitaciones</span>
+        </div>
       </div>
 
       {/* Tab selector */}
@@ -426,26 +439,90 @@ export default function MercadosRelevantesPage() {
               <>
                 {/* Adjudicaciones por mes (fecha_adj) */}
                 {sglMeses.length > 0 && (() => {
-                  const today = new Date();
-                  const cutoff = new Date(today.getFullYear(), today.getMonth() - 17, 1);
-                  const chartData = sglMeses.filter(r => {
-                    const d = new Date(r.ano, r.mes - 1, 1);
-                    const isCurrent = r.ano === today.getFullYear() && r.mes === today.getMonth() + 1;
-                    return d >= cutoff && !isCurrent;
-                  });
+                  const today    = new Date();
+                  const thisYear = today.getFullYear();
+                  const thisMes  = today.getMonth() + 1;
+                  const isCurrentMonth = (r: GestionMes) => r.ano === thisYear && r.mes === thisMes;
+
+                  // ── Calcular chartData según período ──────────────────────
+                  type ChartPoint = { label: string; items_lbf: number; items_adj: number; tasa_adj: number };
+                  let chartData: ChartPoint[] = [];
+                  let modoAno = false;
+
+                  if (sglPeriodo === "ytd") {
+                    chartData = sglMeses
+                      .filter(r => r.ano === thisYear && !isCurrentMonth(r))
+                      .map(r => ({ label: r.label, items_lbf: r.items_lbf, items_adj: r.items_adj, tasa_adj: r.tasa_adj }));
+                  } else if (sglPeriodo === "mat") {
+                    // Últimos 12 meses completos
+                    const cutoff = new Date(thisYear, today.getMonth() - 12, 1);
+                    chartData = sglMeses
+                      .filter(r => !isCurrentMonth(r) && new Date(r.ano, r.mes - 1, 1) >= cutoff)
+                      .slice(-12)
+                      .map(r => ({ label: r.label, items_lbf: r.items_lbf, items_adj: r.items_adj, tasa_adj: r.tasa_adj }));
+                  } else if (sglPeriodo === "ano") {
+                    modoAno = true;
+                    const years = [thisYear - 1, thisYear];
+                    chartData = years.map(y => {
+                      const rows = sglMeses.filter(r => r.ano === y && !isCurrentMonth(r));
+                      const items_lbf = rows.reduce((s, r) => s + r.items_lbf, 0);
+                      const items_adj = rows.reduce((s, r) => s + r.items_adj, 0);
+                      return { label: String(y), items_lbf, items_adj, tasa_adj: items_lbf > 0 ? +(items_adj / items_lbf * 100).toFixed(1) : 0 };
+                    });
+                  } else {
+                    // "mes": últimos 15 meses completos
+                    const cutoff = new Date(thisYear, today.getMonth() - 15, 1);
+                    chartData = sglMeses
+                      .filter(r => !isCurrentMonth(r) && new Date(r.ano, r.mes - 1, 1) >= cutoff)
+                      .slice(-15)
+                      .map(r => ({ label: r.label, items_lbf: r.items_lbf, items_adj: r.items_adj, tasa_adj: r.tasa_adj }));
+                  }
+
                   if (chartData.length === 0) return null;
+
+                  const PERIODOS: { id: "mes" | "ytd" | "mat" | "ano"; label: string }[] = [
+                    { id: "mes", label: "Mes" },
+                    { id: "ytd", label: "YTD" },
+                    { id: "mat", label: "MAT" },
+                    { id: "ano", label: "Año" },
+                  ];
+
+                  const periodoLabel = sglPeriodo === "mes" ? "últimos 15 meses"
+                    : sglPeriodo === "ytd" ? `Ene–${MESES_LABEL[thisMes - 1] || ""} ${thisYear}`
+                    : sglPeriodo === "mat" ? "últimos 12 meses móviles"
+                    : `${thisYear - 1} vs ${thisYear}`;
+
                   return (
                     <div style={{ ...card, marginBottom: 20 }}>
-                      <h2 style={{ fontSize: 14, fontWeight: 700, color: "#0F172A", margin: "0 0 4px" }}>
-                        Tasa de Adjudicación Mensual — LBF Licitaciones
-                      </h2>
-                      <p style={{ fontSize: 11, color: "#475569", margin: "0 0 16px" }}>
-                        Por mes de resolución (fecha_adj) · solo canal Licitación · barras = ítems resueltos (adj + no adj) · excluye mes actual y lics aún en proceso
-                      </p>
+                      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 4, flexWrap: "wrap", gap: 10 }}>
+                        <div>
+                          <h2 style={{ fontSize: 14, fontWeight: 700, color: "#0F172A", margin: "0 0 4px" }}>
+                            Tasa de Adjudicación — LBF Licitaciones
+                          </h2>
+                          <p style={{ fontSize: 11, color: "#475569", margin: "0 0 12px" }}>
+                            {periodoLabel} · solo canal Licitación · excluye mes en curso
+                          </p>
+                        </div>
+                        {/* Filtro período */}
+                        <div style={{ display: "flex", gap: 4 }}>
+                          {PERIODOS.map((p, i) => {
+                            const active = sglPeriodo === p.id;
+                            return (
+                              <button key={p.id} onClick={() => setSglPeriodo(p.id)} style={{
+                                padding: "4px 13px", fontSize: 12, fontWeight: 700, cursor: "pointer",
+                                border: `1px solid ${active ? "#BE185D" : "#E2E8F0"}`,
+                                background: active ? "#BE185D" : "white",
+                                color: active ? "white" : "#64748B",
+                                borderRadius: i === 0 ? "6px 0 0 6px" : i === PERIODOS.length - 1 ? "0 6px 6px 0" : "0",
+                              }}>{p.label}</button>
+                            );
+                          })}
+                        </div>
+                      </div>
                       <ResponsiveContainer width="100%" height={300}>
-                        <ComposedChart data={chartData} margin={{ top: 20, right: 52, left: 0, bottom: 0 }} barCategoryGap="25%">
+                        <ComposedChart data={chartData} margin={{ top: 20, right: 52, left: 0, bottom: 0 }} barCategoryGap={modoAno ? "40%" : "25%"}>
                           <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E2E8F0" />
-                          <XAxis dataKey="label" tick={{ fontSize: 10, fill: "#374151" }} axisLine={false} tickLine={false} />
+                          <XAxis dataKey="label" tick={{ fontSize: modoAno ? 13 : 10, fill: "#374151", fontWeight: modoAno ? 700 : 400 }} axisLine={false} tickLine={false} />
                           <YAxis yAxisId="items" tick={{ fontSize: 10 }} axisLine={false} tickLine={false} width={38} allowDecimals={false} />
                           <YAxis yAxisId="pct" orientation="right" tick={{ fontSize: 10, fill: "#B45309", fontWeight: 600 }}
                             axisLine={false} tickLine={false} width={44} tickFormatter={v => `${v}%`} domain={[0, 100]} />
@@ -456,16 +533,16 @@ export default function MercadosRelevantesPage() {
                             }
                           />
                           <Legend wrapperStyle={{ fontSize: 12, paddingTop: 10 }} />
-                          <Bar yAxisId="items" dataKey="items_lbf" name="Resueltos" fill="#A5B4FC" radius={[3,3,0,0]}>
-                            <LabelList dataKey="items_lbf" position="top" style={{ fontSize: 9, fill: "#3730A3", fontWeight: 600 }} />
+                          <Bar yAxisId="items" dataKey="items_lbf" name="Participados" fill="#F9A8D4" radius={[3,3,0,0]}>
+                            <LabelList dataKey="items_lbf" position="top" style={{ fontSize: modoAno ? 12 : 9, fill: "#9D174D", fontWeight: 600 }} />
                           </Bar>
-                          <Bar yAxisId="items" dataKey="items_adj" name="Adjudicados" fill={LBF_BLUE} radius={[3,3,0,0]}>
-                            <LabelList dataKey="items_adj" position="top" style={{ fontSize: 9, fill: "#1E3A8A", fontWeight: 700 }} />
+                          <Bar yAxisId="items" dataKey="items_adj" name="Adjudicados" fill="#BE185D" radius={[3,3,0,0]}>
+                            <LabelList dataKey="items_adj" position="top" style={{ fontSize: modoAno ? 12 : 9, fill: "#881337", fontWeight: 700 }} />
                           </Bar>
                           <Line yAxisId="pct" type="monotone" dataKey="tasa_adj" name="% Adj."
-                            stroke="#D97706" strokeWidth={2.5} dot={{ r: 3, fill: "#D97706", stroke: "white", strokeWidth: 2 }}
+                            stroke="#D97706" strokeWidth={2.5} dot={{ r: modoAno ? 6 : 3, fill: "#D97706", stroke: "white", strokeWidth: 2 }}
                             connectNulls={false}>
-                            <LabelList dataKey="tasa_adj" position="top" style={{ fontSize: 9, fill: "#92400E", fontWeight: 700 }}
+                            <LabelList dataKey="tasa_adj" position="top" style={{ fontSize: modoAno ? 12 : 9, fill: "#92400E", fontWeight: 700 }}
                               formatter={(v: unknown) => typeof v === "number" ? `${v.toFixed(1)}%` : ""} />
                           </Line>
                         </ComposedChart>
@@ -475,6 +552,140 @@ export default function MercadosRelevantesPage() {
                 })()}
 
               </>
+            );
+          })()}
+
+          {/* ── Gráfico por tipo de licitación ───────────────────────────── */}
+          {activeTab === "sgl" && sglTipoMes.length > 0 && (() => {
+            const today    = new Date();
+            const thisYear = today.getFullYear();
+            const thisMes  = today.getMonth() + 1;
+            const isCurrentMonth = (ano: number, mes: number) => ano === thisYear && mes === thisMes;
+
+            // Aplicar mismo filtro de período que el gráfico principal
+            let rowsFiltrados = sglTipoMes.filter(r => !isCurrentMonth(r.ano, r.mes));
+            if (sglPeriodo === "ytd") {
+              rowsFiltrados = rowsFiltrados.filter(r => r.ano === thisYear);
+            } else if (sglPeriodo === "mat") {
+              const cutoff = new Date(thisYear, today.getMonth() - 12, 1);
+              rowsFiltrados = rowsFiltrados.filter(r => new Date(r.ano, r.mes - 1, 1) >= cutoff);
+            } else if (sglPeriodo === "mes") {
+              const cutoff = new Date(thisYear, today.getMonth() - 15, 1);
+              rowsFiltrados = rowsFiltrados.filter(r => new Date(r.ano, r.mes - 1, 1) >= cutoff);
+            }
+
+            // Paleta por tipo
+            const TIPO_COLORS: Record<string, string> = {
+              LR: "#BE185D", LP: "#F9A8D4", LQ: "#A78BFA",
+              LE: "#FCD34D", L1: "#6EE7B7", CO: "#93C5FD", CM: "#F97316", Otro: "#CBD5E1",
+            };
+
+            // Tipos presentes en los datos
+            const tipos = Array.from(new Set(rowsFiltrados.map(r => r.tipo))).sort();
+
+            if (sglPeriodo === "ano") {
+              // Modo año: agrupar por año y tipo
+              const years = [thisYear - 1, thisYear];
+              type AnoTipoPoint = Record<string, string | number>;
+              const chartData: AnoTipoPoint[] = years.map(y => {
+                const punto: AnoTipoPoint = { label: String(y) };
+                tipos.forEach(t => {
+                  const rows = rowsFiltrados.filter(r => r.ano === y && r.tipo === t);
+                  punto[t] = rows.reduce((s, r) => s + r.items_adj, 0);
+                });
+                punto["monto_adj"] = rowsFiltrados.filter(r => r.ano === y).reduce((s, r) => s + r.monto_adj, 0);
+                return punto;
+              });
+              return (
+                <div style={{ ...card, marginBottom: 20 }}>
+                  <h2 style={{ fontSize: 14, fontWeight: 700, color: "#0F172A", margin: "0 0 12px" }}>
+                    Adjudicados por Tipo de Licitación — {thisYear - 1} vs {thisYear}
+                  </h2>
+                  <ResponsiveContainer width="100%" height={280}>
+                    <ComposedChart data={chartData} margin={{ top: 16, right: 70, left: 0, bottom: 0 }} barCategoryGap="40%">
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E2E8F0" />
+                      <XAxis dataKey="label" tick={{ fontSize: 13, fill: "#374151", fontWeight: 700 }} axisLine={false} tickLine={false} />
+                      <YAxis yAxisId="items" tick={{ fontSize: 10 }} axisLine={false} tickLine={false} width={32} allowDecimals={false} />
+                      <YAxis yAxisId="monto" orientation="right" tick={{ fontSize: 9, fill: "#6D28D9" }}
+                        axisLine={false} tickLine={false} width={60}
+                        tickFormatter={v => `$${Math.round((v as number)/1_000_000_000)}MM`} />
+                      <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8, border: "1px solid #E2E8F0" }}
+                        formatter={(v, name) =>
+                          name === "Monto adj." ? [fmtM(v as number), name] : [(v as number).toLocaleString("es-CL"), String(name)]
+                        } />
+                      <Legend wrapperStyle={{ fontSize: 11, paddingTop: 8 }} />
+                      {tipos.map(t => (
+                        <Bar key={t} yAxisId="items" dataKey={t} name={t} stackId="a" fill={TIPO_COLORS[t] ?? "#CBD5E1"} radius={[0,0,0,0]}>
+                          <LabelList dataKey={t} position="inside" style={{ fontSize: 9, fill: "white", fontWeight: 700 }}
+                            formatter={(v: unknown) => (typeof v === "number" && v > 0) ? String(v) : ""} />
+                        </Bar>
+                      ))}
+                      <Line yAxisId="monto" type="monotone" dataKey="monto_adj" name="Monto adj."
+                        stroke="#6D28D9" strokeWidth={3} dot={{ r: 6, fill: "#6D28D9", stroke: "white", strokeWidth: 2 }}>
+                        <LabelList dataKey="monto_adj" position="top" style={{ fontSize: 11, fill: "#4C1D95", fontWeight: 700 }}
+                          formatter={(v: unknown) => typeof v === "number" && v > 0 ? fmtM(v) : ""} />
+                      </Line>
+                    </ComposedChart>
+                  </ResponsiveContainer>
+                </div>
+              );
+            }
+
+            // Modo mensual: pivotar por mes
+            const mesesUnicos = Array.from(
+              new Map(rowsFiltrados.map(r => [`${r.ano}-${r.mes}`, r.label])).entries()
+            ).sort((a, b) => a[0].localeCompare(b[0]));
+
+            type MesTipoPoint = Record<string, string | number>;
+            const chartData: MesTipoPoint[] = mesesUnicos.map(([key, label]) => {
+              const [ano, mes] = key.split("-").map(Number);
+              const punto: MesTipoPoint = { label };
+              tipos.forEach(t => {
+                const row = rowsFiltrados.find(r => r.ano === ano && r.mes === mes && r.tipo === t);
+                punto[t] = row?.items_adj ?? 0;
+              });
+              // monto total del mes (suma de todos los tipos)
+              punto["monto_adj"] = rowsFiltrados
+                .filter(r => r.ano === ano && r.mes === mes)
+                .reduce((s, r) => s + r.monto_adj, 0);
+              return punto;
+            });
+
+            if (chartData.length === 0) return null;
+
+            return (
+              <div style={{ ...card, marginBottom: 20 }}>
+                <h2 style={{ fontSize: 14, fontWeight: 700, color: "#0F172A", margin: "0 0 4px" }}>
+                  Adjudicados por Tipo de Licitación
+                </h2>
+                <p style={{ fontSize: 11, color: "#475569", margin: "0 0 14px" }}>
+                  Ítems adjudicados apilados por tipo · línea = monto adjudicado total · mismo período que el gráfico superior
+                </p>
+                <ResponsiveContainer width="100%" height={280}>
+                  <ComposedChart data={chartData} margin={{ top: 16, right: 56, left: 0, bottom: 0 }} barCategoryGap="25%">
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E2E8F0" />
+                    <XAxis dataKey="label" tick={{ fontSize: 10, fill: "#374151" }} axisLine={false} tickLine={false} />
+                    <YAxis yAxisId="items" tick={{ fontSize: 10 }} axisLine={false} tickLine={false} width={32} allowDecimals={false} />
+                    <YAxis yAxisId="monto" orientation="right" tick={{ fontSize: 9, fill: "#6D28D9" }}
+                      axisLine={false} tickLine={false} width={52}
+                      tickFormatter={v => `$${Math.round((v as number)/1_000_000)}M`} />
+                    <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8, border: "1px solid #E2E8F0" }}
+                      formatter={(v, name) =>
+                        name === "Monto adj." ? [fmtM(v as number), name] : [(v as number).toLocaleString("es-CL"), String(name)]
+                      } />
+                    <Legend wrapperStyle={{ fontSize: 11, paddingTop: 8 }} />
+                    {tipos.map(t => (
+                      <Bar key={t} yAxisId="items" dataKey={t} name={t} stackId="a" fill={TIPO_COLORS[t] ?? "#CBD5E1"} radius={[0,0,0,0]} />
+                    ))}
+                    <Line yAxisId="monto" type="monotone" dataKey="monto_adj" name="Monto adj."
+                      stroke="#6D28D9" strokeWidth={2.5} dot={{ r: 3, fill: "#6D28D9", stroke: "white", strokeWidth: 2 }}
+                      connectNulls={false}>
+                      <LabelList dataKey="monto_adj" position="top" style={{ fontSize: 9, fill: "#4C1D95", fontWeight: 700 }}
+                        formatter={(v: unknown) => typeof v === "number" && v > 0 ? fmtM(v) : ""} />
+                    </Line>
+                  </ComposedChart>
+                </ResponsiveContainer>
+              </div>
             );
           })()}
 
@@ -590,167 +801,6 @@ export default function MercadosRelevantesPage() {
             </div>
           )}
 
-          {/* ── Postulaciones 2026 por usuario/mes ────────────────────────── */}
-          {activeTab === "sgl" && (
-            <div style={{ ...card, marginBottom: 20 }}>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14, flexWrap: "wrap", gap: 10 }}>
-                <h2 style={{ fontSize: 14, fontWeight: 700, color: "#0F172A", margin: 0 }}>
-                  Postulaciones 2026 por Usuario
-                </h2>
-                {postRows.length > 0 && (() => {
-                  const mesesDisp = [1,2,3,4,5,6,7,8,9,10,11,12].filter(m => postRows.some(r => r.mes === m));
-                  return (
-                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                      {mesesDisp.map(m => (
-                        <button key={m}
-                          onClick={() => setPostMesFiltro(m)}
-                          style={{ padding: "4px 12px", fontSize: 11, fontWeight: 700, borderRadius: 6, border: "1px solid #7C3AED", cursor: "pointer", background: postMesFiltro === m ? "#7C3AED" : "white", color: postMesFiltro === m ? "white" : "#7C3AED" }}
-                        >{MES_NOMBRE[m]}</button>
-                      ))}
-                    </div>
-                  );
-                })()}
-              </div>
-              {postLoading && <div style={{ textAlign: "center", padding: "20px 0", color: "#94A3B8", fontSize: 13 }}>Cargando…</div>}
-              {!postLoading && postRows.length > 0 && (() => {
-                const MESES = [1,2,3,4,5,6,7,8,9,10,11,12];
-                const mesesConDatos = (postMesFiltro !== null
-                  ? [postMesFiltro]
-                  : MESES.filter(m => postRows.some(r => r.mes === m)));
-                // agrupar por usuario
-                const usuarios = Array.from(new Set(postRows.map(r => r.usuario))).sort();
-                const byKey = (u: string, m: number) => postRows.find(r => r.usuario === u && r.mes === m);
-                const totLics  = (m: number) => postRows.filter(r => r.mes === m).reduce((s, r) => s + r.lics, 0);
-                const totItems = (m: number) => postRows.filter(r => r.mes === m).reduce((s, r) => s + r.items, 0);
-                const totMonto = (m: number) => postRows.filter(r => r.mes === m).reduce((s, r) => s + r.monto, 0);
-
-                const thS: React.CSSProperties = { padding: "6px 8px", fontSize: 10, fontWeight: 700, color: "#6B7280", borderBottom: "2px solid #E2E8F0", textAlign: "center", whiteSpace: "nowrap", background: "#F8FAFC" };
-                const thM: React.CSSProperties = { ...thS, color: "#7C3AED", borderBottom: "2px solid #7C3AED" };
-                const tdS: React.CSSProperties = { padding: "5px 8px", fontSize: 11, color: "#374151", borderBottom: "1px solid #F1F5F9", textAlign: "right", whiteSpace: "nowrap" };
-                const tdL: React.CSSProperties = { ...tdS, textAlign: "left", fontWeight: 600 };
-                const tdT: React.CSSProperties = { ...tdS, fontWeight: 800, background: "#F8FAFC" };
-
-                const m0 = mesesConDatos[0];
-
-                return (
-                  <div style={{ overflowX: "auto" }}>
-                    <table style={{ borderCollapse: "collapse", width: "100%", minWidth: 700 }}>
-                      <thead>
-                        <tr>
-                          <th rowSpan={2} style={{ ...thS, textAlign: "left", verticalAlign: "bottom", borderBottom: "2px solid #7C3AED" }}>Usuario</th>
-                          <th colSpan={3} style={{ ...thS, textAlign: "center", background: "#F5F3FF", color: "#7C3AED", borderBottom: "1px solid #DDD6FE" }}>POSTULACIONES (fecha inicio)</th>
-                          <th colSpan={5} style={{ ...thS, textAlign: "center", background: "#F0FDF4", color: "#166534", borderBottom: "1px solid #BBF7D0" }}>ADJUDICACIONES (fecha adj)</th>
-                        </tr>
-                        <tr>
-                          <th style={{ ...thS, color: "#7C3AED" }}>Licitaciones</th>
-                          <th style={{ ...thS, color: "#7C3AED" }}>Ítems</th>
-                          <th style={{ ...thS, color: "#7C3AED" }}>Monto ofertado</th>
-                          <th style={{ ...thS, color: "#166534" }}>Lics res.</th>
-                          <th style={{ ...thS, color: "#166534" }}>Lics adj.</th>
-                          <th style={{ ...thS, color: "#166534" }}>Tasa lics</th>
-                          <th style={{ ...thS, color: "#166534" }}>Ítems adj.</th>
-                          <th style={{ ...thS, color: "#166534" }}>Monto adj.</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {usuarios.map((u, i) => {
-                          const r = byKey(u, m0);
-                          if (!r) return null;
-                          const expanded = postDrillUsuario === u;
-                          const tasaLics = r.lics_res > 0 ? (r.lics_adj / r.lics_res * 100).toFixed(1) : "—";
-                          return (
-                            <React.Fragment key={u}>
-                              <tr
-                                onClick={() => loadPostDrill(u, m0)}
-                                style={{ background: expanded ? "#EDE9FE" : i % 2 === 1 ? "#FAFBFC" : undefined, cursor: "pointer" }}
-                              >
-                                <td style={{ ...tdL, color: expanded ? "#7C3AED" : undefined }}>
-                                  <span style={{ marginRight: 6, fontSize: 10 }}>{expanded ? "▼" : "▶"}</span>{u}
-                                </td>
-                                <td style={tdS}>{r.lics}</td>
-                                <td style={tdS}>{r.items.toLocaleString("es-CL")}</td>
-                                <td style={{ ...tdS, color: "#7C3AED", fontWeight: 700 }}>{fmtM(r.monto)}</td>
-                                <td style={{ ...tdS, color: "#166534" }}>{r.lics_res ?? 0}</td>
-                                <td style={{ ...tdS, color: "#166534", fontWeight: 700 }}>{r.lics_adj ?? 0}</td>
-                                <td style={{ ...tdS, fontWeight: 700, color: Number(tasaLics) >= 30 ? "#059669" : Number(tasaLics) >= 15 ? "#D97706" : "#DC2626" }}>
-                                  {tasaLics !== "—" ? `${tasaLics}%` : "—"}
-                                </td>
-                                <td style={{ ...tdS, color: "#166534", fontWeight: 700 }}>{(r.items_adj ?? 0).toLocaleString("es-CL")}</td>
-                                <td style={{ ...tdS, color: "#059669", fontWeight: 700 }}>{fmtM(r.monto_adj ?? 0)}</td>
-                              </tr>
-                              {expanded && (
-                                <tr>
-                                  <td colSpan={4} style={{ padding: 0, background: "#F5F3FF" }}>
-                                    {postDrillLoading ? (
-                                      <div style={{ padding: "12px 20px", fontSize: 12, color: "#94A3B8" }}>Cargando…</div>
-                                    ) : (
-                                      <div style={{ padding: "10px 16px" }}>
-                                        <table style={{ borderCollapse: "collapse", width: "100%", fontSize: 11 }}>
-                                          <thead>
-                                            <tr>
-                                              <th style={{ ...thS, textAlign: "left", background: "#EDE9FE" }}>ID Licitación</th>
-                                              <th style={{ ...thS, textAlign: "left", background: "#EDE9FE" }}>Organismo</th>
-                                              <th style={{ ...thS, background: "#EDE9FE" }}>Región</th>
-                                              <th style={{ ...thS, background: "#EDE9FE" }}>F. Inicio</th>
-                                              <th style={{ ...thS, background: "#EDE9FE" }}>F. Término</th>
-                                              <th style={{ ...thS, background: "#EDE9FE" }}>Ítems</th>
-                                              <th style={{ ...thS, color: "#7C3AED", background: "#EDE9FE" }}>Monto</th>
-                                              <th style={{ ...thS, background: "#EDE9FE" }}>Estado</th>
-                                            </tr>
-                                          </thead>
-                                          <tbody>
-                                            {postDrillData.map((lic, li) => (
-                                              <tr key={lic.licitacion_id} style={{ background: li % 2 === 0 ? "white" : "#F5F3FF" }}>
-                                                <td style={{ ...tdS, textAlign: "left", fontFamily: "monospace", fontSize: 10 }}>{lic.licitacion_id}</td>
-                                                <td style={{ ...tdS, textAlign: "left", maxWidth: 240, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{lic.organismo}</td>
-                                                <td style={{ ...tdS, textAlign: "center" }}>{lic.region}</td>
-                                                <td style={{ ...tdS, textAlign: "center" }}>{lic.fecha_inicio ? lic.fecha_inicio.slice(0,7) : "—"}</td>
-                                                <td style={{ ...tdS, textAlign: "center" }}>{lic.fecha_termino ? lic.fecha_termino.slice(0,7) : "—"}</td>
-                                                <td style={tdS}>{lic.items}</td>
-                                                <td style={{ ...tdS, color: "#7C3AED", fontWeight: 700 }}>{fmtM(lic.monto)}</td>
-                                                <td style={{ ...tdS, textAlign: "center", fontSize: 10 }}>{lic.estado_mp}</td>
-                                              </tr>
-                                            ))}
-                                          </tbody>
-                                        </table>
-                                      </div>
-                                    )}
-                                  </td>
-                                </tr>
-                              )}
-                            </React.Fragment>
-                          );
-                        })}
-                        {(() => {
-                          const tLicsRes  = postRows.filter(r => r.mes === m0).reduce((s, r) => s + (r.lics_res ?? 0), 0);
-                          const tLicsAdj  = postRows.filter(r => r.mes === m0).reduce((s, r) => s + (r.lics_adj ?? 0), 0);
-                          const tItemsAdj = postRows.filter(r => r.mes === m0).reduce((s, r) => s + (r.items_adj ?? 0), 0);
-                          const tMontoAdj = postRows.filter(r => r.mes === m0).reduce((s, r) => s + (r.monto_adj ?? 0), 0);
-                          const tTasa = tLicsRes > 0 ? (tLicsAdj / tLicsRes * 100).toFixed(1) : "—";
-                          return (
-                            <tr style={{ background: "#EDE9FE", borderTop: "2px solid #7C3AED" }}>
-                              <td style={{ ...tdL, color: "#7C3AED" }}>Total</td>
-                              <td style={{ ...tdT, color: "#7C3AED" }}>{totLics(m0)}</td>
-                              <td style={{ ...tdT, color: "#7C3AED" }}>{totItems(m0).toLocaleString("es-CL")}</td>
-                              <td style={{ ...tdT, color: "#7C3AED" }}>{fmtM(totMonto(m0))}</td>
-                              <td style={{ ...tdT, color: "#166534" }}>{tLicsRes}</td>
-                              <td style={{ ...tdT, color: "#166534" }}>{tLicsAdj}</td>
-                              <td style={{ ...tdT, color: tTasa !== "—" && Number(tTasa) >= 30 ? "#059669" : "#D97706" }}>
-                                {tTasa !== "—" ? `${tTasa}%` : "—"}
-                              </td>
-                              <td style={{ ...tdT, color: "#166534" }}>{tItemsAdj.toLocaleString("es-CL")}</td>
-                              <td style={{ ...tdT, color: "#059669" }}>{fmtM(tMontoAdj)}</td>
-                            </tr>
-                          );
-                        })()}
-                      </tbody>
-                    </table>
-                  </div>
-                );
-              })()}
-            </div>
-          )}
-
         </div>
       )}
 
@@ -790,10 +840,10 @@ export default function MercadosRelevantesPage() {
 
             const renderSeccion = (tipo: "mejor" | "mayor") => {
               const isMejor   = tipo === "mejor";
-              const color     = isMejor ? "#B45309" : "#DC2626";
-              const colorBg   = isMejor ? "#FFFBEB" : "#FEF2F2";
-              const colorBord = isMejor ? "#FDE68A" : "#FCA5A5";
-              const colorAcct = isMejor ? "#D97706" : "#B91C1C";
+              const color     = isMejor ? "#7C3AED" : "#BE185D";
+              const colorBg   = isMejor ? "#F5F3FF" : "#FFF1F2";
+              const colorBord = isMejor ? "#DDD6FE" : "#FECDD3";
+              const colorAcct = isMejor ? "#6D28D9" : "#9D174D";
               const lics      = isMejor ? (kpis.mejor_lics  ?? 0) : (kpis.mayor_lics  ?? 0);
               const items     = isMejor ? (kpis.mejor_items ?? 0) : (kpis.mayor_items ?? 0);
               const titulo    = isMejor
@@ -921,9 +971,22 @@ export default function MercadosRelevantesPage() {
                                                     <th style={{ ...th,  fontSize: 10, padding: "6px 10px", background: "transparent" }}>P. Adj.</th>
                                                     <th style={{ ...th,  fontSize: 10, padding: "6px 10px", background: "transparent" }}>Dif %</th>
                                                     <th style={{ ...thL, fontSize: 10, padding: "6px 10px", background: "transparent" }}>Competidor</th>
-                                                    <th style={{ ...thL, fontSize: 10, padding: "6px 10px", background: "transparent" }}>Estado SGL</th>
+                                                    <th style={{ ...thL, fontSize: 10, padding: "6px 10px", background: "transparent" }}>
+                                                      <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                                                        <span
+                                                          onClick={() => setPerdidosColEstado("sgl")}
+                                                          style={{ cursor: "pointer", padding: "1px 5px", borderRadius: 3, fontSize: 9, fontWeight: 700,
+                                                            background: perdidosColEstado === "sgl" ? "#1D4ED8" : "#E2E8F0",
+                                                            color: perdidosColEstado === "sgl" ? "white" : "#64748B" }}>SGL</span>
+                                                        <span
+                                                          onClick={() => setPerdidosColEstado("mp")}
+                                                          style={{ cursor: "pointer", padding: "1px 5px", borderRadius: 3, fontSize: 9, fontWeight: 700,
+                                                            background: perdidosColEstado === "mp" ? "#1D4ED8" : "#E2E8F0",
+                                                            color: perdidosColEstado === "mp" ? "white" : "#64748B" }}>MP</span>
+                                                        <span>Estado</span>
+                                                      </div>
+                                                    </th>
                                                     <th style={{ ...th,  fontSize: 10, padding: "6px 10px", background: "transparent" }}>Acta</th>
-                                                    <th style={{ ...thL, fontSize: 10, padding: "6px 10px", background: "transparent" }}>Motivo (acta)</th>
                                                   </tr>
                                                 </thead>
                                                 <tbody>
@@ -956,12 +1019,29 @@ export default function MercadosRelevantesPage() {
                                                         <td style={{ ...tdL, fontSize: 11, padding: "5px 10px", maxWidth: 140, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
                                                           title={dr.competidor}>{dr.competidor}</td>
                                                         <td style={{ ...tdL, fontSize: 11, padding: "5px 10px" }}>
-                                                          {sgl ? (
-                                                            <span style={{ display: "inline-block", padding: "1px 8px", borderRadius: 4, fontSize: 10, fontWeight: 700, background: sglBg, color: sglColor }}>
-                                                              {sgl}
-                                                            </span>
+                                                          {perdidosColEstado === "sgl" ? (
+                                                            sgl ? (
+                                                              <span style={{ display: "inline-block", padding: "1px 8px", borderRadius: 4, fontSize: 10, fontWeight: 700, background: sglBg, color: sglColor }}>
+                                                                {sgl}
+                                                              </span>
+                                                            ) : (
+                                                              <span style={{ color: "#CBD5E1", fontSize: 10 }}>—</span>
+                                                            )
                                                           ) : (
-                                                            <span style={{ color: "#CBD5E1", fontSize: 10 }}>—</span>
+                                                            (() => {
+                                                              const mp = dr.estado_mp || "";
+                                                              const mpBg = mp === "Adjudicada"    ? "#DCFCE7"
+                                                                         : mp === "No Adjudicada" ? "#FEF2F2"
+                                                                         : "#F1F5F9";
+                                                              const mpColor = mp === "Adjudicada"    ? "#16A34A"
+                                                                            : mp === "No Adjudicada" ? "#DC2626"
+                                                                            : "#94A3B8";
+                                                              return mp ? (
+                                                                <span style={{ display: "inline-block", padding: "1px 8px", borderRadius: 4, fontSize: 10, fontWeight: 700, background: mpBg, color: mpColor }}>
+                                                                  {mp}
+                                                                </span>
+                                                              ) : <span style={{ color: "#CBD5E1", fontSize: 10 }}>—</span>;
+                                                            })()
                                                           )}
                                                         </td>
                                                         <td style={{ ...td, fontSize: 11, padding: "5px 10px", textAlign: "center" }}>
@@ -971,18 +1051,6 @@ export default function MercadosRelevantesPage() {
                                                               style={{ display: "inline-block", padding: "2px 8px", borderRadius: 4, fontSize: 10, fontWeight: 700, background: "#EFF6FF", color: LBF_BLUE, textDecoration: "none", border: "1px solid #BFDBFE" }}>
                                                               📄 Ver
                                                             </a>
-                                                          ) : (
-                                                            <span style={{ color: "#CBD5E1", fontSize: 10 }}>—</span>
-                                                          )}
-                                                        </td>
-                                                        <td style={{ ...tdL, fontSize: 11, padding: "5px 10px", maxWidth: 260 }}>
-                                                          {dr.motivo_lbf ? (
-                                                            <span title={dr.motivo_lbf}
-                                                              style={{ display: "inline-block", padding: "2px 8px", borderRadius: 4, fontSize: 10, fontWeight: 600, background: "#FEF3C7", color: "#92400E", maxWidth: 250, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                                                              ⚠️ {dr.motivo_lbf}
-                                                            </span>
-                                                          ) : dr.url_acta ? (
-                                                            <span style={{ color: "#94A3B8", fontSize: 10 }}>Sin inadmisibilidad</span>
                                                           ) : (
                                                             <span style={{ color: "#CBD5E1", fontSize: 10 }}>—</span>
                                                           )}

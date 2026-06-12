@@ -888,29 +888,29 @@ export default function MercadosRelevantesPage() {
                   {/* Gráfico */}
                   {mesData.length > 0 && (
                     <div style={{ marginBottom: 16 }}>
-                      <ResponsiveContainer width="100%" height={180}>
+                      <ResponsiveContainer width="100%" height={260}>
                         <ComposedChart
                           data={mesData.map(m => ({
-                            label:  m.label,
-                            lics:   isMejor ? (m.mejor_lics  ?? 0) : (m.mayor_lics  ?? 0),
-                            items:  isMejor ? (m.mejor_items ?? 0) : (m.mayor_items ?? 0),
+                            label: m.label,
+                            lics:  isMejor ? (m.mejor_lics  ?? 0) : (m.mayor_lics  ?? 0),
+                            items: isMejor ? (m.mejor_items ?? 0) : (m.mayor_items ?? 0),
                           }))}
-                          margin={{ top: 14, right: 24, bottom: 0, left: 0 }}
+                          margin={{ top: 22, right: 16, bottom: 0, left: 0 }}
+                          barCategoryGap="28%"
                         >
-                          <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" vertical={false} />
-                          <XAxis dataKey="label" tick={{ fontSize: 10, fill: "#64748B" }} axisLine={false} tickLine={false} />
-                          <YAxis yAxisId="lics"  orientation="left"  tick={{ fontSize: 9, fill: "#94A3B8" }} axisLine={false} tickLine={false} width={24} />
-                          <YAxis yAxisId="items" orientation="right" tick={{ fontSize: 9, fill: "#94A3B8" }} axisLine={false} tickLine={false} width={28} />
+                          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E2E8F0" />
+                          <XAxis dataKey="label" tick={{ fontSize: 10, fill: "#374151" }} axisLine={false} tickLine={false} />
+                          <YAxis tick={{ fontSize: 10, fill: "#94A3B8" }} axisLine={false} tickLine={false} width={28} allowDecimals={false} />
                           <Tooltip
                             contentStyle={{ fontSize: 12, borderRadius: 8, border: "1px solid #E2E8F0" }}
                             formatter={(value: unknown, name: unknown) => [(Number(value) || 0).toLocaleString("es-CL"), String(name)]}
                           />
-                          <Legend wrapperStyle={{ fontSize: 10, paddingTop: 6 }} />
-                          <Bar yAxisId="lics"  dataKey="lics"  name="Licitaciones" fill={colorBg} stroke={colorAcct} strokeWidth={1} radius={[3,3,0,0]}>
-                            <LabelList dataKey="lics"  position="top" style={{ fontSize: 9, fill: colorAcct, fontWeight: 700 }} />
+                          <Legend wrapperStyle={{ fontSize: 11, paddingTop: 10 }} />
+                          <Bar dataKey="lics" name="Licitaciones" fill={colorBord} radius={[3,3,0,0]}>
+                            <LabelList dataKey="lics" position="top" style={{ fontSize: 9, fill: colorAcct, fontWeight: 600 }} />
                           </Bar>
-                          <Bar yAxisId="items" dataKey="items" name="Ítems"         fill={colorBord} stroke={color} strokeWidth={1} radius={[3,3,0,0]}>
-                            <LabelList dataKey="items" position="top" style={{ fontSize: 9, fill: color, fontWeight: 700 }} />
+                          <Bar dataKey="items" name="Ítems perdidos" fill={color} radius={[3,3,0,0]}>
+                            <LabelList dataKey="items" position="top" style={{ fontSize: 9, fill: colorAcct, fontWeight: 700 }} />
                           </Bar>
                         </ComposedChart>
                       </ResponsiveContainer>

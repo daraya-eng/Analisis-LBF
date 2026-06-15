@@ -971,6 +971,13 @@ function ProductosSection({ canal, data, periodo }: { canal: string; data: any; 
         <div style={{ fontSize: 12, color: "#0C4A6E", lineHeight: 1.5 }}>
           <strong>Mercado general</strong> — Insumos médicos ({canal === "SE" ? "Licitaciones (SE)" : "Convenio Marco (CM)"}),
           periodo: <strong>{pinfo.label}</strong>. Top 500 productos por venta total. Incluye todos los proveedores del mercado.
+          {canal === "CM" && (
+            <span style={{ display: "block", marginTop: 4, color: "#0369A1", fontSize: 11 }}>
+              En Convenio Marco los ítems no traen categoría, así que “médico” se detecta por el <strong>nombre</strong> del
+              producto (aproximado). Cada producto se agrupa por su nombre de catálogo, por lo que una misma familia puede
+              aparecer en varias filas de marca.
+            </span>
+          )}
         </div>
       </div>
 

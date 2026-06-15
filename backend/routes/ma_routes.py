@@ -21,6 +21,34 @@ _MONTO = "COALESCE(oi.monto_total, oi.cantidad * oi.precio_unitario, 0)"
 _REVENUE_CAP = 1_900_000_000  # ~2M USD
 _REVENUE_MIN = 100_000_000    # ~$105K USD — minimum to be interesting
 
+# Productos médicos en Convenio Marco (CM): los ítems NO traen categoría ni
+# código UNSPSC (99.9% NULL), así que se detectan por palabras clave en el
+# nombre. Lista ampliable — captura el grueso del insumo médico transado en CM.
+_CM_MED_RE = (
+    "guante|jeringa|aguja|cat[eé]ter|sonda|gasa|ap[oó]sito|vendaj|"
+    "sutura|mascaril|cubreboca|suero|soluci[oó]n fisiol|pa[ñn]al|electrodo|"
+    "bistur|escalpelo|algod[oó]n|t[oó]rula|hisopo|bajalengua|baja lengua|"
+    "depresor lingual|esp[eé]culo|lanceta|tira reactiva|gluc[oó]metro|c[aá]nula|"
+    "traqueo|nebulizador|estetoscopio|fonendo|term[oó]metro|tensi[oó]metro|"
+    "esparadrapo|tela adhesiva|clorhexidina|povidona|antis[eé]ptico|cortopunzante|"
+    "vacutainer|fleboclisis|microgotero|macrogotero|llave de tres|prolongador|"
+    "br[aá]nula|abocath|campo quir|campo est[eé]ril|bata quir|bata est[eé]ril|"
+    "cubrecalzado|protector facial|cubrecamilla|s[aá]bana cl[ií]nica|"
+    "ri[ñn][oó]n cl[ií]nico|colostom[ií]a|bolsa recolectora|bolsa de orina|"
+    "compresa|tubo endotraqueal|circuito respiratorio|humidificador|sonda foley|"
+    "sonda nelaton|cofia|pechera|trocar|drenaj|f[eé]rula|inmovilizad|"
+    "ox[ií]metro|electrobistur|tegaderm|cureta"
+)
+
+
+def _med_clause(canal: str) -> str:
+    """Cláusula SQL para acotar 'producto médico' según canal.
+    SE/AG/TD: por categoría (los ítems vienen categorizados correctamente).
+    CM: por nombre (Convenio Marco no trae categoría en sus ítems)."""
+    if canal == "CM":
+        return f"oi.nombre ~* '{_CM_MED_RE}'"
+    return f"oi.categoria ILIKE '{MEDICAL_CAT}%%'"
+
 # Multinacionales, farmacias, clinicas, hospitales — no adquiribles
 _BLACKLIST = [
     "bayer", "roche", "hospira", "pfizer", "abbott", "baxter", "b braun",
@@ -680,7 +708,7 @@ def _load_ma_productos(canal: str, ano: int, periodo: str) -> dict:
             MAX(oi.unidad)                                                   AS unidad
         FROM ordenes_compra oc
         JOIN ordenes_compra_items oi ON oi.orden_compra_id = oc.id
-        WHERE oi.categoria ILIKE '{MEDICAL_CAT}%%'
+        WHERE {_med_clause(canal)}
           AND oc.tipo_compra = '{canal}'
           AND {yf}
           AND TRIM(COALESCE(oi.nombre, '')) != ''
@@ -759,10 +787,8 @@ def _load_ma_producto_detalle(nombre: str, canal: str, ano: int, periodo: str) -
         FROM ordenes_compra oc
         JOIN ordenes_compra_items oi ON oi.orden_compra_id = oc.id
         WHERE TRIM(oi.nombre) = %s
-          AND oc.tipo_compra = %s
-          AND oi.categoria ILIKE %s
-          AND {yf}
-    """, (nombre, canal, f"{MEDICAL_CAT}%"))
+          AND oc.tipo_compra = %s          AND {yf}
+    """, (nombre, canal))
     h = cur.fetchone()
     kpis = {
         "total":         int(h[0] or 0),
@@ -791,13 +817,11 @@ def _load_ma_producto_detalle(nombre: str, canal: str, ano: int, periodo: str) -
         FROM ordenes_compra oc
         JOIN ordenes_compra_items oi ON oi.orden_compra_id = oc.id
         WHERE TRIM(oi.nombre) = %s
-          AND oc.tipo_compra = %s
-          AND oi.categoria ILIKE %s
-          AND {yf}
+          AND oc.tipo_compra = %s          AND {yf}
         GROUP BY oc.proveedor_rut
         ORDER BY total DESC
         LIMIT 30
-    """, (nombre, canal, f"{MEDICAL_CAT}%"))
+    """, (nombre, canal))
     proveedores = []
     total_prov = kpis["total"] or 1
     for r in cur.fetchall():
@@ -826,14 +850,12 @@ def _load_ma_producto_detalle(nombre: str, canal: str, ano: int, periodo: str) -
         FROM ordenes_compra oc
         JOIN ordenes_compra_items oi ON oi.orden_compra_id = oc.id
         WHERE TRIM(oi.nombre) = %s
-          AND oc.tipo_compra = %s
-          AND oi.categoria ILIKE %s
-          AND {yf}
+          AND oc.tipo_compra = %s          AND {yf}
           AND oc.comprador_rut_unidad IS NOT NULL
         GROUP BY oc.comprador_rut_unidad
         ORDER BY total DESC
         LIMIT 25
-    """, (nombre, canal, f"{MEDICAL_CAT}%"))
+    """, (nombre, canal))
     compradores = [{
         "rut":          str(r[0] or "").strip(),
         "nombre":       str(r[1] or "").strip(),
@@ -858,12 +880,10 @@ def _load_ma_producto_detalle(nombre: str, canal: str, ano: int, periodo: str) -
         FROM ordenes_compra oc
         JOIN ordenes_compra_items oi ON oi.orden_compra_id = oc.id
         WHERE TRIM(oi.nombre) = %s
-          AND oc.tipo_compra = %s
-          AND oi.categoria ILIKE %s
-          AND EXTRACT(YEAR FROM oc.fecha_envio) IN ({ano}, {ano - 1})
+          AND oc.tipo_compra = %s          AND EXTRACT(YEAR FROM oc.fecha_envio) IN ({ano}, {ano - 1})
         GROUP BY 1, 2
         ORDER BY 1, 2
-    """, (nombre, canal, f"{MEDICAL_CAT}%"))
+    """, (nombre, canal))
     trend = {(int(r[0]), int(r[1])): {"total": int(r[2] or 0), "cantidad": int(r[3] or 0),
              "n_ocs": int(r[4] or 0), "precio_prom": int(r[5] or 0)} for r in cur.fetchall()}
     tendencia = []
@@ -892,13 +912,11 @@ def _load_ma_producto_detalle(nombre: str, canal: str, ano: int, periodo: str) -
         FROM ordenes_compra oc
         JOIN ordenes_compra_items oi ON oi.orden_compra_id = oc.id
         WHERE TRIM(oi.nombre) = %s
-          AND oc.tipo_compra = %s
-          AND oi.categoria ILIKE %s
-          AND {yf}
+          AND oc.tipo_compra = %s          AND {yf}
         GROUP BY oi.codigo_producto
         ORDER BY total DESC
         LIMIT 30
-    """, (nombre, canal, f"{MEDICAL_CAT}%"))
+    """, (nombre, canal))
     variantes = [{
         "codigo":       str(r[0] or "").strip(),
         "unidad":       str(r[1] or "").strip(),
@@ -918,12 +936,10 @@ def _load_ma_producto_detalle(nombre: str, canal: str, ano: int, periodo: str) -
         FROM ordenes_compra oc
         JOIN ordenes_compra_items oi ON oi.orden_compra_id = oc.id
         WHERE TRIM(oi.nombre) = %s
-          AND oc.tipo_compra = %s
-          AND oi.categoria ILIKE %s
-          AND {yf}
+          AND oc.tipo_compra = %s          AND {yf}
         GROUP BY 1
         ORDER BY total DESC
-    """, (nombre, canal, f"{MEDICAL_CAT}%"))
+    """, (nombre, canal))
     regiones = [{
         "region":       str(r[0]),
         "total":        int(r[1] or 0),

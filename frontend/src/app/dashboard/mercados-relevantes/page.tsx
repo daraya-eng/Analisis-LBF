@@ -114,6 +114,19 @@ interface PerdidosDrillData {
   rows: PerdidosDrillRow[];
 }
 
+interface RechazoKpis { total_lics: number; total_2025: number; total_2026: number; total_general: number; }
+interface RechazoMotivo { motivo: string; lics: number; monto: number; }
+interface RechazoUsuario { usuario: string; lics: number; total_2025: number; total_2026: number; total_general: number; }
+interface RechazoRow {
+  id: number; usuario: string; licitacion_id: string;
+  mar_25: number; abr_25: number; may_25: number; jun_25: number; jul_25: number;
+  ago_25: number; sept_25: number; nov_25: number; dic_25: number; total_2025: number;
+  ene_26: number; feb_26: number; mar_26: number; abr_26: number; may_26: number;
+  total_2026: number; total_general: number;
+  motivo_rechazo: string; responsable: string;
+}
+interface RechazoData { kpis: RechazoKpis; por_motivo: RechazoMotivo[]; por_usuario: RechazoUsuario[]; rows: RechazoRow[]; }
+
 
 // ── constants ─────────────────────────────────────────────────────────────────
 
@@ -237,7 +250,7 @@ const ChartTooltip = ({ active, payload, label }: {
 // ── main page ─────────────────────────────────────────────────────────────────
 
 export default function MercadosRelevantesPage() {
-  const [activeTab, setActiveTab] = useState<"sgl" | "perdidos">("sgl");
+  const [activeTab, setActiveTab] = useState<"sgl" | "perdidos" | "rechazos">("sgl");
 
   // tab sgl (Gestión Comercial — from falcon_gestion SQL Server BI)
   const [sglResumen, setSglResumen]     = useState<GestionResumen | null>(null);
@@ -285,6 +298,12 @@ export default function MercadosRelevantesPage() {
   const [perdidosLoaded, setPerdidosLoaded]   = useState(false);
   const [perdidosAno, setPerdidosAno]         = useState(2026);
   const [perdidosColEstado, setPerdidosColEstado] = useState<"sgl" | "mp">("sgl");
+
+  // tab rechazos
+  const [rechazoData, setRechazoData]     = useState<RechazoData | null>(null);
+  const [rechazoLoading, setRechazoLoading] = useState(false);
+  const [rechazoLoaded, setRechazoLoaded]   = useState(false);
+  const [rechazoSearch, setRechazoSearch]   = useState("");
   const [perdidosDrillKey, setPerdidosDrillKey]     = useState<string | null>(null);
   const [perdidosDrillData, setPerdidosDrillData]   = useState<PerdidosDrillData | null>(null);
   const [perdidosDrillLoading, setPerdidosDrillLoading] = useState(false);
@@ -391,6 +410,12 @@ export default function MercadosRelevantesPage() {
     }
     if (activeTab === "sgl" && !postLoaded && !postLoading) loadPostulaciones();
     if (activeTab === "perdidos" && !perdidosLoaded && !perdidosLoading) loadPerdidos(perdidosAno);
+    if (activeTab === "rechazos" && !rechazoLoaded && !rechazoLoading) {
+      setRechazoLoading(true);
+      api.get<RechazoData>("/api/mercados-relevantes/rechazos", { noCache: true })
+        .then(d => { setRechazoData(d ?? null); setRechazoLoaded(true); setRechazoLoading(false); })
+        .catch(() => setRechazoLoading(false));
+    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab, sglLoaded, sglLoading]);
 
@@ -413,7 +438,8 @@ export default function MercadosRelevantesPage() {
       <div style={{ display: "flex", gap: 0, marginBottom: 24 }}>
         {([
           { id: "sgl",      label: "Gestión Comercial",   first: true,  last: false },
-          { id: "perdidos", label: "Perdidos por Precio",  first: false, last: true  },
+          { id: "perdidos", label: "Perdidos por Precio",  first: false, last: false },
+          { id: "rechazos", label: "Ofertas Rechazadas",   first: false, last: true  },
         ] as const).map(t => (
           <button key={t.id} onClick={() => setActiveTab(t.id)} style={{
             padding: "8px 20px", fontSize: 13, fontWeight: 700, cursor: "pointer",
@@ -801,6 +827,174 @@ export default function MercadosRelevantesPage() {
             </div>
           )}
 
+        </div>
+      )}
+
+      {/* ── TAB: Ofertas Rechazadas ──────────────────────────────────────────── */}
+      {activeTab === "rechazos" && (
+        <div>
+          {rechazoLoading && (
+            <div style={{ textAlign: "center", padding: "60px 0", color: "#94A3B8", fontSize: 14 }}>Cargando…</div>
+          )}
+          {rechazoLoaded && rechazoData && (() => {
+            const { kpis, por_motivo, por_usuario, rows } = rechazoData;
+
+            // Filtro búsqueda
+            const q = rechazoSearch.trim().toLowerCase();
+            const filtradas = q
+              ? rows.filter(r =>
+                  r.licitacion_id.toLowerCase().includes(q) ||
+                  r.usuario.toLowerCase().includes(q) ||
+                  r.motivo_rechazo.toLowerCase().includes(q) ||
+                  r.responsable.toLowerCase().includes(q)
+                )
+              : rows;
+
+            const thR: React.CSSProperties = { padding: "8px 12px", background: "#F8FAFC", fontWeight: 700, fontSize: 11, color: "#374151", border: "1px solid #E2E8F0", whiteSpace: "nowrap", textAlign: "right" };
+            const thRL: React.CSSProperties = { ...thR, textAlign: "left" };
+            const tdR: React.CSSProperties = { padding: "7px 12px", fontSize: 12, color: "#1F2937", border: "1px solid #F1F5F9", whiteSpace: "nowrap", textAlign: "right", fontVariantNumeric: "tabular-nums" };
+            const tdRL: React.CSSProperties = { ...tdR, textAlign: "left" };
+
+            const MESES_2025 = [
+              { key: "mar_25", label: "Mar" }, { key: "abr_25", label: "Abr" },
+              { key: "may_25", label: "May" }, { key: "jun_25", label: "Jun" },
+              { key: "jul_25", label: "Jul" }, { key: "ago_25", label: "Ago" },
+              { key: "sept_25", label: "Sep" }, { key: "nov_25", label: "Nov" },
+              { key: "dic_25", label: "Dic" },
+            ] as const;
+            const MESES_2026 = [
+              { key: "ene_26", label: "Ene" }, { key: "feb_26", label: "Feb" },
+              { key: "mar_26", label: "Mar" }, { key: "abr_26", label: "Abr" },
+              { key: "may_26", label: "May" },
+            ] as const;
+
+            return (
+              <>
+                {/* KPIs */}
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 12, marginBottom: 20 }}>
+                  <KpiCard label="Licitaciones rechazadas" value={String(kpis.total_lics)} accent="#DC2626" />
+                  <KpiCard label="Monto total 2025" value={fmtM(kpis.total_2025)} sub="CLP" accent="#D97706" />
+                  <KpiCard label="Monto total 2026" value={fmtM(kpis.total_2026)} sub="CLP" accent="#DC2626" />
+                  <KpiCard label="Monto total general" value={fmtM(kpis.total_general)} sub="CLP" accent="#7C3AED" />
+                </div>
+
+                {/* Dos columnas: por usuario + por motivo */}
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 20 }}>
+                  {/* Por usuario */}
+                  <div style={{ ...card }}>
+                    <h3 style={{ fontSize: 13, fontWeight: 700, color: "#0F172A", margin: "0 0 12px" }}>Por Responsable</h3>
+                    <table style={{ borderCollapse: "collapse", width: "100%" }}>
+                      <thead>
+                        <tr>
+                          <th style={thRL}>Usuario</th>
+                          <th style={thR}>Lics</th>
+                          <th style={thR}>2025</th>
+                          <th style={thR}>2026</th>
+                          <th style={thR}>Total</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {por_usuario.map((u, i) => (
+                          <tr key={u.usuario} style={{ background: i % 2 === 1 ? "#FAFBFC" : undefined }}>
+                            <td style={{ ...tdRL, fontWeight: 600 }}>{u.usuario}</td>
+                            <td style={tdR}>{u.lics}</td>
+                            <td style={tdR}>{fmtM(u.total_2025)}</td>
+                            <td style={{ ...tdR, color: "#DC2626", fontWeight: 700 }}>{fmtM(u.total_2026)}</td>
+                            <td style={{ ...tdR, fontWeight: 700 }}>{fmtM(u.total_general)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* Por motivo */}
+                  <div style={{ ...card }}>
+                    <h3 style={{ fontSize: 13, fontWeight: 700, color: "#0F172A", margin: "0 0 12px" }}>Por Motivo de Rechazo</h3>
+                    <table style={{ borderCollapse: "collapse", width: "100%" }}>
+                      <thead>
+                        <tr>
+                          <th style={thRL}>Motivo</th>
+                          <th style={thR}>Lics</th>
+                          <th style={thR}>Monto</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {por_motivo.map((m, i) => (
+                          <tr key={m.motivo} style={{ background: i % 2 === 1 ? "#FAFBFC" : undefined }}>
+                            <td style={{ ...tdRL, maxWidth: 240, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: 11 }}
+                              title={m.motivo}>{m.motivo}</td>
+                            <td style={tdR}>{m.lics}</td>
+                            <td style={{ ...tdR, fontWeight: 700 }}>{fmtM(m.monto)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                {/* Tabla detalle */}
+                <div style={{ ...card }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12, flexWrap: "wrap", gap: 8 }}>
+                    <h3 style={{ fontSize: 13, fontWeight: 700, color: "#0F172A", margin: 0 }}>
+                      Detalle — {filtradas.length} licitaciones
+                    </h3>
+                    <input
+                      type="text"
+                      placeholder="Buscar licitación, usuario, motivo…"
+                      value={rechazoSearch}
+                      onChange={e => setRechazoSearch(e.target.value)}
+                      style={{ padding: "6px 12px", fontSize: 12, border: "1px solid #E2E8F0", borderRadius: 6, width: 280, outline: "none" }}
+                    />
+                  </div>
+                  <div style={{ overflowX: "auto" }}>
+                    <table style={{ borderCollapse: "collapse", width: "100%", fontSize: 11 }}>
+                      <thead>
+                        <tr>
+                          <th style={thRL}>Licitación</th>
+                          <th style={thRL}>Usuario</th>
+                          {MESES_2025.map(m => <th key={m.key} style={{ ...thR, background: "#FFF7ED", color: "#C2410C", fontSize: 10 }}>{m.label}&apos;25</th>)}
+                          <th style={{ ...thR, background: "#FEF3C7", color: "#92400E", fontWeight: 800 }}>Tot&apos;25</th>
+                          {MESES_2026.map(m => <th key={m.key} style={{ ...thR, background: "#EFF6FF", color: LBF_BLUE, fontSize: 10 }}>{m.label}&apos;26</th>)}
+                          <th style={{ ...thR, background: "#DBEAFE", color: "#1D4ED8", fontWeight: 800 }}>Tot&apos;26</th>
+                          <th style={{ ...thR, fontWeight: 800 }}>Total</th>
+                          <th style={{ ...thRL, minWidth: 200 }}>Motivo rechazo</th>
+                          <th style={thRL}>Responsable</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {filtradas.map((r, i) => (
+                          <tr key={r.id} style={{ background: i % 2 === 1 ? "#FAFBFC" : undefined }}>
+                            <td style={{ ...tdRL, fontFamily: "monospace", color: LBF_BLUE, fontSize: 11 }}>{r.licitacion_id}</td>
+                            <td style={{ ...tdRL, fontWeight: 600 }}>{r.usuario}</td>
+                            {MESES_2025.map(m => (
+                              <td key={m.key} style={{ ...tdR, fontSize: 11, color: r[m.key] > 0 ? "#92400E" : "#CBD5E1" }}>
+                                {r[m.key] > 0 ? fmtM(r[m.key]) : "—"}
+                              </td>
+                            ))}
+                            <td style={{ ...tdR, fontWeight: 800, color: r.total_2025 > 0 ? "#92400E" : "#CBD5E1" }}>
+                              {r.total_2025 > 0 ? fmtM(r.total_2025) : "—"}
+                            </td>
+                            {MESES_2026.map(m => (
+                              <td key={m.key} style={{ ...tdR, fontSize: 11, color: r[m.key] > 0 ? "#1D4ED8" : "#CBD5E1" }}>
+                                {r[m.key] > 0 ? fmtM(r[m.key]) : "—"}
+                              </td>
+                            ))}
+                            <td style={{ ...tdR, fontWeight: 800, color: r.total_2026 > 0 ? "#1D4ED8" : "#CBD5E1" }}>
+                              {r.total_2026 > 0 ? fmtM(r.total_2026) : "—"}
+                            </td>
+                            <td style={{ ...tdR, fontWeight: 800 }}>{fmtM(r.total_general)}</td>
+                            <td style={{ ...tdRL, maxWidth: 240, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "#7C3AED" }}
+                              title={r.motivo_rechazo}>{r.motivo_rechazo || "—"}</td>
+                            <td style={tdRL}>{r.responsable || "—"}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </>
+            );
+          })()}
         </div>
       )}
 

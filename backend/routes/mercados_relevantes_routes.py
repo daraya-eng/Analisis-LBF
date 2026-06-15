@@ -3462,3 +3462,77 @@ async def falcon_perdidos_detalle_mes(
         if pg_conn:
             try: pg_conn.close()
             except Exception: pass
+
+
+# ─── Rechazos — tabla cargada desde Excel ─────────────────────────────────────
+
+@router.get("/rechazos")
+async def get_rechazos(current_user: dict = Depends(get_current_user)):
+    """Licitaciones con oferta rechazada, cargadas desde hoja Base del Excel."""
+    ck = "mercados_relevantes:rechazos_v1"
+    cached = mem_get(ck)
+    if cached is not None:
+        return cached
+    conn = None
+    try:
+        conn = get_conn()
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT
+                id, usuario, licitacion_id,
+                mar_25, abr_25, may_25, jun_25, jul_25, ago_25, sept_25, nov_25, dic_25,
+                total_2025,
+                ene_26, feb_26, mar_26, abr_26, may_26,
+                total_2026, total_general,
+                motivo_rechazo, responsable
+            FROM rechazos
+            ORDER BY total_general DESC
+        """)
+        cols = [d[0] for d in cur.description]
+        rows = [dict(zip(cols, r)) for r in cur.fetchall()]
+
+        # KPIs globales
+        total_lics    = len(rows)
+        total_2025    = sum(r["total_2025"]   or 0 for r in rows)
+        total_2026    = sum(r["total_2026"]   or 0 for r in rows)
+        total_general = sum(r["total_general"] or 0 for r in rows)
+
+        # Por motivo
+        motivo_agg: dict = {}
+        for r in rows:
+            m = r["motivo_rechazo"] or "(sin motivo)"
+            if m not in motivo_agg:
+                motivo_agg[m] = {"motivo": m, "lics": 0, "monto": 0}
+            motivo_agg[m]["lics"]  += 1
+            motivo_agg[m]["monto"] += r["total_general"] or 0
+        por_motivo = sorted(motivo_agg.values(), key=lambda x: -x["monto"])
+
+        # Por usuario
+        usuario_agg: dict = {}
+        for r in rows:
+            u = r["usuario"] or "(sin usuario)"
+            if u not in usuario_agg:
+                usuario_agg[u] = {"usuario": u, "lics": 0, "total_2025": 0, "total_2026": 0, "total_general": 0}
+            usuario_agg[u]["lics"]          += 1
+            usuario_agg[u]["total_2025"]    += r["total_2025"]   or 0
+            usuario_agg[u]["total_2026"]    += r["total_2026"]   or 0
+            usuario_agg[u]["total_general"] += r["total_general"] or 0
+        por_usuario = sorted(usuario_agg.values(), key=lambda x: -x["total_general"])
+
+        result = {
+            "kpis": {
+                "total_lics": total_lics,
+                "total_2025": total_2025,
+                "total_2026": total_2026,
+                "total_general": total_general,
+            },
+            "por_motivo": por_motivo,
+            "por_usuario": por_usuario,
+            "rows": rows,
+        }
+        mem_set(ck, result)
+        return result
+    except Exception as e:
+        return {"rows": [], "kpis": {}, "por_motivo": [], "por_usuario": [], "error": str(e), "detail": traceback.format_exc()}
+    finally:
+        if conn: _ss_close(conn)

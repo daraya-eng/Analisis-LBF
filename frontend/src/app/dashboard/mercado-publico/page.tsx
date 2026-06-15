@@ -701,7 +701,7 @@ function TabClientes({
       headers: { Authorization: `Bearer ${localStorage.getItem("lbf_token") || ""}` },
     })
       .then((r) => r.json())
-      .then((r) => setCatData((prev) => ({ ...prev, [organismo]: r as ClienteCat[] })))
+      .then((r) => setCatData((prev) => ({ ...prev, [organismo]: Array.isArray(r) ? r : [] })))
       .catch(() => {})
       .finally(() => { clearTimeout(timer); setCatLoading(null); });
   }, [expanded, catData, ano, tipo]);

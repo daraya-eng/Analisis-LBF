@@ -725,12 +725,360 @@ function EmpresaProfile({ rut, periodo: initialPeriodo, onBack }: { rut: string;
 
 
 /* ═══════════════════════════════════════════════════════════
+   SECTION 4: Detalle de producto
+   ═══════════════════════════════════════════════════════════ */
+
+function ProductoDetalle({ nombre, canal, periodo, onBack }: {
+  nombre: string; canal: string; periodo: string; onBack: () => void;
+}) {
+  const [data, setData] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [provTab, setProvTab] = useState<"tabla" | "chart">("tabla");
+
+  useEffect(() => {
+    setLoading(true);
+    api.get<any>(`/api/ma/producto-detalle?nombre=${encodeURIComponent(nombre)}&canal=${canal}&ano=2026&periodo=${periodo}`, { noCache: true })
+      .then(r => { setData(r); setLoading(false); })
+      .catch(() => setLoading(false));
+  }, [nombre, canal, periodo]);
+
+  if (loading) return (
+    <div style={{ padding: 60, textAlign: "center", color: "#94A3B8" }}>Cargando detalle del producto...</div>
+  );
+  if (!data || data.error) return (
+    <div style={{ padding: 40, color: "#EF4444" }}>Error: {data?.error || "Sin datos"}</div>
+  );
+
+  const k = data.kpis || {};
+  const pinfo = data.periodo_info || {};
+  const maxProv = Math.max(...(data.proveedores || []).map((p: any) => p.total), 1);
+  const maxComp = Math.max(...(data.compradores || []).map((c: any) => c.total), 1);
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+      {/* Encabezado */}
+      <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+        <button onClick={onBack} style={{
+          padding: "6px 16px", borderRadius: 6, border: "1px solid #E2E8F0",
+          background: "white", cursor: "pointer", fontSize: 12, color: "#64748B", fontWeight: 600,
+        }}>← Volver</button>
+        <div style={{ fontSize: 11, background: canal === "SE" ? "#DBEAFE" : "#DCFCE7",
+          color: canal === "SE" ? "#1D4ED8" : "#166534",
+          padding: "3px 10px", borderRadius: 20, fontWeight: 700 }}>
+          {canal === "SE" ? "Licitación" : "Convenio Marco"}
+        </div>
+        <div style={{ fontSize: 11, color: "#64748B" }}>Periodo: {pinfo.label}</div>
+      </div>
+
+      {/* Header del producto */}
+      <div style={{ ...card, background: "linear-gradient(135deg, #1E3A5F 0%, #1E40AF 100%)", color: "white", borderColor: "#1D4ED8" }}>
+        <div style={{ fontSize: 18, fontWeight: 800, marginBottom: 4 }}>{nombre}</div>
+        <div style={{ fontSize: 12, color: "#93C5FD", marginBottom: 16 }}>
+          {k.unidad && <span style={{ marginRight: 12 }}>Unidad: {k.unidad}</span>}
+        </div>
+        <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+          {[
+            { label: "Venta Total", value: fmtAbs(k.total), color: "#60A5FA" },
+            { label: "Cantidad", value: k.cantidad?.toLocaleString(), color: "#34D399" },
+            { label: "N° OCs", value: k.n_ocs?.toLocaleString(), color: "#FBBF24" },
+            { label: "Proveedores", value: String(k.n_proveedores), color: "#F472B6" },
+            { label: "Compradores", value: String(k.n_compradores), color: "#A78BFA" },
+            { label: "Precio Prom.", value: k.precio_prom > 0 ? `$${k.precio_prom?.toLocaleString()}` : "--", color: "#FB923C" },
+            { label: "Rango Precio", value: k.precio_min > 0 ? `$${k.precio_min?.toLocaleString()} – $${k.precio_max?.toLocaleString()}` : "--", color: "#94A3B8" },
+          ].map((item, i) => (
+            <div key={i} style={{ flex: "1 1 130px", padding: "8px 12px", background: "rgba(255,255,255,0.08)", borderRadius: 8 }}>
+              <div style={{ fontSize: 10, color: "#93C5FD", textTransform: "uppercase", letterSpacing: 0.5 }}>{item.label}</div>
+              <div style={{ fontSize: 15, fontWeight: 700, color: item.color, marginTop: 2 }}>{item.value}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Tendencia mensual */}
+      <div style={card}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: "#0F172A", marginBottom: 4 }}>Tendencia Mensual</div>
+        <div style={{ fontSize: 11, color: "#64748B", marginBottom: 12 }}>
+          Barras azules = 2026 | Línea gris = 2025 (referencia)
+        </div>
+        <ResponsiveContainer width="100%" height={230}>
+          <ComposedChart data={data.tendencia || []}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" />
+            <XAxis dataKey="mes_nombre" tick={{ fill: "#64748B", fontSize: 11 }} />
+            <YAxis tickFormatter={(v: number) => fmt(v)} tick={{ fill: "#64748B", fontSize: 11 }} width={80} />
+            <Tooltip
+              contentStyle={{ background: "white", border: "1px solid #E2E8F0", borderRadius: 8, fontSize: 12 }}
+              formatter={(value: any, name: any) => [fmtAbs(value as number), name]}
+            />
+            <Legend wrapperStyle={{ fontSize: 12 }} />
+            <Bar dataKey="total_cur" name="2026" fill="#3B82F6" radius={[4, 4, 0, 0]} />
+            <Line dataKey="total_prev" name="2025" stroke="#94A3B8" strokeWidth={2} strokeDasharray="5 5" dot={{ r: 3 }} />
+          </ComposedChart>
+        </ResponsiveContainer>
+      </div>
+
+      {/* Proveedores + Compradores */}
+      <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
+        {/* Proveedores */}
+        <div style={{ ...card, flex: "1 1 420px" }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: "#0F172A", marginBottom: 12 }}>
+            Quién lo vende
+            <span style={{ marginLeft: 8, fontSize: 11, color: "#64748B", fontWeight: 400 }}>
+              {data.proveedores?.length} proveedor{data.proveedores?.length !== 1 ? "es" : ""}
+            </span>
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {(data.proveedores || []).map((p: any, i: number) => (
+              <div key={i} style={{
+                padding: "8px 12px", borderRadius: 8,
+                background: p.es_lbf ? "#FFFBEB" : i % 2 === 0 ? "#F8FAFC" : "white",
+                border: p.es_lbf ? "1px solid #FCD34D" : "1px solid #F1F5F9",
+              }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: p.es_lbf ? "#92400E" : "#0F172A",
+                      overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {p.es_lbf ? "⭐ " : ""}{p.nombre}
+                    </div>
+                    <div style={{ fontSize: 10, color: "#94A3B8" }}>
+                      {p.n_ocs} OCs · {p.n_compradores} compradores · precio prom: ${p.precio_prom?.toLocaleString()}
+                    </div>
+                  </div>
+                  <div style={{ textAlign: "right", flexShrink: 0 }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: "#3B82F6" }}>{fmt(p.total)}</div>
+                    <div style={{ fontSize: 10, color: "#64748B" }}>{p.market_share}%</div>
+                  </div>
+                </div>
+                <div style={{ marginTop: 4, height: 4, background: "#E2E8F0", borderRadius: 2, overflow: "hidden" }}>
+                  <div style={{ height: "100%", width: `${p.total / maxProv * 100}%`,
+                    background: p.es_lbf ? "#F59E0B" : "#3B82F6", borderRadius: 2 }} />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Top compradores */}
+        <div style={{ ...card, flex: "1 1 380px" }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: "#0F172A", marginBottom: 12 }}>
+            Quién lo compra
+            <span style={{ marginLeft: 8, fontSize: 11, color: "#64748B", fontWeight: 400 }}>
+              top {data.compradores?.length} instituciones
+            </span>
+          </div>
+          <div style={{ maxHeight: 420, overflowY: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse" }}>
+              <thead>
+                <tr>
+                  <th style={{ ...thS, width: 28 }}>#</th>
+                  <th style={thS}>Institución</th>
+                  <th style={thR}>Total</th>
+                  <th style={thR}>Cant.</th>
+                  <th style={{ ...thS, fontSize: 11 }}>Región</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(data.compradores || []).map((c: any, i: number) => (
+                  <tr key={i} style={{ background: rowBg(i) }}>
+                    <td style={{ ...td, fontWeight: 700, color: "#94A3B8", fontSize: 11 }}>{i + 1}</td>
+                    <td style={{ ...td, fontSize: 11, maxWidth: 200 }}>
+                      <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontWeight: 600 }}
+                        title={c.nombre}>{c.nombre}</div>
+                      <div style={{ fontSize: 10, color: "#94A3B8" }}>{c.n_proveedores} prov. · {c.n_ocs} OCs</div>
+                    </td>
+                    <td style={{ ...tdR, fontSize: 12, fontWeight: 600, color: "#10B981" }}>{fmt(c.total)}</td>
+                    <td style={{ ...tdR, fontSize: 11 }}>{c.cantidad?.toLocaleString()}</td>
+                    <td style={{ ...td, fontSize: 10, color: "#64748B" }}>{c.region || "--"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      {/* Variantes + Regiones */}
+      <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
+        {/* Variantes / códigos */}
+        {(data.variantes || []).length > 1 && (
+          <div style={{ ...card, flex: "1 1 350px" }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: "#0F172A", marginBottom: 4 }}>Variantes / Presentaciones</div>
+            <div style={{ fontSize: 11, color: "#64748B", marginBottom: 10 }}>
+              Distintos códigos bajo el mismo nombre de producto
+            </div>
+            <table style={{ width: "100%", borderCollapse: "collapse" }}>
+              <thead>
+                <tr>
+                  <th style={thS}>Código</th>
+                  <th style={thS}>Unidad</th>
+                  <th style={thR}>Venta</th>
+                  <th style={thR}>Cant.</th>
+                  <th style={thR}>Precio Prom.</th>
+                  <th style={thR}>Prov.</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(data.variantes || []).map((v: any, i: number) => (
+                  <tr key={i} style={{ background: rowBg(i) }}>
+                    <td style={{ ...td, fontSize: 11, fontFamily: "monospace", color: "#3B82F6" }}>{v.codigo || "--"}</td>
+                    <td style={{ ...td, fontSize: 10, color: "#64748B" }}>{v.unidad || "--"}</td>
+                    <td style={{ ...tdR, fontSize: 12, fontWeight: 600 }}>{fmt(v.total)}</td>
+                    <td style={{ ...tdR, fontSize: 11 }}>{v.cantidad?.toLocaleString()}</td>
+                    <td style={{ ...tdR, fontSize: 11 }}>{v.precio_prom > 0 ? `$${v.precio_prom?.toLocaleString()}` : "--"}</td>
+                    <td style={{ ...tdR, fontSize: 11 }}>{v.n_proveedores}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+      </div>
+    </div>
+  );
+}
+
+
+/* ═══════════════════════════════════════════════════════════
+   SECTION 5: Productos más transados
+   ═══════════════════════════════════════════════════════════ */
+
+function ProductosSection({ canal, data, periodo }: { canal: string; data: any; periodo: string }) {
+  const [search, setSearch] = useState("");
+  const [selectedProducto, setSelectedProducto] = useState<string | null>(null);
+  const { handleSort, sortIcon, sortFn } = useTableSort("total");
+
+  const rows: any[] = data?.rows || [];
+  const pinfo = data?.periodo_info || {};
+
+  if (selectedProducto) {
+    return <ProductoDetalle nombre={selectedProducto} canal={canal} periodo={periodo} onBack={() => setSelectedProducto(null)} />;
+  }
+
+  const filtered = search
+    ? rows.filter((r: any) =>
+        r.producto.toLowerCase().includes(search.toLowerCase()) ||
+        r.subcategoria.toLowerCase().includes(search.toLowerCase()) ||
+        r.codigo.toLowerCase().includes(search.toLowerCase())
+      )
+    : rows;
+
+  const sorted = [...filtered].sort(sortFn);
+  const grandTotal = rows.reduce((s: number, r: any) => s + r.total, 0);
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <div style={{ ...card, padding: "10px 18px", background: "#F0F9FF", borderColor: "#BAE6FD" }}>
+        <div style={{ fontSize: 12, color: "#0C4A6E", lineHeight: 1.5 }}>
+          <strong>Mercado general</strong> — Insumos médicos ({canal === "SE" ? "Licitaciones (SE)" : "Convenio Marco (CM)"}),
+          periodo: <strong>{pinfo.label}</strong>. Top 500 productos por venta total. Incluye todos los proveedores del mercado.
+        </div>
+      </div>
+
+      {/* KPIs rápidos */}
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+        <KpiCard title="Productos únicos" value={rows.length.toLocaleString()} color="#3B82F6" />
+        <KpiCard title="Venta total" value={fmt(grandTotal)} color="#10B981" />
+        <KpiCard title="Mostrando" value={filtered.length.toLocaleString()} sub={search ? "filtrados por búsqueda" : "sin filtro"} color="#F59E0B" />
+      </div>
+
+      {/* Buscador */}
+      <div style={{ ...card, padding: "10px 16px", display: "flex", alignItems: "center", gap: 10 }}>
+        <input
+          type="text"
+          placeholder="Buscar por nombre, código o subcategoría..."
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          style={{ flex: 1, padding: "7px 12px", borderRadius: 6, border: "1px solid #E2E8F0", fontSize: 12, outline: "none" }}
+        />
+        {search && (
+          <button onClick={() => setSearch("")}
+            style={{ padding: "6px 12px", borderRadius: 6, border: "1px solid #E2E8F0", background: "white", fontSize: 11, cursor: "pointer", color: "#64748B" }}>
+            ✕ Limpiar
+          </button>
+        )}
+        <ExportButton
+          data={sorted}
+          columns={[
+            { key: "producto", label: "Producto" },
+            { key: "codigo", label: "Código" },
+            { key: "subcategoria", label: "Subcategoría" },
+            { key: "total", label: "Venta Total" },
+            { key: "cantidad", label: "Cantidad" },
+            { key: "n_ocs", label: "N° OCs" },
+            { key: "n_proveedores", label: "Proveedores" },
+            { key: "precio_prom", label: "Precio Prom." },
+            { key: "unidad", label: "Unidad" },
+          ]}
+          filename={`ma_productos_${canal.toLowerCase()}`}
+        />
+      </div>
+
+      {/* Tabla */}
+      <div style={{ ...card, padding: 0, overflow: "hidden" }}>
+        <div style={{ overflowX: "auto", maxHeight: 680, overflowY: "auto" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse" }}>
+            <thead style={{ position: "sticky", top: 0, background: "white", zIndex: 1 }}>
+              <tr>
+                <th style={{ ...thS, width: 40 }}>#</th>
+                <th style={{ ...thS, minWidth: 260, cursor: "pointer" }} onClick={() => handleSort("producto")}>Producto{sortIcon("producto")}</th>
+                <th style={{ ...thS, cursor: "pointer" }} onClick={() => handleSort("subcategoria")}>Subcategoría{sortIcon("subcategoria")}</th>
+                <th style={{ ...thR, cursor: "pointer" }} onClick={() => handleSort("total")}>Venta Total{sortIcon("total")}</th>
+                <th style={{ ...thR, cursor: "pointer" }} onClick={() => handleSort("cantidad")}>Cantidad{sortIcon("cantidad")}</th>
+                <th style={{ ...thR, cursor: "pointer" }} onClick={() => handleSort("precio_prom")}>Precio Prom.{sortIcon("precio_prom")}</th>
+                <th style={{ ...thS }}>Unidad</th>
+                <th style={{ ...thR, cursor: "pointer" }} onClick={() => handleSort("n_ocs")}>OCs{sortIcon("n_ocs")}</th>
+                <th style={{ ...thR, cursor: "pointer" }} onClick={() => handleSort("n_proveedores")}>Proveedores{sortIcon("n_proveedores")}</th>
+                <th style={{ ...thR }}>% Mercado</th>
+              </tr>
+            </thead>
+            <tbody>
+              {sorted.slice(0, 500).map((r: any, i: number) => (
+                <tr key={i} onClick={() => setSelectedProducto(r.producto)}
+                  style={{ background: rowBg(i), cursor: "pointer", transition: "background 0.1s" }}
+                  onMouseEnter={e => (e.currentTarget.style.background = "#EFF6FF")}
+                  onMouseLeave={e => (e.currentTarget.style.background = rowBg(i))}>
+                  <td style={{ ...td, fontWeight: 700, color: "#64748B", fontSize: 11 }}>{i + 1}</td>
+                  <td style={{ ...td, fontSize: 11, maxWidth: 300 }}>
+                    <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontWeight: 600, color: "#3B82F6" }} title={r.producto}>
+                      {r.producto}
+                    </div>
+                    {r.codigo && (
+                      <div style={{ fontSize: 10, color: "#94A3B8", fontFamily: "monospace" }}>{r.codigo}</div>
+                    )}
+                  </td>
+                  <td style={{ ...td, fontSize: 11, color: "#64748B", maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.subcategoria}</td>
+                  <td style={{ ...tdR, fontSize: 12, fontWeight: 700, color: "#3B82F6" }}>{fmt(r.total)}</td>
+                  <td style={{ ...tdR, fontSize: 12 }}>{r.cantidad?.toLocaleString()}</td>
+                  <td style={{ ...tdR, fontSize: 12, fontWeight: 500 }}>{r.precio_prom > 0 ? `$${r.precio_prom.toLocaleString()}` : "--"}</td>
+                  <td style={{ ...td, fontSize: 10, color: "#94A3B8" }}>{r.unidad}</td>
+                  <td style={{ ...tdR, fontSize: 12 }}>{r.n_ocs.toLocaleString()}</td>
+                  <td style={{ ...tdR, fontSize: 12 }}>{r.n_proveedores}</td>
+                  <td style={{ ...tdR, fontSize: 11, color: "#64748B" }}>
+                    {grandTotal > 0 ? `${(r.total / grandTotal * 100).toFixed(1)}%` : "--"}
+                  </td>
+                </tr>
+              ))}
+              {sorted.length === 0 && (
+                <tr><td colSpan={10} style={{ padding: 40, textAlign: "center", color: "#94A3B8" }}>Sin resultados para "{search}"</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
+/* ═══════════════════════════════════════════════════════════
    MAIN PAGE
    ═══════════════════════════════════════════════════════════ */
 
 const TABS = [
   { id: "overview", label: "Vision de Mercado" },
   { id: "targets", label: "Empresas Objetivo" },
+  { id: "lic", label: "Top Productos Licitaciones" },
+  { id: "cm", label: "Top Productos CM" },
 ];
 
 export default function MAPage() {
@@ -738,22 +1086,55 @@ export default function MAPage() {
   const [periodo, setPeriodo] = useState("total");
   const [overviewData, setOverviewData] = useState<any>(null);
   const [targetsData, setTargetsData] = useState<any>(null);
+  const [licData, setLicData] = useState<any>(null);
+  const [cmData, setCmData] = useState<any>(null);
   const [loadingOv, setLoadingOv] = useState(true);
-  const [loadingTgt, setLoadingTgt] = useState(true);
+  const [loadingTgt, setLoadingTgt] = useState(false);
+  const [loadingLic, setLoadingLic] = useState(false);
+  const [loadingCm, setLoadingCm] = useState(false);
+  const [targetsLoaded, setTargetsLoaded] = useState<string | null>(null);
+  const [licLoaded, setLicLoaded] = useState<string | null>(null);
+  const [cmLoaded, setCmLoaded] = useState<string | null>(null);
   const [selectedRut, setSelectedRut] = useState<string | null>(null);
 
-  // Reload when period changes
+  // Carga overview al montar y cuando cambia período
   useEffect(() => {
     setLoadingOv(true);
-    setLoadingTgt(true);
-    api.get<any>(`/api/ma/overview?ano=2026&periodo=${periodo}`, { noCache: true })
+    setOverviewData(null);
+    api.get<any>(`/api/ma/overview?ano=2026&periodo=${periodo}`)
       .then(r => { setOverviewData(r); setLoadingOv(false); })
       .catch(() => setLoadingOv(false));
-
-    api.get<any>(`/api/ma/targets?ano=2026&periodo=${periodo}`, { noCache: true })
-      .then(r => { setTargetsData(r); setLoadingTgt(false); })
-      .catch(() => setLoadingTgt(false));
+    setTargetsLoaded(null); setTargetsData(null);
+    setLicLoaded(null); setLicData(null);
+    setCmLoaded(null); setCmData(null);
   }, [periodo]);
+
+  // Carga targets lazy
+  useEffect(() => {
+    if (activeTab !== "targets" || targetsLoaded === periodo) return;
+    setLoadingTgt(true);
+    api.get<any>(`/api/ma/targets?ano=2026&periodo=${periodo}`)
+      .then(r => { setTargetsData(r); setLoadingTgt(false); setTargetsLoaded(periodo); })
+      .catch(() => setLoadingTgt(false));
+  }, [activeTab, periodo, targetsLoaded]);
+
+  // Carga licitaciones lazy
+  useEffect(() => {
+    if (activeTab !== "lic" || licLoaded === periodo) return;
+    setLoadingLic(true);
+    api.get<any>(`/api/ma/productos?canal=SE&ano=2026&periodo=${periodo}`)
+      .then(r => { setLicData(r); setLoadingLic(false); setLicLoaded(periodo); })
+      .catch(() => setLoadingLic(false));
+  }, [activeTab, periodo, licLoaded]);
+
+  // Carga convenio marco lazy
+  useEffect(() => {
+    if (activeTab !== "cm" || cmLoaded === periodo) return;
+    setLoadingCm(true);
+    api.get<any>(`/api/ma/productos?canal=CM&ano=2026&periodo=${periodo}`)
+      .then(r => { setCmData(r); setLoadingCm(false); setCmLoaded(periodo); })
+      .catch(() => setLoadingCm(false));
+  }, [activeTab, periodo, cmLoaded]);
 
   const handleSelect = (rut: string) => {
     setSelectedRut(rut);
@@ -813,12 +1194,24 @@ export default function MAPage() {
 
       {/* Content */}
       {activeTab === "overview" && (
-        loadingOv ? <div style={{ padding: 60, textAlign: "center", color: "#94A3B8" }}>Cargando vision de mercado...</div>
+        loadingOv
+          ? <div style={{ padding: 60, textAlign: "center", color: "#94A3B8" }}>Cargando vision de mercado...</div>
           : <OverviewSection data={overviewData} />
       )}
       {activeTab === "targets" && (
-        loadingTgt ? <div style={{ padding: 60, textAlign: "center", color: "#94A3B8" }}>Cargando empresas objetivo...</div>
+        loadingTgt
+          ? <div style={{ padding: 60, textAlign: "center", color: "#94A3B8" }}>Cargando empresas objetivo...</div>
           : <TargetsSection data={targetsData} onSelect={handleSelect} />
+      )}
+      {activeTab === "lic" && (
+        loadingLic
+          ? <div style={{ padding: 60, textAlign: "center", color: "#94A3B8" }}>Cargando productos de licitaciones...</div>
+          : <ProductosSection canal="SE" data={licData} periodo={periodo} />
+      )}
+      {activeTab === "cm" && (
+        loadingCm
+          ? <div style={{ padding: 60, textAlign: "center", color: "#94A3B8" }}>Cargando productos de Convenio Marco...</div>
+          : <ProductosSection canal="CM" data={cmData} periodo={periodo} />
       )}
       {showingDetail && <EmpresaProfile rut={selectedRut!} periodo={periodo} onBack={handleBack} />}
     </div>

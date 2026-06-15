@@ -27,6 +27,8 @@ import {
   CalendarDays,
   Bandage,
   MapPin,
+  Menu,
+  PanelLeftClose,
 } from "lucide-react";
 import { useState, useEffect } from "react";
 
@@ -71,7 +73,19 @@ export default function Sidebar() {
   const pathname = usePathname();
   const { user, logout } = useAuth();
   const [collapsed, setCollapsed] = useState(false);
+  const [hidden, setHidden] = useState(false);
   const [info, setInfo] = useState<InfoData | null>(null);
+
+  useEffect(() => {
+    if (localStorage.getItem("lbf_sidebar_hidden") === "1") setHidden(true);
+  }, []);
+
+  const toggleHidden = () =>
+    setHidden((v) => {
+      const nv = !v;
+      localStorage.setItem("lbf_sidebar_hidden", nv ? "1" : "0");
+      return nv;
+    });
 
   useEffect(() => {
     const token = localStorage.getItem("lbf_token") || "";
@@ -96,10 +110,37 @@ export default function Sidebar() {
   const cargoLabel = user?.cargo || (isSuperAdmin ? "Administrador" : user?.role === "admin" ? "Admin" : user?.role ?? "");
 
   return (
+    <>
+    {/* Botón flotante para volver a mostrar el menú */}
+    {hidden && (
+      <button
+        onClick={toggleHidden}
+        title="Mostrar menú"
+        style={{
+          position: "fixed",
+          top: 14,
+          left: 14,
+          zIndex: 60,
+          width: 40,
+          height: 40,
+          borderRadius: 10,
+          background: "#0F172A",
+          color: "white",
+          border: "1px solid rgba(255,255,255,0.12)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          cursor: "pointer",
+          boxShadow: "0 2px 10px rgba(0,0,0,0.25)",
+        }}
+      >
+        <Menu size={20} />
+      </button>
+    )}
     <aside
       className="sidebar"
       style={{
-        width: collapsed ? 72 : 260,
+        width: hidden ? 0 : collapsed ? 72 : 260,
         minHeight: "100vh",
         background: "linear-gradient(180deg, #0F172A 0%, #1E293B 100%)",
         display: "flex",
@@ -110,7 +151,8 @@ export default function Sidebar() {
         left: 0,
         bottom: 0,
         zIndex: 50,
-        borderRight: "1px solid rgba(255,255,255,0.06)",
+        overflow: "hidden",
+        borderRight: hidden ? "none" : "1px solid rgba(255,255,255,0.06)",
       }}
     >
       {/* Brand */}
@@ -378,6 +420,31 @@ export default function Sidebar() {
           {!collapsed && <span>Cerrar Sesion</span>}
         </button>
 
+        {/* Esconder menú (oculta por completo) */}
+        <button
+          onClick={toggleHidden}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 10,
+            padding: collapsed ? "8px 0" : "8px 12px",
+            justifyContent: collapsed ? "center" : "flex-start",
+            width: "100%",
+            border: "none",
+            background: "transparent",
+            color: "rgba(148,163,184,0.7)",
+            fontSize: 13,
+            cursor: "pointer",
+            borderRadius: 8,
+            transition: "color 0.15s",
+            marginTop: 2,
+          }}
+          title="Esconder menú"
+        >
+          <PanelLeftClose size={16} />
+          {!collapsed && <span>Esconder menú</span>}
+        </button>
+
         {/* Collapse toggle */}
         <button
           onClick={() => setCollapsed((v) => !v)}
@@ -400,5 +467,6 @@ export default function Sidebar() {
         </button>
       </div>
     </aside>
+    </>
   );
 }

@@ -1475,8 +1475,224 @@ function TabPerdidos({ perdidos, loading, error }: {
   );
 }
 
+/* ─── Sub-tab Visión MP (todos los canales) ──────────────────────────────── */
+interface CanalRow {
+  canal: string; label: string;
+  mercado: number; n_ocs: number; n_prov: number;
+  lbf: number; lbf_ocs: number; ms: number;
+  mercado_prev: number; lbf_prev: number;
+}
+interface EmpresaRow {
+  rank: number; rut: string; nombre: string;
+  total: number; n_ocs: number; n_compradores: number; n_canales: number;
+  ms: number; es_lbf: boolean;
+}
+interface VisionData {
+  periodo_label: string;
+  ano: number;
+  global: {
+    mercado: number; lbf: number; ms: number;
+    mercado_prev: number; lbf_prev: number;
+    lbf_rank: number | null; n_competidores: number;
+  };
+  canales: CanalRow[];
+  empresas: EmpresaRow[];
+  error?: string;
+}
+
+const CANAL_COLOR: Record<string, string> = {
+  SE: "#2563EB", CM: "#059669", TD: "#D97706",
+  AG: "#7C3AED", CC: "#0891B2", CT: "#64748B",
+};
+
+function TabVision({ data, loading, error }: {
+  data: VisionData | null; loading: boolean; error: string | null;
+}) {
+  if (loading) return (
+    <div style={{ ...card, textAlign: "center", color: "#94A3B8", padding: 48 }}>
+      Cargando visión global de Mercado Público...
+    </div>
+  );
+  if (error) return <div style={{ ...card, color: "#EF4444" }}>Error: {error}</div>;
+  if (!data || !data.global) return (
+    <div style={{ ...card, textAlign: "center", color: "#94A3B8", padding: 48 }}>Sin datos</div>
+  );
+
+  const g = data.global;
+  const mktDelta = g.mercado_prev > 0 ? ((g.mercado - g.mercado_prev) / g.mercado_prev) * 100 : null;
+  const lbfDelta = g.lbf_prev > 0 ? ((g.lbf - g.lbf_prev) / g.lbf_prev) * 100 : null;
+  const maxCanal = Math.max(...data.canales.map((c) => c.mercado), 1);
+  const maxEmp = Math.max(...data.empresas.map((e) => e.total), 1);
+  const mejorCanal = data.canales.length
+    ? [...data.canales].sort((a, b) => b.ms - a.ms)[0] : null;
+
+  const deltaTag = (d: number | null) => d === null ? null : (
+    <span style={{ fontSize: 12, fontWeight: 700, color: d >= 0 ? "#059669" : "#EF4444", marginLeft: 6 }}>
+      {d >= 0 ? "▲" : "▼"} {Math.abs(d).toFixed(1)}%
+    </span>
+  );
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+      {/* Badge explicativo */}
+      <div style={{
+        display: "flex", alignItems: "center", gap: 10,
+        background: "#F0F9FF", border: "1px solid #BAE6FD",
+        borderRadius: 8, padding: "10px 16px",
+      }}>
+        <span style={{ fontSize: 18 }}>🌐</span>
+        <span style={{ fontSize: 13, color: "#0C4A6E", fontWeight: 500 }}>
+          <strong>Todo lo transado</strong> en insumos médicos vía órdenes de compra —
+          Licitación, Convenio Marco, Trato Directo, Compra Ágil y más. MS% = participación LBF sobre el mercado.
+        </span>
+      </div>
+
+      {/* Hero global */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 14 }}>
+        <div style={{ ...card, borderTop: "3px solid #64748B" }}>
+          <div style={{ fontSize: 11, color: "#64748B", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 6 }}>
+            Mercado total
+          </div>
+          <div style={{ display: "flex", alignItems: "baseline", flexWrap: "wrap" }}>
+            <span style={{ fontSize: 24, fontWeight: 800, color: "#0F172A" }}>{fmtM(g.mercado)}</span>
+            {deltaTag(mktDelta)}
+          </div>
+          <div style={{ fontSize: 11, color: "#94A3B8", marginTop: 4 }}>insumos médicos · {data.periodo_label}</div>
+        </div>
+
+        <div style={{ ...card, borderTop: "3px solid #2563EB" }}>
+          <div style={{ fontSize: 11, color: "#2563EB", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 6 }}>
+            LBF transó
+          </div>
+          <div style={{ display: "flex", alignItems: "baseline", flexWrap: "wrap" }}>
+            <span style={{ fontSize: 24, fontWeight: 800, color: "#2563EB" }}>{fmtM(g.lbf)}</span>
+            {deltaTag(lbfDelta)}
+          </div>
+          <div style={{ fontSize: 11, color: "#94A3B8", marginTop: 4 }}>{fmtCLP(g.lbf)}</div>
+        </div>
+
+        <div style={{ ...card, borderTop: "3px solid #7C3AED" }}>
+          <div style={{ fontSize: 11, color: "#7C3AED", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 6 }}>
+            Market Share LBF
+          </div>
+          <div style={{ fontSize: 24, fontWeight: 800, color: "#7C3AED" }}>{pct(g.ms)}</div>
+          <div style={{ height: 6, background: "#F5F3FF", borderRadius: 3, overflow: "hidden", marginTop: 8 }}>
+            <div style={{ width: `${Math.min(g.ms, 100)}%`, height: "100%", background: "#7C3AED", borderRadius: 3 }} />
+          </div>
+        </div>
+
+        <div style={{ ...card, borderTop: "3px solid #059669" }}>
+          <div style={{ fontSize: 11, color: "#059669", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 6 }}>
+            Ranking LBF
+          </div>
+          <div style={{ fontSize: 24, fontWeight: 800, color: "#059669" }}>
+            {g.lbf_rank ? `#${g.lbf_rank}` : "—"}
+          </div>
+          <div style={{ fontSize: 11, color: "#94A3B8", marginTop: 4 }}>
+            de {fmtN(g.n_competidores)} proveedores
+            {mejorCanal && <> · mejor en <strong style={{ color: "#059669" }}>{mejorCanal.label}</strong> ({pct(mejorCanal.ms)})</>}
+          </div>
+        </div>
+      </div>
+
+      {/* Mercado por canal */}
+      <div style={card}>
+        <div style={{ marginBottom: 16 }}>
+          <span style={{ fontSize: 15, fontWeight: 700, color: "#0F172A" }}>Mercado por canal</span>
+          <span style={{ fontSize: 12, color: "#94A3B8", marginLeft: 8 }}>
+            tamaño del mercado · barra azul = participación LBF (MS%)
+          </span>
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+          {data.canales.map((c) => {
+            const color = CANAL_COLOR[c.canal] ?? "#64748B";
+            const barW = (c.mercado / maxCanal) * 100;
+            const lbfW = c.mercado > 0 ? (c.lbf / c.mercado) * 100 : 0;
+            return (
+              <div key={c.canal}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 5 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <span style={{ width: 10, height: 10, borderRadius: 3, background: color, display: "inline-block" }} />
+                    <span style={{ fontSize: 14, fontWeight: 700, color: "#0F172A" }}>{c.label}</span>
+                    <span style={{ fontSize: 11, color: "#94A3B8" }}>{fmtN(c.n_prov)} proveedores · {fmtN(c.n_ocs)} OCs</span>
+                  </div>
+                  <div style={{ fontSize: 13, color: "#374151", fontVariantNumeric: "tabular-nums" }}>
+                    {fmtCLP(c.mercado)}
+                  </div>
+                </div>
+                {/* Barra mercado con segmento LBF */}
+                <div style={{ position: "relative", height: 22, background: "#F1F5F9", borderRadius: 5, overflow: "hidden" }}>
+                  <div style={{ position: "absolute", left: 0, top: 0, height: "100%", width: `${barW}%`, background: `${color}22`, borderRadius: 5 }} />
+                  <div style={{ position: "absolute", left: 0, top: 0, height: "100%", width: `${barW * lbfW / 100}%`, background: color, borderRadius: 5, transition: "width 0.4s ease" }} />
+                  <div style={{ position: "absolute", left: 10, top: 0, height: "100%", display: "flex", alignItems: "center", gap: 8, fontSize: 11, fontWeight: 700, color: "#0F172A" }}>
+                    <span style={{ color: "#fff", mixBlendMode: "difference" as const }}>
+                      LBF {fmtM(c.lbf)} · MS {pct(c.ms)}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Top empresas */}
+      <div style={card}>
+        <div style={{ marginBottom: 14 }}>
+          <span style={{ fontSize: 15, fontWeight: 700, color: "#0F172A" }}>Top empresas que más transan</span>
+          <span style={{ fontSize: 12, color: "#94A3B8", marginLeft: 8 }}>
+            insumos médicos · todos los canales · {data.periodo_label}
+          </span>
+        </div>
+        <div style={{ overflowX: "auto" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse" }}>
+            <thead>
+              <tr>
+                <th style={{ ...thS, width: 40 }}>#</th>
+                <th style={thS}>Empresa</th>
+                <th style={thR}>Total Transado</th>
+                <th style={{ ...thR, color: "#7C3AED" }}>MS%</th>
+                <th style={thR}>Canales</th>
+                <th style={thR}>OCs</th>
+                <th style={thR}>Compradores</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.empresas.length === 0 && <EmptyRow cols={7} />}
+              {data.empresas.map((e, i) => (
+                <tr key={e.rut + i} style={e.es_lbf
+                  ? { background: "#EFF6FF", borderTop: "2px solid #BFDBFE", borderBottom: "2px solid #BFDBFE" }
+                  : rowBg(i)}>
+                  <td style={{ ...tdS, color: e.es_lbf ? "#2563EB" : "#94A3B8", fontWeight: 700 }}>
+                    {e.es_lbf ? "★" : e.rank}
+                  </td>
+                  <td style={{ ...tdS, fontWeight: e.es_lbf ? 700 : 400, color: e.es_lbf ? "#2563EB" : "#1F2937", maxWidth: 320, overflow: "hidden", textOverflow: "ellipsis" }} title={e.nombre}>
+                    {e.es_lbf ? "★ LBF (tú)" : e.nombre}
+                  </td>
+                  <td style={{ ...tdR, fontWeight: e.es_lbf ? 700 : 500 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6, justifyContent: "flex-end" }}>
+                      <div style={{ width: 70, height: 5, background: "#E2E8F0", borderRadius: 2, overflow: "hidden" }}>
+                        <div style={{ width: `${(e.total / maxEmp) * 100}%`, height: "100%", background: e.es_lbf ? "#2563EB" : "#94A3B8", borderRadius: 2 }} />
+                      </div>
+                      <span style={{ fontVariantNumeric: "tabular-nums" }}>{fmtCLP(e.total)}</span>
+                    </div>
+                  </td>
+                  <td style={{ ...tdR, color: "#7C3AED", fontWeight: e.es_lbf ? 700 : 500 }}>{pct(e.ms)}</td>
+                  <td style={tdR}>{e.n_canales}</td>
+                  <td style={tdR}>{fmtN(e.n_ocs)}</td>
+                  <td style={tdR}>{fmtN(e.n_compradores)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ─── Página principal ───────────────────────────────────────────────────── */
-type TabId = "competencia" | "clientes" | "evolucion" | "perdidos" | "region";
+type TabId = "vision" | "competencia" | "clientes" | "evolucion" | "perdidos" | "region";
 
 export default function MercadoPublicoPage() {
   const [ano,  setAno]  = useState(2026);
@@ -1484,15 +1700,18 @@ export default function MercadoPublicoPage() {
   const [cat,  setCat]  = useState("");
   const [mat,  setMat]  = useState(false);
   const [mes,  setMes]  = useState(0);
-  const [tab,  setTab]  = useState<TabId>("competencia");
+  const [tab,  setTab]  = useState<TabId>("vision");
 
   // Datos por tab
+  const [vision,    setVision]    = useState<VisionData | null>(null);
   const [data,      setData]      = useState<Data | null>(null);
   const [clientes,  setClientes]  = useState<Cliente[] | null>(null);
   const [regiones,  setRegiones]  = useState<RegionData[] | null>(null);
   const [evolucion, setEvolucion] = useState<EvoMes[] | null>(null);
   const [perdidos,  setPerdidos]  = useState<Perdido[] | null>(null);
 
+  const [loadingVis,  setLoadingVis]  = useState(false);
+  const [errorVis,    setErrorVis]    = useState<string | null>(null);
   const [loadingComp, setLoadingComp] = useState(false);
   const [loadingCli,  setLoadingCli]  = useState(false);
   const [loadingReg,  setLoadingReg]  = useState(false);
@@ -1516,15 +1735,25 @@ export default function MercadoPublicoPage() {
 
   // Al cambiar filtros: limpiar datos y recargar tab activo + competencia siempre
   useEffect(() => {
+    setVision(null);
     setData(null);
     setClientes(null);
     setRegiones(null);
     setEvolucion(null);
     setPerdidos(null);
+    setErrorVis(null);
     setErrorComp(null); setErrorCli(null); setErrorReg(null);
     setErrorEvo(null);  setErrorPerd(null);
 
     const params = buildParams();
+
+    if (tab === "vision") {
+      setLoadingVis(true);
+      api.get(`/api/mercado-publico/canales?${params}`)
+        .then((r) => setVision(r as VisionData))
+        .catch((e: unknown) => setErrorVis(e instanceof Error ? e.message : "Error"))
+        .finally(() => setLoadingVis(false));
+    }
 
     setLoadingComp(true);
     api.get(`/api/mercado-publico/participacion?${params}`)
@@ -1574,6 +1803,13 @@ export default function MercadoPublicoPage() {
   useEffect(() => {
     const params = buildParams();
 
+    if (tab === "vision" && !vision && !loadingVis) {
+      setLoadingVis(true);
+      api.get(`/api/mercado-publico/canales?${params}`)
+        .then((r) => setVision(r as VisionData))
+        .catch((e: unknown) => setErrorVis(e instanceof Error ? e.message : "Error"))
+        .finally(() => setLoadingVis(false));
+    }
     if (tab === "clientes" && !clientes && !loadingCli) {
       setLoadingCli(true);
       api.get(`/api/mercado-publico/clientes?${params}`)
@@ -1605,13 +1841,15 @@ export default function MercadoPublicoPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab]);
 
-  const loading = tab === "competencia" ? loadingComp
+  const loading = tab === "vision" ? loadingVis
+    : tab === "competencia" ? loadingComp
     : tab === "clientes"   ? loadingCli
     : tab === "region"     ? loadingReg
     : tab === "evolucion"  ? loadingEvo
     : loadingPerd;
 
   const TAB_LIST: { id: TabId; label: string }[] = [
+    { id: "vision",      label: "Visión MP" },
     { id: "competencia", label: "Competencia" },
     { id: "clientes",    label: "Clientes" },
     { id: "evolucion",   label: "Evolución" },
@@ -1700,7 +1938,9 @@ export default function MercadoPublicoPage() {
           </div>
         )}
 
-        {/* Categoría */}
+        {/* Categoría y Tipo — no aplican a Visión MP */}
+        {tab !== "vision" && (
+        <>
         <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
           <span style={{ fontSize: 12, color: "#64748B", fontWeight: 600, marginRight: 2 }}>CATS</span>
           {CATS.map((c) => (
@@ -1739,6 +1979,8 @@ export default function MercadoPublicoPage() {
             </button>
           ))}
         </div>
+        </>
+        )}
 
         {loading && <span style={{ fontSize: 12, color: "#94A3B8" }}>Cargando...</span>}
       </div>
@@ -1772,6 +2014,10 @@ export default function MercadoPublicoPage() {
       )}
 
       {/* Contenido del tab activo */}
+      {tab === "vision" && (
+        <TabVision data={vision} loading={loadingVis} error={errorVis} />
+      )}
+
       {tab === "competencia" && (
         <>
           {loadingComp && !data && (

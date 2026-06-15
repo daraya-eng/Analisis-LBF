@@ -652,3 +652,315 @@ async def get_ma_empresa(
         return data
     except Exception as e:
         return {"error": str(e)}
+
+
+# ═══════════════════════════════════════════════════════════════════
+# 4. Productos más transados (mercado general)
+# ═══════════════════════════════════════════════════════════════════
+
+def _load_ma_productos(canal: str, ano: int, periodo: str) -> dict:
+    """Top productos del mercado general en un canal (SE=Licitaciones, CM=Convenio Marco)."""
+    conn = get_pg_conn()
+    cur = conn.cursor()
+    yf = _year_filter(periodo, ano)
+
+    cur.execute(f"""
+        SELECT
+            COALESCE(NULLIF(TRIM(oi.nombre), ''), oi.codigo_producto::text) AS producto,
+            oi.codigo_producto::text                                          AS codigo,
+            COALESCE(NULLIF(SPLIT_PART(oi.categoria, ' / ', 2), ''),
+                     SPLIT_PART(oi.categoria, ' / ', 1))                     AS subcategoria,
+            SUM({_MONTO})::bigint                                            AS total,
+            SUM(oi.cantidad)::bigint                                         AS cantidad,
+            COUNT(DISTINCT oc.id)                                            AS n_ocs,
+            COUNT(DISTINCT oc.proveedor_rut)                                 AS n_proveedores,
+            CASE WHEN SUM(oi.cantidad) > 0
+                 THEN (SUM({_MONTO}) / SUM(oi.cantidad))::bigint
+                 ELSE 0 END                                                  AS precio_prom,
+            MAX(oi.unidad)                                                   AS unidad
+        FROM ordenes_compra oc
+        JOIN ordenes_compra_items oi ON oi.orden_compra_id = oc.id
+        WHERE oi.categoria ILIKE '{MEDICAL_CAT}%%'
+          AND oc.tipo_compra = '{canal}'
+          AND {yf}
+          AND TRIM(COALESCE(oi.nombre, '')) != ''
+        GROUP BY
+            COALESCE(NULLIF(TRIM(oi.nombre), ''), oi.codigo_producto::text),
+            oi.codigo_producto::text,
+            COALESCE(NULLIF(SPLIT_PART(oi.categoria, ' / ', 2), ''),
+                     SPLIT_PART(oi.categoria, ' / ', 1))
+        ORDER BY total DESC
+        LIMIT 500
+    """)
+
+    cols = [d[0] for d in cur.description]
+    rows = []
+    for r in cur.fetchall():
+        row = dict(zip(cols, r))
+        rows.append({
+            "producto":      str(row["producto"] or "").strip(),
+            "codigo":        str(row["codigo"] or "").strip(),
+            "subcategoria":  str(row["subcategoria"] or "").strip(),
+            "total":         int(row["total"] or 0),
+            "cantidad":      int(row["cantidad"] or 0),
+            "n_ocs":         int(row["n_ocs"] or 0),
+            "n_proveedores": int(row["n_proveedores"] or 0),
+            "precio_prom":   int(row["precio_prom"] or 0),
+            "unidad":        str(row["unidad"] or "").strip(),
+        })
+
+    conn.close()
+    return {"canal": canal, "periodo_info": _periodo_label(periodo, ano), "rows": rows}
+
+
+@router.get("/productos")
+async def get_ma_productos(
+    canal:   str = Query("SE"),
+    ano:     int = Query(2026),
+    periodo: str = Query("total"),
+    current_user: dict = Depends(get_current_user),
+):
+    try:
+        ck = f"ma_productos:{canal}:{ano}:{periodo}"
+        cached = mem_get(ck)
+        if cached:
+            return cached
+        data = _load_ma_productos(canal, ano, periodo)
+        mem_set(ck, data)
+        return data
+    except Exception as e:
+        return {"error": str(e), "rows": []}
+
+
+# ═══════════════════════════════════════════════════════════════════
+# 5. Detalle de producto
+# ═══════════════════════════════════════════════════════════════════
+
+def _load_ma_producto_detalle(nombre: str, canal: str, ano: int, periodo: str) -> dict:
+    """Drill-down completo de un producto: proveedores, compradores, tendencia, variantes."""
+    conn = get_pg_conn()
+    cur = conn.cursor()
+    yf = _year_filter(periodo, ano)
+
+    # ── KPIs generales ──────────────────────────────────────────────
+    cur.execute(f"""
+        SELECT
+            SUM({_MONTO})::bigint                       AS total,
+            SUM(oi.cantidad)::bigint                    AS cantidad,
+            COUNT(DISTINCT oc.id)                       AS n_ocs,
+            COUNT(DISTINCT oc.proveedor_rut)            AS n_proveedores,
+            COUNT(DISTINCT oc.comprador_rut_unidad)     AS n_compradores,
+            CASE WHEN SUM(oi.cantidad) > 0
+                 THEN (SUM({_MONTO}) / SUM(oi.cantidad))::bigint
+                 ELSE 0 END                             AS precio_prom,
+            MIN(CASE WHEN oi.precio_unitario > 0 THEN oi.precio_unitario END)::bigint AS precio_min,
+            MAX(oi.precio_unitario)::bigint             AS precio_max,
+            MAX(oi.unidad)                              AS unidad
+        FROM ordenes_compra oc
+        JOIN ordenes_compra_items oi ON oi.orden_compra_id = oc.id
+        WHERE TRIM(oi.nombre) = %s
+          AND oc.tipo_compra = %s
+          AND oi.categoria ILIKE %s
+          AND {yf}
+    """, (nombre, canal, f"{MEDICAL_CAT}%"))
+    h = cur.fetchone()
+    kpis = {
+        "total":         int(h[0] or 0),
+        "cantidad":      int(h[1] or 0),
+        "n_ocs":         int(h[2] or 0),
+        "n_proveedores": int(h[3] or 0),
+        "n_compradores": int(h[4] or 0),
+        "precio_prom":   int(h[5] or 0),
+        "precio_min":    int(h[6] or 0),
+        "precio_max":    int(h[7] or 0),
+        "unidad":        str(h[8] or "").strip(),
+    }
+
+    # ── Proveedores ─────────────────────────────────────────────────
+    cur.execute(f"""
+        SELECT
+            oc.proveedor_rut,
+            MAX(oc.proveedor_nombre_empresa)            AS nombre,
+            SUM({_MONTO})::bigint                       AS total,
+            SUM(oi.cantidad)::bigint                    AS cantidad,
+            COUNT(DISTINCT oc.id)                       AS n_ocs,
+            COUNT(DISTINCT oc.comprador_rut_unidad)     AS n_compradores,
+            CASE WHEN SUM(oi.cantidad) > 0
+                 THEN (SUM({_MONTO}) / SUM(oi.cantidad))::bigint
+                 ELSE 0 END                             AS precio_prom
+        FROM ordenes_compra oc
+        JOIN ordenes_compra_items oi ON oi.orden_compra_id = oc.id
+        WHERE TRIM(oi.nombre) = %s
+          AND oc.tipo_compra = %s
+          AND oi.categoria ILIKE %s
+          AND {yf}
+        GROUP BY oc.proveedor_rut
+        ORDER BY total DESC
+        LIMIT 30
+    """, (nombre, canal, f"{MEDICAL_CAT}%"))
+    proveedores = []
+    total_prov = kpis["total"] or 1
+    for r in cur.fetchall():
+        proveedores.append({
+            "rut":          str(r[0] or "").strip(),
+            "nombre":       str(r[1] or "").strip(),
+            "total":        int(r[2] or 0),
+            "cantidad":     int(r[3] or 0),
+            "n_ocs":        int(r[4] or 0),
+            "n_compradores": int(r[5] or 0),
+            "precio_prom":  int(r[6] or 0),
+            "market_share": round(int(r[2] or 0) / total_prov * 100, 1),
+            "es_lbf":       "lbf" in str(r[1] or "").lower(),
+        })
+
+    # ── Top compradores (instituciones) ─────────────────────────────
+    cur.execute(f"""
+        SELECT
+            oc.comprador_rut_unidad,
+            MAX(oc.comprador_nombre_unidad)             AS nombre,
+            MAX(oc.comprador_region_unidad)             AS region,
+            SUM({_MONTO})::bigint                       AS total,
+            SUM(oi.cantidad)::bigint                    AS cantidad,
+            COUNT(DISTINCT oc.id)                       AS n_ocs,
+            COUNT(DISTINCT oc.proveedor_rut)            AS n_proveedores
+        FROM ordenes_compra oc
+        JOIN ordenes_compra_items oi ON oi.orden_compra_id = oc.id
+        WHERE TRIM(oi.nombre) = %s
+          AND oc.tipo_compra = %s
+          AND oi.categoria ILIKE %s
+          AND {yf}
+          AND oc.comprador_rut_unidad IS NOT NULL
+        GROUP BY oc.comprador_rut_unidad
+        ORDER BY total DESC
+        LIMIT 25
+    """, (nombre, canal, f"{MEDICAL_CAT}%"))
+    compradores = [{
+        "rut":          str(r[0] or "").strip(),
+        "nombre":       str(r[1] or "").strip(),
+        "region":       str(r[2] or "").strip(),
+        "total":        int(r[3] or 0),
+        "cantidad":     int(r[4] or 0),
+        "n_ocs":        int(r[5] or 0),
+        "n_proveedores": int(r[6] or 0),
+    } for r in cur.fetchall()]
+
+    # ── Tendencia mensual (2025 + 2026) ─────────────────────────────
+    cur.execute(f"""
+        SELECT
+            EXTRACT(YEAR FROM oc.fecha_envio)::int  AS ano,
+            EXTRACT(MONTH FROM oc.fecha_envio)::int AS mes,
+            SUM({_MONTO})::bigint                   AS total,
+            SUM(oi.cantidad)::bigint                AS cantidad,
+            COUNT(DISTINCT oc.id)                   AS n_ocs,
+            CASE WHEN SUM(oi.cantidad) > 0
+                 THEN (SUM({_MONTO}) / SUM(oi.cantidad))::bigint
+                 ELSE 0 END                         AS precio_prom
+        FROM ordenes_compra oc
+        JOIN ordenes_compra_items oi ON oi.orden_compra_id = oc.id
+        WHERE TRIM(oi.nombre) = %s
+          AND oc.tipo_compra = %s
+          AND oi.categoria ILIKE %s
+          AND EXTRACT(YEAR FROM oc.fecha_envio) IN ({ano}, {ano - 1})
+        GROUP BY 1, 2
+        ORDER BY 1, 2
+    """, (nombre, canal, f"{MEDICAL_CAT}%"))
+    trend = {(int(r[0]), int(r[1])): {"total": int(r[2] or 0), "cantidad": int(r[3] or 0),
+             "n_ocs": int(r[4] or 0), "precio_prom": int(r[5] or 0)} for r in cur.fetchall()}
+    tendencia = []
+    for m in range(1, 13):
+        c = trend.get((ano, m), {})
+        p = trend.get((ano - 1, m), {})
+        tendencia.append({
+            "mes": m, "mes_nombre": MESES[m - 1],
+            "total_cur": c.get("total", 0), "total_prev": p.get("total", 0),
+            "cantidad_cur": c.get("cantidad", 0), "cantidad_prev": p.get("cantidad", 0),
+            "precio_prom_cur": c.get("precio_prom", 0),
+            "n_ocs_cur": c.get("n_ocs", 0),
+        })
+
+    # ── Variantes (distintos códigos / presentaciones) ───────────────
+    cur.execute(f"""
+        SELECT
+            oi.codigo_producto::text                    AS codigo,
+            MAX(oi.unidad)                              AS unidad,
+            SUM({_MONTO})::bigint                       AS total,
+            SUM(oi.cantidad)::bigint                    AS cantidad,
+            CASE WHEN SUM(oi.cantidad) > 0
+                 THEN (SUM({_MONTO}) / SUM(oi.cantidad))::bigint
+                 ELSE 0 END                             AS precio_prom,
+            COUNT(DISTINCT oc.proveedor_rut)            AS n_proveedores
+        FROM ordenes_compra oc
+        JOIN ordenes_compra_items oi ON oi.orden_compra_id = oc.id
+        WHERE TRIM(oi.nombre) = %s
+          AND oc.tipo_compra = %s
+          AND oi.categoria ILIKE %s
+          AND {yf}
+        GROUP BY oi.codigo_producto
+        ORDER BY total DESC
+        LIMIT 30
+    """, (nombre, canal, f"{MEDICAL_CAT}%"))
+    variantes = [{
+        "codigo":       str(r[0] or "").strip(),
+        "unidad":       str(r[1] or "").strip(),
+        "total":        int(r[2] or 0),
+        "cantidad":     int(r[3] or 0),
+        "precio_prom":  int(r[4] or 0),
+        "n_proveedores": int(r[5] or 0),
+    } for r in cur.fetchall()]
+
+    # ── Cobertura regional ───────────────────────────────────────────
+    cur.execute(f"""
+        SELECT
+            COALESCE(NULLIF(oc.comprador_region_unidad, ''), 'Sin info') AS region,
+            SUM({_MONTO})::bigint                       AS total,
+            SUM(oi.cantidad)::bigint                    AS cantidad,
+            COUNT(DISTINCT oc.comprador_rut_unidad)     AS n_compradores
+        FROM ordenes_compra oc
+        JOIN ordenes_compra_items oi ON oi.orden_compra_id = oc.id
+        WHERE TRIM(oi.nombre) = %s
+          AND oc.tipo_compra = %s
+          AND oi.categoria ILIKE %s
+          AND {yf}
+        GROUP BY 1
+        ORDER BY total DESC
+    """, (nombre, canal, f"{MEDICAL_CAT}%"))
+    regiones = [{
+        "region":       str(r[0]),
+        "total":        int(r[1] or 0),
+        "cantidad":     int(r[2] or 0),
+        "n_compradores": int(r[3] or 0),
+    } for r in cur.fetchall()]
+
+    conn.close()
+    return {
+        "nombre":       nombre,
+        "canal":        canal,
+        "periodo_info": _periodo_label(periodo, ano),
+        "kpis":         kpis,
+        "proveedores":  proveedores,
+        "compradores":  compradores,
+        "tendencia":    tendencia,
+        "variantes":    variantes,
+        "regiones":     regiones,
+    }
+
+
+@router.get("/producto-detalle")
+async def get_ma_producto_detalle(
+    nombre:  str = Query(...),
+    canal:   str = Query("SE"),
+    ano:     int = Query(2026),
+    periodo: str = Query("total"),
+    current_user: dict = Depends(get_current_user),
+):
+    try:
+        safe = nombre[:200]
+        ck = f"ma_pdet:{canal}:{ano}:{periodo}:{safe}"
+        cached = mem_get(ck)
+        if cached:
+            return cached
+        data = _load_ma_producto_detalle(safe, canal, ano, periodo)
+        mem_set(ck, data)
+        return data
+    except Exception as e:
+        return {"error": str(e)}

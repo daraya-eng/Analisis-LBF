@@ -423,8 +423,8 @@ export default function MercadosRelevantesPage() {
     <div style={{ fontFamily: "inherit" }}>
 
       {/* Header */}
-      <div style={{ marginBottom: 20, borderBottom: "2px solid #FECDD3", paddingBottom: 16 }}>
-        <h1 style={{ fontSize: 24, fontWeight: 800, color: "#BE185D", textTransform: "uppercase", letterSpacing: "0.06em", margin: "0 0 6px" }}>
+      <div style={{ marginBottom: 20, borderBottom: "2px solid #BAE6FD", paddingBottom: 16 }}>
+        <h1 style={{ fontSize: 24, fontWeight: 800, color: "#0284C7", textTransform: "uppercase", letterSpacing: "0.06em", margin: "0 0 6px" }}>
           Departamento de Licitaciones
         </h1>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
@@ -536,8 +536,8 @@ export default function MercadosRelevantesPage() {
                             return (
                               <button key={p.id} onClick={() => setSglPeriodo(p.id)} style={{
                                 padding: "4px 13px", fontSize: 12, fontWeight: 700, cursor: "pointer",
-                                border: `1px solid ${active ? "#BE185D" : "#E2E8F0"}`,
-                                background: active ? "#BE185D" : "white",
+                                border: `1px solid ${active ? "#0284C7" : "#E2E8F0"}`,
+                                background: active ? "#0284C7" : "white",
                                 color: active ? "white" : "#64748B",
                                 borderRadius: i === 0 ? "6px 0 0 6px" : i === PERIODOS.length - 1 ? "0 6px 6px 0" : "0",
                               }}>{p.label}</button>
@@ -559,11 +559,11 @@ export default function MercadosRelevantesPage() {
                             }
                           />
                           <Legend wrapperStyle={{ fontSize: 12, paddingTop: 10 }} />
-                          <Bar yAxisId="items" dataKey="items_lbf" name="Participados" fill="#F9A8D4" radius={[3,3,0,0]}>
-                            <LabelList dataKey="items_lbf" position="top" style={{ fontSize: modoAno ? 12 : 9, fill: "#9D174D", fontWeight: 600 }} />
+                          <Bar yAxisId="items" dataKey="items_lbf" name="Participados" fill="#7DD3FC" radius={[3,3,0,0]}>
+                            <LabelList dataKey="items_lbf" position="top" style={{ fontSize: modoAno ? 12 : 9, fill: "#075985", fontWeight: 600 }} />
                           </Bar>
-                          <Bar yAxisId="items" dataKey="items_adj" name="Adjudicados" fill="#BE185D" radius={[3,3,0,0]}>
-                            <LabelList dataKey="items_adj" position="top" style={{ fontSize: modoAno ? 12 : 9, fill: "#881337", fontWeight: 700 }} />
+                          <Bar yAxisId="items" dataKey="items_adj" name="Adjudicados" fill="#0284C7" radius={[3,3,0,0]}>
+                            <LabelList dataKey="items_adj" position="top" style={{ fontSize: modoAno ? 12 : 9, fill: "#0C4A6E", fontWeight: 700 }} />
                           </Bar>
                           <Line yAxisId="pct" type="monotone" dataKey="tasa_adj" name="% Adj."
                             stroke="#D97706" strokeWidth={2.5} dot={{ r: modoAno ? 6 : 3, fill: "#D97706", stroke: "white", strokeWidth: 2 }}
@@ -601,116 +601,123 @@ export default function MercadosRelevantesPage() {
             }
 
             // Paleta por tipo
+            // Rampa celeste claro→oscuro (sin amarillo): se distingue mejor apilada
             const TIPO_COLORS: Record<string, string> = {
-              LR: "#BE185D", LP: "#F9A8D4", LQ: "#A78BFA",
-              LE: "#FCD34D", L1: "#6EE7B7", CO: "#93C5FD", CM: "#F97316", Otro: "#CBD5E1",
+              L1: "#BAE6FD", LE: "#7DD3FC", LP: "#38BDF8", LQ: "#0EA5E9", LR: "#0369A1",
+              CO: "#5EEAD4", CM: "#2563EB", Otro: "#CBD5E1",
             };
 
             // Tipos presentes en los datos
             const tipos = Array.from(new Set(rowsFiltrados.map(r => r.tipo))).sort();
 
+            // Construir filas (período × tipo) según el modo
+            type Punto = Record<string, string | number>;
+            let chartData: Punto[] = [];
+            let isAno = false;
+
             if (sglPeriodo === "ano") {
-              // Modo año: agrupar por año y tipo
+              isAno = true;
               const years = [thisYear - 1, thisYear];
-              type AnoTipoPoint = Record<string, string | number>;
-              const chartData: AnoTipoPoint[] = years.map(y => {
-                const punto: AnoTipoPoint = { label: String(y) };
+              chartData = years.map(y => {
+                const punto: Punto = { label: String(y) };
                 tipos.forEach(t => {
-                  const rows = rowsFiltrados.filter(r => r.ano === y && r.tipo === t);
-                  punto[t] = rows.reduce((s, r) => s + r.items_adj, 0);
+                  punto[t] = rowsFiltrados.filter(r => r.ano === y && r.tipo === t).reduce((s, r) => s + r.items_adj, 0);
                 });
                 punto["monto_adj"] = rowsFiltrados.filter(r => r.ano === y).reduce((s, r) => s + r.monto_adj, 0);
                 return punto;
               });
-              return (
-                <div style={{ ...card, marginBottom: 20 }}>
-                  <h2 style={{ fontSize: 14, fontWeight: 700, color: "#0F172A", margin: "0 0 12px" }}>
-                    Adjudicados por Tipo de Licitación — {thisYear - 1} vs {thisYear}
-                  </h2>
-                  <ResponsiveContainer width="100%" height={280}>
-                    <ComposedChart data={chartData} margin={{ top: 16, right: 70, left: 0, bottom: 0 }} barCategoryGap="40%">
-                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E2E8F0" />
-                      <XAxis dataKey="label" tick={{ fontSize: 13, fill: "#374151", fontWeight: 700 }} axisLine={false} tickLine={false} />
-                      <YAxis yAxisId="items" tick={{ fontSize: 10 }} axisLine={false} tickLine={false} width={32} allowDecimals={false} />
-                      <YAxis yAxisId="monto" orientation="right" tick={{ fontSize: 9, fill: "#6D28D9" }}
-                        axisLine={false} tickLine={false} width={60}
-                        tickFormatter={v => `$${Math.round((v as number)/1_000_000_000)}MM`} />
-                      <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8, border: "1px solid #E2E8F0" }}
-                        formatter={(v, name) =>
-                          name === "Monto adj." ? [fmtM(v as number), name] : [(v as number).toLocaleString("es-CL"), String(name)]
-                        } />
-                      <Legend wrapperStyle={{ fontSize: 11, paddingTop: 8 }} />
-                      {tipos.map(t => (
-                        <Bar key={t} yAxisId="items" dataKey={t} name={t} stackId="a" fill={TIPO_COLORS[t] ?? "#CBD5E1"} radius={[0,0,0,0]}>
-                          <LabelList dataKey={t} position="inside" style={{ fontSize: 9, fill: "white", fontWeight: 700 }}
-                            formatter={(v: unknown) => (typeof v === "number" && v > 0) ? String(v) : ""} />
-                        </Bar>
-                      ))}
-                      <Line yAxisId="monto" type="monotone" dataKey="monto_adj" name="Monto adj."
-                        stroke="#6D28D9" strokeWidth={3} dot={{ r: 6, fill: "#6D28D9", stroke: "white", strokeWidth: 2 }}>
-                        <LabelList dataKey="monto_adj" position="top" style={{ fontSize: 11, fill: "#4C1D95", fontWeight: 700 }}
-                          formatter={(v: unknown) => typeof v === "number" && v > 0 ? fmtM(v) : ""} />
-                      </Line>
-                    </ComposedChart>
-                  </ResponsiveContainer>
-                </div>
-              );
+            } else {
+              const mesesUnicos = Array.from(
+                new Map(rowsFiltrados.map(r => [`${r.ano}-${r.mes}`, r.label])).entries()
+              ).sort((a, b) => a[0].localeCompare(b[0]));
+              chartData = mesesUnicos.map(([key, label]) => {
+                const [ano, mes] = key.split("-").map(Number);
+                const punto: Punto = { label };
+                tipos.forEach(t => {
+                  const row = rowsFiltrados.find(r => r.ano === ano && r.mes === mes && r.tipo === t);
+                  punto[t] = row?.items_adj ?? 0;
+                });
+                punto["monto_adj"] = rowsFiltrados
+                  .filter(r => r.ano === ano && r.mes === mes)
+                  .reduce((s, r) => s + r.monto_adj, 0);
+                return punto;
+              });
             }
 
-            // Modo mensual: pivotar por mes
-            const mesesUnicos = Array.from(
-              new Map(rowsFiltrados.map(r => [`${r.ano}-${r.mes}`, r.label])).entries()
-            ).sort((a, b) => a[0].localeCompare(b[0]));
-
-            type MesTipoPoint = Record<string, string | number>;
-            const chartData: MesTipoPoint[] = mesesUnicos.map(([key, label]) => {
-              const [ano, mes] = key.split("-").map(Number);
-              const punto: MesTipoPoint = { label };
-              tipos.forEach(t => {
-                const row = rowsFiltrados.find(r => r.ano === ano && r.mes === mes && r.tipo === t);
-                punto[t] = row?.items_adj ?? 0;
-              });
-              // monto total del mes (suma de todos los tipos)
-              punto["monto_adj"] = rowsFiltrados
-                .filter(r => r.ano === ano && r.mes === mes)
-                .reduce((s, r) => s + r.monto_adj, 0);
-              return punto;
-            });
-
             if (chartData.length === 0) return null;
+
+            // Heatmap: intensidad celeste global sobre todas las celdas de tipo
+            const allVals = chartData.flatMap(p => tipos.map(t => Number(p[t]) || 0));
+            const maxVal = Math.max(...allVals, 1);
+            const cellStyle = (v: number): React.CSSProperties => {
+              if (v <= 0) return { background: "#FFFFFF", color: "#CBD5E1" };
+              const ratio = v / maxVal;
+              const alpha = 0.12 + ratio * 0.88;
+              return {
+                background: `rgba(2,132,199,${alpha.toFixed(3)})`,
+                color: ratio > 0.5 ? "white" : "#0C4A6E",
+                fontWeight: 700,
+              };
+            };
+
+            const hHead: React.CSSProperties = {
+              padding: "7px 10px", fontSize: 11, fontWeight: 700, color: "#475569",
+              textAlign: "center", borderBottom: "2px solid #E2E8F0", whiteSpace: "nowrap",
+            };
+            const hCell: React.CSSProperties = {
+              padding: "7px 10px", fontSize: 12, textAlign: "center",
+              border: "1px solid #F1F5F9", fontVariantNumeric: "tabular-nums",
+            };
 
             return (
               <div style={{ ...card, marginBottom: 20 }}>
                 <h2 style={{ fontSize: 14, fontWeight: 700, color: "#0F172A", margin: "0 0 4px" }}>
-                  Adjudicados por Tipo de Licitación
+                  Adjudicados por Tipo de Licitación{isAno ? ` — ${thisYear - 1} vs ${thisYear}` : ""}
                 </h2>
                 <p style={{ fontSize: 11, color: "#475569", margin: "0 0 14px" }}>
-                  Ítems adjudicados apilados por tipo · línea = monto adjudicado total · mismo período que el gráfico superior
+                  Ítems adjudicados por tipo · intensidad de color = más ítems · monto adjudicado total a la derecha
                 </p>
-                <ResponsiveContainer width="100%" height={280}>
-                  <ComposedChart data={chartData} margin={{ top: 16, right: 56, left: 0, bottom: 0 }} barCategoryGap="25%">
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E2E8F0" />
-                    <XAxis dataKey="label" tick={{ fontSize: 10, fill: "#374151" }} axisLine={false} tickLine={false} />
-                    <YAxis yAxisId="items" tick={{ fontSize: 10 }} axisLine={false} tickLine={false} width={32} allowDecimals={false} />
-                    <YAxis yAxisId="monto" orientation="right" tick={{ fontSize: 9, fill: "#6D28D9" }}
-                      axisLine={false} tickLine={false} width={52}
-                      tickFormatter={v => `$${Math.round((v as number)/1_000_000)}M`} />
-                    <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8, border: "1px solid #E2E8F0" }}
-                      formatter={(v, name) =>
-                        name === "Monto adj." ? [fmtM(v as number), name] : [(v as number).toLocaleString("es-CL"), String(name)]
-                      } />
-                    <Legend wrapperStyle={{ fontSize: 11, paddingTop: 8 }} />
-                    {tipos.map(t => (
-                      <Bar key={t} yAxisId="items" dataKey={t} name={t} stackId="a" fill={TIPO_COLORS[t] ?? "#CBD5E1"} radius={[0,0,0,0]} />
-                    ))}
-                    <Line yAxisId="monto" type="monotone" dataKey="monto_adj" name="Monto adj."
-                      stroke="#6D28D9" strokeWidth={2.5} dot={{ r: 3, fill: "#6D28D9", stroke: "white", strokeWidth: 2 }}
-                      connectNulls={false}>
-                      <LabelList dataKey="monto_adj" position="top" style={{ fontSize: 9, fill: "#4C1D95", fontWeight: 700 }}
-                        formatter={(v: unknown) => typeof v === "number" && v > 0 ? fmtM(v) : ""} />
-                    </Line>
-                  </ComposedChart>
-                </ResponsiveContainer>
+                <div style={{ overflowX: "auto" }}>
+                  <table style={{ borderCollapse: "collapse", width: "100%", minWidth: 540 }}>
+                    <thead>
+                      <tr>
+                        <th style={{ ...hHead, textAlign: "left" }}>{isAno ? "Año" : "Mes"}</th>
+                        {tipos.map(t => (
+                          <th key={t} style={hHead}>
+                            <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                              <span style={{ width: 9, height: 9, borderRadius: 2, background: TIPO_COLORS[t] ?? "#CBD5E1", display: "inline-block" }} />
+                              {t}
+                            </span>
+                          </th>
+                        ))}
+                        <th style={{ ...hHead, borderLeft: "2px solid #E2E8F0" }}>Total</th>
+                        <th style={{ ...hHead, color: "#6D28D9" }}>Monto adj.</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {chartData.map((p, i) => {
+                        const total = tipos.reduce((s, t) => s + (Number(p[t]) || 0), 0);
+                        return (
+                          <tr key={i}>
+                            <td style={{ ...hCell, textAlign: "left", fontWeight: 700, color: "#0F172A", whiteSpace: "nowrap" }}>
+                              {p.label}
+                            </td>
+                            {tipos.map(t => {
+                              const v = Number(p[t]) || 0;
+                              return <td key={t} style={{ ...hCell, ...cellStyle(v) }}>{v > 0 ? v.toLocaleString("es-CL") : "—"}</td>;
+                            })}
+                            <td style={{ ...hCell, fontWeight: 800, color: "#0F172A", borderLeft: "2px solid #E2E8F0", background: "#F8FAFC" }}>
+                              {total.toLocaleString("es-CL")}
+                            </td>
+                            <td style={{ ...hCell, fontWeight: 700, color: "#6D28D9" }}>
+                              {fmtM(Number(p.monto_adj) || 0)}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             );
           })()}
@@ -1034,10 +1041,10 @@ export default function MercadosRelevantesPage() {
 
             const renderSeccion = (tipo: "mejor" | "mayor") => {
               const isMejor   = tipo === "mejor";
-              const color     = isMejor ? "#7C3AED" : "#BE185D";
-              const colorBg   = isMejor ? "#F5F3FF" : "#FFF1F2";
-              const colorBord = isMejor ? "#DDD6FE" : "#FECDD3";
-              const colorAcct = isMejor ? "#6D28D9" : "#9D174D";
+              const color     = isMejor ? "#7C3AED" : "#0284C7";
+              const colorBg   = isMejor ? "#F5F3FF" : "#F0F9FF";
+              const colorBord = isMejor ? "#DDD6FE" : "#BAE6FD";
+              const colorAcct = isMejor ? "#6D28D9" : "#075985";
               const lics      = isMejor ? (kpis.mejor_lics  ?? 0) : (kpis.mayor_lics  ?? 0);
               const items     = isMejor ? (kpis.mejor_items ?? 0) : (kpis.mayor_items ?? 0);
               const titulo    = isMejor

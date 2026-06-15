@@ -20,14 +20,14 @@ import json as _json
 import re
 from fastapi import APIRouter, Depends, Query
 from auth import get_current_user
-from db_mp import get_pg_conn
+from db_mp import get_pg_conn, MEDICAL_CAT
 from db import get_conn as get_ss_conn, DW_FILTRO, filtro_guias, hoy
 from cache import mem_get, mem_set
 
 router = APIRouter()
 
 LBF_RUT  = "93.366.000-1"
-CAT_LIKE = "EQUIPAMIENTO%"
+CAT_LIKE = "%"  # sin restricción de categoría — incluye todas las licitaciones LBF
 
 # Tipos de licitación pública (excluye CM que tiene módulo aparte)
 TIPOS_LIC = ("L1", "LE", "LP", "LQ", "LR", "LS", "SE", "E2")
@@ -86,7 +86,7 @@ def _load_participacion(ano: int, tipo: str, mes: int = 0, mat: bool = False) ->
     # ── Single mega-CTE query — all KPIs in one round-trip ────────────────────
     cur.execute(f"""
         WITH
-        -- LBF offered items (via JSONB), current period
+        -- LBF offered items (via JSONB + rut_proveedor_adj), current period
         lbf_part AS (
             SELECT
                 li.licitacion_id,
@@ -100,9 +100,27 @@ def _load_participacion(ano: int, tipo: str, mes: int = 0, mat: bool = False) ->
             JOIN licitaciones l ON l.id = li.licitacion_id
             CROSS JOIN LATERAL jsonb_array_elements(li.oferentes) o
             WHERE o->>'rut' = '{LBF_RUT}'
-              AND upper(li.categoria_nivel1) LIKE '{CAT_LIKE}'
+              AND (li.categoria_nivel1 IS NULL OR upper(li.categoria_nivel1) LIKE '{CAT_LIKE}')
               AND {d_cur}
               {tf}
+
+            UNION
+
+            -- LBF ganó (rut_proveedor_adj) pero scraper no pobló oferentes JSONB
+            SELECT
+                li.licitacion_id,
+                li.id                                                        AS item_id,
+                li.monto_adjudicado * COALESCE(li.cantidad_adjudicada, li.cantidad, 1) AS monto_ofertado
+            FROM licitaciones_items li
+            JOIN licitaciones l ON l.id = li.licitacion_id
+            WHERE li.rut_proveedor_adj = '{LBF_RUT}'
+              AND (li.categoria_nivel1 IS NULL OR upper(li.categoria_nivel1) LIKE '{CAT_LIKE}')
+              AND {d_cur}
+              {tf}
+              AND NOT EXISTS (
+                  SELECT 1 FROM jsonb_array_elements(li.oferentes) o2
+                  WHERE o2->>'rut' = '{LBF_RUT}'
+              )
         ),
         -- LBF adjudicated via JSONB seleccionada=true, current period
         lbf_adj_j AS (
@@ -119,7 +137,7 @@ def _load_participacion(ano: int, tipo: str, mes: int = 0, mat: bool = False) ->
             CROSS JOIN LATERAL jsonb_array_elements(li.oferentes) o
             WHERE o->>'rut' = '{LBF_RUT}'
               AND (o->>'seleccionada')::boolean = true
-              AND upper(li.categoria_nivel1) LIKE '{CAT_LIKE}'
+              AND (li.categoria_nivel1 IS NULL OR upper(li.categoria_nivel1) LIKE '{CAT_LIKE}')
               AND {d_cur}
               {tf}
         ),
@@ -132,7 +150,7 @@ def _load_participacion(ano: int, tipo: str, mes: int = 0, mat: bool = False) ->
             FROM licitaciones_items li
             JOIN licitaciones l ON l.id = li.licitacion_id
             WHERE li.rut_proveedor_adj = '{LBF_RUT}'
-              AND upper(li.categoria_nivel1) LIKE '{CAT_LIKE}'
+              AND (li.categoria_nivel1 IS NULL OR upper(li.categoria_nivel1) LIKE '{CAT_LIKE}')
               AND {d_cur}
               {tf}
               AND NOT EXISTS (
@@ -161,7 +179,7 @@ def _load_participacion(ano: int, tipo: str, mes: int = 0, mat: bool = False) ->
             CROSS JOIN LATERAL jsonb_array_elements(li.oferentes) o
             WHERE o->>'rut' = '{LBF_RUT}'
               AND (o->>'seleccionada')::boolean = true
-              AND upper(li.categoria_nivel1) LIKE '{CAT_LIKE}'
+              AND (li.categoria_nivel1 IS NULL OR upper(li.categoria_nivel1) LIKE '{CAT_LIKE}')
               AND {d_prev}
               {tf}
         ),
@@ -174,7 +192,7 @@ def _load_participacion(ano: int, tipo: str, mes: int = 0, mat: bool = False) ->
             FROM licitaciones_items li
             JOIN licitaciones l ON l.id = li.licitacion_id
             WHERE li.rut_proveedor_adj = '{LBF_RUT}'
-              AND upper(li.categoria_nivel1) LIKE '{CAT_LIKE}'
+              AND (li.categoria_nivel1 IS NULL OR upper(li.categoria_nivel1) LIKE '{CAT_LIKE}')
               AND {d_prev}
               {tf}
               AND NOT EXISTS (
@@ -216,7 +234,7 @@ def _load_participacion(ano: int, tipo: str, mes: int = 0, mat: bool = False) ->
                 )                                  AS valor
             FROM licitaciones_items li
             JOIN licitaciones l ON l.id = li.licitacion_id
-            WHERE upper(li.categoria_nivel1) LIKE '{CAT_LIKE}'
+            WHERE (li.categoria_nivel1 IS NULL OR upper(li.categoria_nivel1) LIKE '{CAT_LIKE}')
               AND {d_cur}
               {tf}
               AND (
@@ -256,7 +274,7 @@ def _load_participacion(ano: int, tipo: str, mes: int = 0, mat: bool = False) ->
                 )                                  AS valor
             FROM licitaciones_items li
             JOIN licitaciones l ON l.id = li.licitacion_id
-            WHERE upper(li.categoria_nivel1) LIKE '{CAT_LIKE}'
+            WHERE (li.categoria_nivel1 IS NULL OR upper(li.categoria_nivel1) LIKE '{CAT_LIKE}')
               AND {d_prev}
               {tf}
               AND (
@@ -350,7 +368,7 @@ def _load_participacion(ano: int, tipo: str, mes: int = 0, mat: bool = False) ->
             JOIN licitaciones l ON l.id = li.licitacion_id
             CROSS JOIN LATERAL jsonb_array_elements(li.oferentes) o
             WHERE o->>'rut' = '{LBF_RUT}'
-              AND upper(li.categoria_nivel1) LIKE '{CAT_LIKE}'
+              AND (li.categoria_nivel1 IS NULL OR upper(li.categoria_nivel1) LIKE '{CAT_LIKE}')
               AND {d_cur}
               {tf}
         ),
@@ -405,7 +423,7 @@ def _load_participacion(ano: int, tipo: str, mes: int = 0, mat: bool = False) ->
             JOIN lbf_lics ll ON ll.licitacion_id = li.licitacion_id
             CROSS JOIN LATERAL jsonb_array_elements(li.oferentes) o
             WHERE o->>'rut' != '{LBF_RUT}'
-              AND upper(li.categoria_nivel1) LIKE '{CAT_LIKE}'
+              AND (li.categoria_nivel1 IS NULL OR upper(li.categoria_nivel1) LIKE '{CAT_LIKE}')
             GROUP BY o->>'rut'
             ORDER BY total_adj DESC
             LIMIT 20
@@ -420,7 +438,7 @@ def _load_participacion(ano: int, tipo: str, mes: int = 0, mat: bool = False) ->
             CROSS JOIN LATERAL jsonb_array_elements(li.oferentes) o
             LEFT JOIN lbf_adj_per_lic lap ON lap.licitacion_id = li.licitacion_id
             WHERE o->>'rut' != '{LBF_RUT}'
-              AND upper(li.categoria_nivel1) LIKE '{CAT_LIKE}'
+              AND (li.categoria_nivel1 IS NULL OR upper(li.categoria_nivel1) LIKE '{CAT_LIKE}')
             GROUP BY o->>'rut'
         )
         SELECT
@@ -532,7 +550,7 @@ def _load_region(ano: int, tipo: str, mes: int = 0, mat: bool = False) -> list:
             JOIN licitaciones l ON l.id = li.licitacion_id
             CROSS JOIN LATERAL jsonb_array_elements(li.oferentes) o
             WHERE o->>'rut' = '{LBF_RUT}'
-              AND upper(li.categoria_nivel1) LIKE '{CAT_LIKE}'
+              AND (li.categoria_nivel1 IS NULL OR upper(li.categoria_nivel1) LIKE '{CAT_LIKE}')
               AND {d_cur}
               {tf}
         ),
@@ -552,7 +570,7 @@ def _load_region(ano: int, tipo: str, mes: int = 0, mat: bool = False) -> list:
             CROSS JOIN LATERAL jsonb_array_elements(li.oferentes) o
             WHERE o->>'rut' = '{LBF_RUT}'
               AND (o->>'seleccionada')::boolean = true
-              AND upper(li.categoria_nivel1) LIKE '{CAT_LIKE}'
+              AND (li.categoria_nivel1 IS NULL OR upper(li.categoria_nivel1) LIKE '{CAT_LIKE}')
               AND {d_cur}
               {tf}
         ),
@@ -566,7 +584,7 @@ def _load_region(ano: int, tipo: str, mes: int = 0, mat: bool = False) -> list:
             FROM licitaciones_items li
             JOIN licitaciones l ON l.id = li.licitacion_id
             WHERE li.rut_proveedor_adj = '{LBF_RUT}'
-              AND upper(li.categoria_nivel1) LIKE '{CAT_LIKE}'
+              AND (li.categoria_nivel1 IS NULL OR upper(li.categoria_nivel1) LIKE '{CAT_LIKE}')
               AND {d_cur}
               {tf}
               AND NOT EXISTS (
@@ -680,7 +698,7 @@ def _load_clientes(ano: int, tipo: str, mes: int = 0, mat: bool = False) -> list
             JOIN licitaciones l ON l.id = li.licitacion_id
             CROSS JOIN LATERAL jsonb_array_elements(li.oferentes) o
             WHERE o->>'rut' = '{LBF_RUT}'
-              AND upper(li.categoria_nivel1) LIKE '{CAT_LIKE}'
+              AND (li.categoria_nivel1 IS NULL OR upper(li.categoria_nivel1) LIKE '{CAT_LIKE}')
               AND {d_cur}
               {tf}
         ),
@@ -699,7 +717,7 @@ def _load_clientes(ano: int, tipo: str, mes: int = 0, mat: bool = False) -> list
             CROSS JOIN LATERAL jsonb_array_elements(li.oferentes) o
             WHERE o->>'rut' = '{LBF_RUT}'
               AND (o->>'seleccionada')::boolean = true
-              AND upper(li.categoria_nivel1) LIKE '{CAT_LIKE}'
+              AND (li.categoria_nivel1 IS NULL OR upper(li.categoria_nivel1) LIKE '{CAT_LIKE}')
               AND {d_cur}
               {tf}
         ),
@@ -712,7 +730,7 @@ def _load_clientes(ano: int, tipo: str, mes: int = 0, mat: bool = False) -> list
             FROM licitaciones_items li
             JOIN licitaciones l ON l.id = li.licitacion_id
             WHERE li.rut_proveedor_adj = '{LBF_RUT}'
-              AND upper(li.categoria_nivel1) LIKE '{CAT_LIKE}'
+              AND (li.categoria_nivel1 IS NULL OR upper(li.categoria_nivel1) LIKE '{CAT_LIKE}')
               AND {d_cur}
               {tf}
               AND NOT EXISTS (
@@ -820,7 +838,7 @@ def _load_clientes_categorias(organismo: str, ano: int, tipo: str) -> list:
             CROSS JOIN LATERAL jsonb_array_elements(li.oferentes) o
             WHERE o->>'rut' = '{LBF_RUT}'
               AND (o->>'seleccionada')::boolean = true
-              AND upper(li.categoria_nivel1) LIKE '{CAT_LIKE}'
+              AND (li.categoria_nivel1 IS NULL OR upper(li.categoria_nivel1) LIKE '{CAT_LIKE}')
               AND l.comprador_nombre_organismo = %(org)s
               AND EXTRACT(YEAR FROM COALESCE(l.fecha_adjudicacion, l.fecha_publicacion)) = {ano}
               {tf}
@@ -831,7 +849,7 @@ def _load_clientes_categorias(organismo: str, ano: int, tipo: str) -> list:
             FROM licitaciones_items li
             JOIN licitaciones l ON l.id = li.licitacion_id
             WHERE li.rut_proveedor_adj = '{LBF_RUT}'
-              AND upper(li.categoria_nivel1) LIKE '{CAT_LIKE}'
+              AND (li.categoria_nivel1 IS NULL OR upper(li.categoria_nivel1) LIKE '{CAT_LIKE}')
               AND l.comprador_nombre_organismo = %(org)s
               AND EXTRACT(YEAR FROM COALESCE(l.fecha_adjudicacion, l.fecha_publicacion)) = {ano}
               {tf}
@@ -882,6 +900,189 @@ async def get_clientes_categorias(
         return {"error": str(e), "data": []}
 
 
+# ══════════════════════════════════════════════════════════════════════════════
+# Visión MP completa — TODO transado por canal (ordenes_compra)
+# Cubre todos los canales: Licitación (SE), Convenio Marco (CM), Trato Directo
+# (TD), Compra Ágil (AG), Compra Coordinada (CC), etc. Sin desglose por categoría.
+# Fuente: ordenes_compra + ordenes_compra_items (insumos médicos).
+# ══════════════════════════════════════════════════════════════════════════════
+
+_OC_MONTO = "COALESCE(oi.monto_total, oi.cantidad * oi.precio_unitario, 0)"
+
+# Códigos de canal de OC → etiqueta legible. Orden = relevancia para LBF.
+CANAL_LABEL = {
+    "SE": "Licitación",
+    "CM": "Convenio Marco",
+    "TD": "Trato Directo",
+    "AG": "Compra Ágil",
+    "CC": "Compra Coordinada",
+    "CT": "Contrato",
+    "G1": "Gran Compra",
+    "D1": "Otro",
+    "MC": "Otro",
+}
+
+
+def _oc_date_filter(ano: int, mes: int, mat: bool) -> tuple:
+    """(cur, prev) sobre ordenes_compra.fecha_envio."""
+    col = "oc.fecha_envio"
+    if mat:
+        cur_f = f"{col} >= CURRENT_DATE - INTERVAL '12 months'"
+        prev_f = (f"{col} >= CURRENT_DATE - INTERVAL '24 months' "
+                  f"AND {col} < CURRENT_DATE - INTERVAL '12 months'")
+    else:
+        cur_f = f"EXTRACT(YEAR FROM {col}) = {ano}"
+        if mes > 0:
+            cur_f += f" AND EXTRACT(MONTH FROM {col}) = {mes}"
+        prev_f = f"EXTRACT(YEAR FROM {col}) = {ano - 1}"
+    return cur_f, prev_f
+
+
+def _load_canales(ano: int, mes: int = 0, mat: bool = False, top: int = 30) -> dict:
+    """Mercado transado por canal + MS% LBF + top empresas (insumos médicos)."""
+    d_cur, d_prev = _oc_date_filter(ano, mes, mat)
+    conn = get_pg_conn()
+    cur = conn.cursor()
+
+    # OC-items médicos agregados a nivel (oc, proveedor, canal, comprador, período).
+    base_cte = f"""
+        WITH oc_med AS (
+            SELECT oc.id                          AS oc_id,
+                   oc.tipo_compra                 AS canal,
+                   oc.proveedor_rut               AS rut,
+                   oc.proveedor_nombre_empresa    AS nombre,
+                   oc.comprador_rut_unidad        AS comprador,
+                   CASE WHEN {d_cur} THEN 'cur'
+                        WHEN {d_prev} THEN 'prev' END AS periodo,
+                   SUM({_OC_MONTO})               AS monto
+            FROM ordenes_compra oc
+            JOIN ordenes_compra_items oi ON oi.orden_compra_id = oc.id
+            WHERE oi.categoria ILIKE '{MEDICAL_CAT}%%'
+              AND oc.proveedor_rut IS NOT NULL
+              AND ({d_cur} OR {d_prev})
+            GROUP BY oc.id, oc.tipo_compra, oc.proveedor_rut,
+                     oc.proveedor_nombre_empresa, oc.comprador_rut_unidad
+        )
+    """
+
+    # ── Por canal (período actual) + LBF ────────────────────────────────────
+    cur.execute(base_cte + f"""
+        SELECT canal,
+               SUM(monto) FILTER (WHERE periodo='cur')::bigint                       AS mercado,
+               COUNT(DISTINCT oc_id) FILTER (WHERE periodo='cur')                    AS n_ocs,
+               COUNT(DISTINCT rut) FILTER (WHERE periodo='cur')                      AS n_prov,
+               SUM(monto) FILTER (WHERE periodo='cur' AND rut='{LBF_RUT}')::bigint   AS lbf,
+               COUNT(DISTINCT oc_id) FILTER (WHERE periodo='cur' AND rut='{LBF_RUT}') AS lbf_ocs,
+               SUM(monto) FILTER (WHERE periodo='prev')::bigint                      AS mercado_prev,
+               SUM(monto) FILTER (WHERE periodo='prev' AND rut='{LBF_RUT}')::bigint  AS lbf_prev
+        FROM oc_med
+        GROUP BY canal
+        HAVING SUM(monto) FILTER (WHERE periodo='cur') > 0
+        ORDER BY mercado DESC
+    """)
+    canales = []
+    tot_mkt = tot_lbf = tot_mkt_prev = tot_lbf_prev = 0
+    for r in cur.fetchall():
+        mercado, n_ocs, n_prov = int(r[1] or 0), int(r[2] or 0), int(r[3] or 0)
+        lbf, lbf_ocs = int(r[4] or 0), int(r[5] or 0)
+        mercado_prev, lbf_prev = int(r[6] or 0), int(r[7] or 0)
+        tot_mkt += mercado; tot_lbf += lbf
+        tot_mkt_prev += mercado_prev; tot_lbf_prev += lbf_prev
+        canales.append({
+            "canal":       r[0],
+            "label":       CANAL_LABEL.get(r[0], r[0]),
+            "mercado":     mercado,
+            "n_ocs":       n_ocs,
+            "n_prov":      n_prov,
+            "lbf":         lbf,
+            "lbf_ocs":     lbf_ocs,
+            "ms":          round(lbf / mercado * 100, 2) if mercado else 0,
+            "mercado_prev": mercado_prev,
+            "lbf_prev":    lbf_prev,
+        })
+
+    # ── Top empresas (período actual, todos los canales) ────────────────────
+    cur.execute(base_cte + f"""
+        SELECT rut,
+               MAX(nombre)                              AS nombre,
+               SUM(monto)::bigint                       AS total,
+               COUNT(DISTINCT oc_id)                    AS n_ocs,
+               COUNT(DISTINCT comprador)                AS n_compradores,
+               COUNT(DISTINCT canal)                    AS n_canales
+        FROM oc_med
+        WHERE periodo='cur'
+        GROUP BY rut
+        ORDER BY total DESC
+    """)
+    all_emp = cur.fetchall()
+    n_competidores = len(all_emp)
+    lbf_rank = next((i + 1 for i, e in enumerate(all_emp) if e[0] == LBF_RUT), None)
+    empresas = []
+    for i, e in enumerate(all_emp[:top]):
+        total = int(e[2] or 0)
+        empresas.append({
+            "rank":          i + 1,
+            "rut":           str(e[0] or "").strip(),
+            "nombre":        str(e[1] or "").strip(),
+            "total":         total,
+            "n_ocs":         int(e[3] or 0),
+            "n_compradores": int(e[4] or 0),
+            "n_canales":     int(e[5] or 0),
+            "ms":            round(total / tot_mkt * 100, 2) if tot_mkt else 0,
+            "es_lbf":        e[0] == LBF_RUT,
+        })
+    # Asegurar que LBF aparezca aunque no esté en el top N
+    if lbf_rank and lbf_rank > top:
+        e = all_emp[lbf_rank - 1]
+        total = int(e[2] or 0)
+        empresas.append({
+            "rank": lbf_rank, "rut": str(e[0] or "").strip(),
+            "nombre": str(e[1] or "").strip(), "total": total,
+            "n_ocs": int(e[3] or 0), "n_compradores": int(e[4] or 0),
+            "n_canales": int(e[5] or 0),
+            "ms": round(total / tot_mkt * 100, 2) if tot_mkt else 0,
+            "es_lbf": True,
+        })
+
+    conn.close()
+    label = ("Año Móvil 12M" if mat
+             else f"{ano}" + (f" · mes {mes}" if mes > 0 else ""))
+    return {
+        "periodo_label": label,
+        "ano": ano,
+        "global": {
+            "mercado":      tot_mkt,
+            "lbf":          tot_lbf,
+            "ms":           round(tot_lbf / tot_mkt * 100, 2) if tot_mkt else 0,
+            "mercado_prev": tot_mkt_prev,
+            "lbf_prev":     tot_lbf_prev,
+            "lbf_rank":     lbf_rank,
+            "n_competidores": n_competidores,
+        },
+        "canales":  canales,
+        "empresas": empresas,
+    }
+
+
+@router.get("/canales")
+async def get_canales(
+    ano: int = Query(2026),
+    mes: int = Query(0),
+    mat: bool = Query(False),
+    current_user: dict = Depends(get_current_user),
+):
+    ck = f"mp:canales:{ano}:{mes}:{mat}"
+    cached = mem_get(ck)
+    if cached:
+        return cached
+    try:
+        data = _load_canales(ano, mes, mat)
+        mem_set(ck, data)
+        return data
+    except Exception as e:
+        return {"error": str(e), "canales": [], "empresas": [], "global": {}}
+
+
 # ── /vs-competidor ────────────────────────────────────────────────────────────
 
 def _load_vs_competidor(comp_rut: str, ano: int, tipo: str) -> dict:
@@ -907,7 +1108,7 @@ def _load_vs_competidor(comp_rut: str, ano: int, tipo: str) -> dict:
             JOIN licitaciones l ON l.id = li.licitacion_id
             CROSS JOIN LATERAL jsonb_array_elements(li.oferentes) o
             WHERE o->>'rut' = '{LBF_RUT}'
-              AND upper(li.categoria_nivel1) LIKE '{CAT_LIKE}'
+              AND (li.categoria_nivel1 IS NULL OR upper(li.categoria_nivel1) LIKE '{CAT_LIKE}')
               AND EXTRACT(YEAR FROM COALESCE(l.fecha_adjudicacion, l.fecha_publicacion)) = {ano}
               {tf}
         ),
@@ -917,7 +1118,7 @@ def _load_vs_competidor(comp_rut: str, ano: int, tipo: str) -> dict:
             JOIN licitaciones l ON l.id = li.licitacion_id
             CROSS JOIN LATERAL jsonb_array_elements(li.oferentes) o
             WHERE o->>'rut' = '{comp_rut}'
-              AND upper(li.categoria_nivel1) LIKE '{CAT_LIKE}'
+              AND (li.categoria_nivel1 IS NULL OR upper(li.categoria_nivel1) LIKE '{CAT_LIKE}')
               AND EXTRACT(YEAR FROM COALESCE(l.fecha_adjudicacion, l.fecha_publicacion)) = {ano}
               {tf}
         ),
@@ -1037,24 +1238,50 @@ def _load_vs_competidor(comp_rut: str, ano: int, tipo: str) -> dict:
 def _load_evolucion(ano: int, tipo: str, cat: str = "") -> list:
     """Adjudicado LBF por mes: montos (JSONB + rut), conteo licitaciones, y comparativo año anterior."""
     tf = _tipo_filter(tipo)
-    cat_filter = f"AND upper(li.categoria_nivel1) LIKE '{cat.upper()}%'" if cat else f"AND upper(li.categoria_nivel1) LIKE '{CAT_LIKE}'"
+    cat_filter = f"AND upper(li.categoria_nivel1) LIKE '{cat.upper()}%'" if cat else ""
     conn = get_pg_conn()
     cur = conn.cursor()
 
-    # Q1: distinct licitaciones participadas y adjudicadas por mes (JSONB)
+    # Q1: distinct licitaciones participadas y adjudicadas por mes (JSONB + rut_proveedor_adj)
     cur.execute(f"""
+        WITH part_all AS (
+            -- via oferentes JSONB
+            SELECT
+                li.licitacion_id,
+                EXTRACT(MONTH FROM COALESCE(l.fecha_adjudicacion, l.fecha_publicacion))::int AS mes,
+                CASE WHEN (o->>'seleccionada')::boolean = true THEN li.licitacion_id END AS won_id
+            FROM licitaciones_items li
+            JOIN licitaciones l ON l.id = li.licitacion_id
+            CROSS JOIN LATERAL jsonb_array_elements(li.oferentes) o
+            WHERE o->>'rut' = '{LBF_RUT}'
+              AND COALESCE(NULLIF((o->>'valor_total_ofertado')::numeric,0),(o->>'total')::numeric,0) > 0
+              {cat_filter}
+              AND EXTRACT(YEAR FROM COALESCE(l.fecha_adjudicacion, l.fecha_publicacion)) = {ano}
+              {tf}
+
+            UNION
+
+            -- via rut_proveedor_adj (LBF ganó pero no está en oferentes JSONB)
+            SELECT
+                li.licitacion_id,
+                EXTRACT(MONTH FROM COALESCE(l.fecha_adjudicacion, l.fecha_publicacion))::int AS mes,
+                li.licitacion_id AS won_id
+            FROM licitaciones_items li
+            JOIN licitaciones l ON l.id = li.licitacion_id
+            WHERE li.rut_proveedor_adj = '{LBF_RUT}'
+              {cat_filter}
+              AND EXTRACT(YEAR FROM COALESCE(l.fecha_adjudicacion, l.fecha_publicacion)) = {ano}
+              {tf}
+              AND NOT EXISTS (
+                  SELECT 1 FROM jsonb_array_elements(li.oferentes) o2
+                  WHERE o2->>'rut' = '{LBF_RUT}'
+              )
+        )
         SELECT
-            EXTRACT(MONTH FROM COALESCE(l.fecha_adjudicacion, l.fecha_publicacion))::int AS mes,
-            COUNT(DISTINCT li.licitacion_id) AS ids_part,
-            COUNT(DISTINCT CASE WHEN (o->>'seleccionada')::boolean = true THEN li.licitacion_id END) AS ids_adj
-        FROM licitaciones_items li
-        JOIN licitaciones l ON l.id = li.licitacion_id
-        CROSS JOIN LATERAL jsonb_array_elements(li.oferentes) o
-        WHERE o->>'rut' = '{LBF_RUT}'
-          AND COALESCE(NULLIF((o->>'valor_total_ofertado')::numeric,0),(o->>'total')::numeric,0) > 0
-          {cat_filter}
-          AND EXTRACT(YEAR FROM COALESCE(l.fecha_adjudicacion, l.fecha_publicacion)) = {ano}
-          {tf}
+            mes,
+            COUNT(DISTINCT licitacion_id) AS ids_part,
+            COUNT(DISTINCT won_id)        AS ids_adj
+        FROM part_all
         GROUP BY mes
         ORDER BY mes
     """)
@@ -1161,7 +1388,7 @@ def _load_evolucion(ano: int, tipo: str, cat: str = "") -> list:
 def _load_perdidos(ano: int, tipo: str, cat: str = "", mes: int = 0) -> list:
     """Ítems donde LBF ofertó el precio mínimo pero no fue adjudicado."""
     tf = _tipo_filter(tipo)
-    cat_filter = f"AND upper(li.categoria_nivel1) LIKE '{cat.upper()}%'" if cat else f"AND upper(li.categoria_nivel1) LIKE '{CAT_LIKE}'"
+    cat_filter = f"AND upper(li.categoria_nivel1) LIKE '{cat.upper()}%'" if cat else ""
     mes_filter = f"AND EXTRACT(MONTH FROM COALESCE(l.fecha_adjudicacion, l.fecha_publicacion)) = {mes}" if mes > 0 else ""
     conn = get_pg_conn()
     cur = conn.cursor()

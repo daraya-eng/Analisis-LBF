@@ -30,6 +30,7 @@ def _warm_cache():
         "kam_maule":            _warm_kam_maule,
         "pm":                   _warm_pm,
         "facturacion":          _warm_facturacion,
+        "ma":                   _warm_ma,
     }
 
     def _run_one(name, fn):
@@ -208,6 +209,25 @@ def _warm_facturacion():
         return
     data = facturacion_routes._load_facturacion()
     mem_set(ck, data)
+
+
+def _warm_ma():
+    from cache import mem_get, mem_set
+    for periodo in ("total", "2025", "2026"):
+        ck_ov = f"ma_overview:2026:{periodo}"
+        if not mem_get(ck_ov):
+            data = ma_routes._load_ma_overview(2026, periodo)
+            mem_set(ck_ov, data)
+        ck_tg = f"ma_targets:2026:{periodo}"
+        if not mem_get(ck_tg):
+            data = ma_routes._load_ma_targets(2026, periodo)
+            mem_set(ck_tg, data)
+    for canal in ("SE", "CM"):
+        for periodo in ("total", "2025", "2026"):
+            ck = f"ma_productos:{canal}:2026:{periodo}"
+            if not mem_get(ck):
+                data = ma_routes._load_ma_productos(canal, 2026, periodo)
+                mem_set(ck, data)
 
 
 @asynccontextmanager
